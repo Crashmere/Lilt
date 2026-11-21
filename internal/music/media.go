@@ -1,0 +1,550 @@
+package music
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"image"
+	_ "image/gif"
+	"image/jpeg"
+	_ "image/png"
+	"io"
+	"log"
+	"math"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	_ "golang.org/x/image/webp"
+)
+
+const allowedFormats = "aac,aiff,ape,asf,dsf,flac,matroska,webm,mov,mp3,mpeg,wav,wv,tta,ogg"
+
+type probeStream struct {
+	Index         int               `json:"index"`
+	CodecType     string            `json:"codec_type"`
+	CodecName     string            `json:"codec_name"`
+	SampleRate    string            `json:"sample_rate"`
+	Channels      int               `json:"channels"`
+	BitsPerSample int               `json:"bits_per_sample"`
+	BitsRaw       string            `json:"bits_per_raw_sample"`
+	BitRate       string            `json:"bit_rate"`
+	Duration      string            `json:"duration"`
+	Width         int               `json:"width"`
+	Height        int               `json:"height"`
+	Tags          map[string]string `json:"tags"`
+	Disposition   struct {
+		AttachedPic int `json:"attached_pic"`
+	} `json:"disposition"`
+}
+
+type probeResult struct {
+	Streams []probeStream `json:"streams"`
+	Format  struct {
+		FormatName string            `json:"format_name"`
+		Duration   string            `json:"duration"`
+		BitRate    string            `json:"bit_rate"`
+		Tags       map[string]string `json:"tags"`
+	} `json:"format"`
+}
+
+type boundedBuffer struct {
+	bytes.Buffer
+	limit int
+}
+
+func (b *boundedBuffer) Write(p []byte) (int, error) {
+	if b.Len()+len(p) > b.limit {
+		return 0, fmt.Errorf("media tool output exceeds limit")
+	}
+	return b.Buffer.Write(p)
+}
+
+func runMedia(ctx context.Context, name string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	out := &boundedBuffer{limit: 4 << 20}
+	log := &boundedBuffer{limit: 64 << 10}
+	cmd.Stdout = out
+	cmd.Stderr = log
+	if err := cmd.Run(); err != nil {
+		message := strings.TrimSpace(log.String())
+		if len(message) > 1000 {
+			message = message[len(message)-1000:]
+		}
+		return nil, fmt.Errorf("%s failed: %w: %s", name, err, message)
+	}
+	return out.Bytes(), nil
+}
+
+func probe(ctx context.Context, path string) (probeResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+	output, err := runMedia(ctx, "ffprobe", "-v", "error", "-protocol_whitelist", "file,pipe", "-format_whitelist", allowedFormats, "-show_format", "-show_streams", "-of", "json", path)
+	var result probeResult
+	if err != nil {
+		return result, err
+	}
+	err = json.Unmarshal(output, &result)
+	return result, err
+}
+
+func probeTrack(ctx context.Context, path, filename, relativePath string) (Track, int, error) {
+	result, err := probe(ctx, path)
+	if err != nil {
+		log.Printf("audio probe rejected file: %v", err)
+		return Track{}, -1, fmt.Errorf("无法读取音频，请确认文件格式和内容有效：%w", ErrInvalid)
+	}
+	var audio *probeStream
+	cover := -1
+	for i := range result.Streams {
+		stream := &result.Streams[i]
+		if stream.CodecType == "audio" && audio == nil {
+			audio = stream
+		}
+		if stream.CodecType == "video" {
+			if stream.Disposition.AttachedPic != 1 {
+				return Track{}, -1, fmt.Errorf("请上传音频文件，而不是视频：%w", ErrInvalid)
+			}
+			if cover < 0 && stream.Width > 0 && stream.Height > 0 && int64(stream.Width)*int64(stream.Height) <= 25_000_000 {
+				cover = stream.Index
+			}
+		}
+	}
+	if audio == nil {
+		return Track{}, -1, fmt.Errorf("文件中没有可播放的音轨：%w", ErrInvalid)
+	}
+	duration, _ := strconv.ParseFloat(audio.Duration, 64)
+	if duration <= 0 || math.IsNaN(duration) || math.IsInf(duration, 0) {
+		duration, _ = strconv.ParseFloat(result.Format.Duration, 64)
+	}
+	if duration <= 0 || math.IsNaN(duration) || math.IsInf(duration, 0) {
+		return Track{}, -1, fmt.Errorf("无法确定音频时长：%w", ErrInvalid)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return Track{}, -1, err
+	}
+	tags := map[string]string{}
+	for key, value := range result.Format.Tags {
+		tags[strings.ToLower(key)] = value
+	}
+	for key, value := range audio.Tags {
+		tags[strings.ToLower(key)] = value
+	}
+	find := func(keys ...string) string {
+		for _, key := range keys {
+			if value := strings.TrimSpace(tags[key]); value != "" {
+				return tidy(value, 4096)
+			}
+		}
+		return ""
+	}
+	t := Track{Title: find("title"), Artist: find("artist", "performer"), Album: find("album"), AlbumArtist: find("album_artist", "albumartist", "album artist"), Genre: find("genre"), Version: find("version", "subtitle"), Duration: duration, Size: info.Size(), Format: audio.CodecName, Channels: audio.Channels, OriginalName: filename, Tags: []string{}, Aliases: []string{}}
+	t.Container, t.MIMEType = containerType(result.Format.FormatName, filename)
+	t.SampleRate, _ = strconv.Atoi(audio.SampleRate)
+	if t.SampleRate <= 0 || t.Channels <= 0 || t.Channels > 64 {
+		return Track{}, -1, fmt.Errorf("音频参数无效：%w", ErrInvalid)
+	}
+	decodeCtx, cancelDecode := context.WithTimeout(ctx, 60*time.Second)
+	defer cancelDecode()
+	if _, err = runMedia(decodeCtx, "ffmpeg", "-nostdin", "-v", "error", "-xerror", "-threads", "1", "-filter_threads", "1", "-protocol_whitelist", "file,pipe", "-format_whitelist", allowedFormats, "-i", path, "-map", "0:a:0", "-vn", "-sn", "-dn", "-t", "2", "-ac", "2", "-ar", "48000", "-c:a", "pcm_s16le", "-threads", "1", "-f", "null", "-"); err != nil {
+		log.Printf("audio decode rejected file: %v", err)
+		return Track{}, -1, fmt.Errorf("音轨无法解码，请检查文件内容：%w", ErrInvalid)
+	}
+	t.BitDepth, _ = strconv.Atoi(audio.BitsRaw)
+	if t.BitDepth == 0 {
+		t.BitDepth = audio.BitsPerSample
+	}
+	t.Bitrate, _ = strconv.ParseInt(audio.BitRate, 10, 64)
+	if t.Bitrate <= 0 {
+		t.Bitrate, _ = strconv.ParseInt(result.Format.BitRate, 10, 64)
+	}
+	if t.Bitrate <= 0 {
+		t.Bitrate = int64(float64(t.Size) * 8 / duration)
+	}
+	t.Year = numberPrefix(find("date", "year", "originaldate"))
+	t.TrackNumber = numberPrefix(find("track", "tracknumber", "track_number"))
+	t.DiscNumber = numberPrefix(find("disc", "discnumber", "disc_number"))
+	base := strings.TrimSuffix(filename, filepath.Ext(filename))
+	if t.Title == "" {
+		if match := numberedFilename.FindStringSubmatch(base); len(match) > 0 {
+			t.Title = match[2]
+			if t.TrackNumber == 0 {
+				t.TrackNumber, _ = strconv.Atoi(match[1])
+			}
+		} else {
+			t.Title = base
+		}
+	}
+	parts := strings.Split(strings.Trim(strings.ReplaceAll(relativePath, "\\", "/"), "/"), "/")
+	if t.Album == "" && len(parts) >= 2 {
+		t.Album = tidy(parts[len(parts)-2], 4096)
+	}
+	if t.Artist == "" && len(parts) >= 3 {
+		t.Artist = tidy(parts[len(parts)-3], 4096)
+	}
+	if t.Title == "" {
+		t.Title = "未命名歌曲"
+	}
+	if t.Artist == "" {
+		t.Artist = "未知歌手"
+	}
+	if t.Album == "" {
+		t.Album = "未归属专辑"
+	}
+	if t.AlbumArtist == "" {
+		t.AlbumArtist = t.Artist
+	}
+	for key, value := range tags {
+		if key == "lyrics" || strings.HasPrefix(key, "lyrics-") || key == "unsyncedlyrics" || key == "unsynchronised_lyrics" {
+			t.LyricsText = tidy(value, 1<<20)
+			break
+		}
+	}
+	t.HasLyrics = t.LyricsText != ""
+	return t, cover, nil
+}
+
+var numberedFilename = regexp.MustCompile(`^(\d{1,3})[\s._-]+(.+)$`)
+
+func numberPrefix(value string) int {
+	i := 0
+	for i < len(value) && value[i] >= '0' && value[i] <= '9' {
+		i++
+	}
+	if i == 0 {
+		return 0
+	}
+	n, _ := strconv.Atoi(value[:i])
+	return n
+}
+
+func tidy(value string, limit int) string {
+	value = strings.TrimSpace(strings.ReplaceAll(value, "\x00", ""))
+	value = strings.ToValidUTF8(value, "")
+	if len(value) > limit {
+		value = value[:limit]
+		for !utf8.ValidString(value) {
+			value = value[:len(value)-1]
+		}
+	}
+	return value
+}
+
+func (s *Store) extractCover(ctx context.Context, path, trackID string, index int) bool {
+	if index < 0 {
+		return false
+	}
+	dir := filepath.Join(s.dir, "covers", trackID)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return false
+	}
+	temp, err := os.CreateTemp(dir, ".embedded-*.jpg")
+	if err != nil {
+		return false
+	}
+	name := temp.Name()
+	temp.Close()
+	defer os.Remove(name)
+	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+	_, err = runMedia(ctx, "ffmpeg", "-nostdin", "-v", "error", "-y", "-threads", "1", "-filter_threads", "1", "-protocol_whitelist", "file,pipe", "-format_whitelist", allowedFormats, "-i", path, "-map", fmt.Sprintf("0:%d", index), "-frames:v", "1", "-vf", "scale=1600:1600:force_original_aspect_ratio=decrease", "-threads", "1", "-c:v", "mjpeg", "-f", "image2", name)
+	if err != nil {
+		return false
+	}
+	f, err := os.Open(name)
+	if err != nil {
+		return false
+	}
+	err = f.Sync()
+	f.Close()
+	if err != nil {
+		return false
+	}
+	if err = os.Rename(name, filepath.Join(dir, "cover.jpg")); err != nil {
+		return false
+	}
+	return syncDir(dir) == nil
+}
+
+func (s *Store) saveCover(ctx context.Context, trackID string, reader io.Reader) error {
+	data, err := io.ReadAll(io.LimitReader(reader, (16<<20)+1))
+	if err != nil {
+		return err
+	}
+	if len(data) > 16<<20 {
+		return fmt.Errorf("封面不能超过 16 MiB")
+	}
+	config, format, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil || (format != "jpeg" && format != "png" && format != "gif" && format != "webp") {
+		return fmt.Errorf("请上传 JPEG、PNG、GIF 或 WebP 封面：%w", ErrInvalid)
+	}
+	if config.Width < 1 || config.Height < 1 || int64(config.Width)*int64(config.Height) > 25_000_000 {
+		return fmt.Errorf("封面尺寸过大：%w", ErrInvalid)
+	}
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("无法读取封面：%w", ErrInvalid)
+	}
+	hash := sha256.Sum256(data)
+	fingerprint := hex.EncodeToString(hash[:])
+	rawRelative := filepath.Join("originals", "artwork", fingerprint+".art")
+	rawPath := filepath.Join(s.dir, rawRelative)
+	if err = os.MkdirAll(filepath.Dir(rawPath), 0700); err != nil {
+		return err
+	}
+	if _, statErr := os.Stat(rawPath); os.IsNotExist(statErr) {
+		raw, err := os.CreateTemp(filepath.Dir(rawPath), ".artwork-*")
+		if err != nil {
+			return err
+		}
+		rawName := raw.Name()
+		defer os.Remove(rawName)
+		if _, err = raw.Write(data); err == nil {
+			err = raw.Sync()
+		}
+		closeErr := raw.Close()
+		if err == nil {
+			err = closeErr
+		}
+		if err != nil {
+			return err
+		}
+		if err = os.Link(rawName, rawPath); err != nil {
+			return err
+		}
+		if err = syncDir(filepath.Dir(rawPath)); err != nil {
+			return err
+		}
+	} else if statErr != nil {
+		return statErr
+	} else {
+		existing, n, e := fileFingerprint(rawPath)
+		if e != nil || existing != fingerprint || n != int64(len(data)) {
+			return fmt.Errorf("已有原始封面校验失败，未覆盖文件")
+		}
+	}
+	width, height := config.Width, config.Height
+	if width > 1600 || height > 1600 {
+		ratio := math.Min(1600/float64(width), 1600/float64(height))
+		w, h := max(1, int(float64(width)*ratio)), max(1, int(float64(height)*ratio))
+		scaled := image.NewRGBA(image.Rect(0, 0, w, h))
+		bounds := img.Bounds()
+		for y := 0; y < h; y++ {
+			for x := 0; x < w; x++ {
+				scaled.Set(x, y, img.At(bounds.Min.X+x*width/w, bounds.Min.Y+y*height/h))
+			}
+		}
+		img = scaled
+	}
+	dir := filepath.Join(s.dir, "covers", trackID)
+	if err = os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+	temp, err := os.CreateTemp(dir, ".cover-*.jpg")
+	if err != nil {
+		return err
+	}
+	name := temp.Name()
+	defer os.Remove(name)
+	err = jpeg.Encode(temp, img, &jpeg.Options{Quality: 90})
+	if err == nil {
+		err = temp.Sync()
+	}
+	closeErr := temp.Close()
+	if err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return err
+	}
+	if err = os.Rename(name, filepath.Join(dir, "cover.jpg")); err != nil {
+		return err
+	}
+	if err = syncDir(dir); err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, "INSERT INTO artwork (track_id,fingerprint,original_path,created_at) VALUES (?,?,?,?)", trackID, fingerprint, rawRelative, now())
+	return err
+}
+
+func (s *Store) SetCover(ctx context.Context, id string, reader io.Reader) (Track, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t, _, _, err := s.track(ctx, id)
+	if err != nil {
+		return Track{}, err
+	}
+	if err = s.saveCover(ctx, id, reader); err != nil {
+		return Track{}, err
+	}
+	t.UpdatedAt = now()
+	t.CoverURL = s.prefix + "api/tracks/" + id + "/cover"
+	data, err := json.Marshal(t)
+	if err != nil {
+		return Track{}, err
+	}
+	if _, err = s.db.ExecContext(ctx, "UPDATE tracks SET document=? WHERE id=?", string(data), id); err != nil {
+		return Track{}, err
+	}
+	s.hydrate(&t)
+	return t, nil
+}
+
+type PlaybackInfo struct {
+	Path       string `json:"-"`
+	Format     string `json:"format"`
+	Bitrate    int64  `json:"bitrate"`
+	SampleRate int    `json:"sampleRate"`
+	Channels   int    `json:"channels"`
+}
+
+func (s *Store) playback(ctx context.Context, track Track, fingerprint, original, quality string) (PlaybackInfo, error) {
+	if quality == "original" {
+		return PlaybackInfo{Path: original, Format: track.Format, Bitrate: track.Bitrate, SampleRate: track.SampleRate, Channels: track.Channels}, nil
+	}
+	if quality != "standard" && quality != "compact" {
+		return PlaybackInfo{}, ErrInvalid
+	}
+	dir := filepath.Join(s.dir, "playback", fingerprint)
+	path := filepath.Join(dir, quality+".m4a")
+	meta := filepath.Join(dir, quality+".json")
+	cached := func() (PlaybackInfo, bool) {
+		if data, err := os.ReadFile(meta); err == nil {
+			var info PlaybackInfo
+			if json.Unmarshal(data, &info) == nil {
+				if stat, e := os.Stat(path); e == nil && stat.Size() > 0 {
+					info.Path = path
+					return info, true
+				}
+			}
+		}
+		return PlaybackInfo{}, false
+	}
+	if info, ok := cached(); ok {
+		return info, nil
+	}
+	s.encodeMu.Lock()
+	defer s.encodeMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return PlaybackInfo{}, err
+	}
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return PlaybackInfo{}, err
+	}
+	if info, ok := cached(); ok {
+		return info, nil
+	}
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		temp, err := os.CreateTemp(dir, ".encode-*.m4a")
+		if err != nil {
+			return PlaybackInfo{}, err
+		}
+		name := temp.Name()
+		temp.Close()
+		defer os.Remove(name)
+		bitrate := "192k"
+		if quality == "compact" {
+			bitrate = "96k"
+		}
+		channels := min(max(track.Channels, 1), 2)
+		rate := min(max(track.SampleRate, 8000), 48000)
+		ctx, cancel := context.WithTimeout(ctx, 20*time.Minute)
+		defer cancel()
+		_, err = runMedia(ctx, "ffmpeg", "-nostdin", "-v", "error", "-y", "-threads", "1", "-filter_threads", "1", "-protocol_whitelist", "file,pipe", "-format_whitelist", allowedFormats, "-i", original, "-map", "0:a:0", "-vn", "-sn", "-dn", "-map_metadata", "-1", "-c:a", "aac", "-b:a", bitrate, "-ac", strconv.Itoa(channels), "-ar", strconv.Itoa(rate), "-threads", "1", "-movflags", "+faststart", "-f", "ipod", name)
+		if err != nil {
+			return PlaybackInfo{}, fmt.Errorf("兼容音频生成失败：%w", err)
+		}
+		f, err := os.Open(name)
+		if err != nil {
+			return PlaybackInfo{}, err
+		}
+		err = f.Sync()
+		f.Close()
+		if err != nil {
+			return PlaybackInfo{}, err
+		}
+		if err = os.Rename(name, path); err != nil {
+			return PlaybackInfo{}, err
+		}
+		if err = syncDir(dir); err != nil {
+			return PlaybackInfo{}, err
+		}
+	}
+	result, err := probe(ctx, path)
+	if err != nil {
+		return PlaybackInfo{}, err
+	}
+	info := PlaybackInfo{Path: path, Format: "aac"}
+	for _, stream := range result.Streams {
+		if stream.CodecType == "audio" {
+			info.Bitrate, _ = strconv.ParseInt(stream.BitRate, 10, 64)
+			info.SampleRate, _ = strconv.Atoi(stream.SampleRate)
+			info.Channels = stream.Channels
+			break
+		}
+	}
+	if info.Bitrate <= 0 {
+		info.Bitrate, _ = strconv.ParseInt(result.Format.BitRate, 10, 64)
+	}
+	if err = writeJSONFile(meta, info); err != nil {
+		return PlaybackInfo{}, err
+	}
+	return info, nil
+}
+
+func audioType(format string) string {
+	switch strings.ToLower(format) {
+	case "mp3":
+		return "audio/mpeg"
+	case "flac":
+		return "audio/flac"
+	case "aac", "alac":
+		return "audio/mp4"
+	case "opus", "vorbis":
+		return "audio/ogg"
+	case "wmav1", "wmav2", "wmapro", "wmalossless":
+		return "audio/x-ms-wma"
+	case "ape":
+		return "audio/ape"
+	default:
+		return "application/octet-stream"
+	}
+}
+
+func containerType(format, filename string) (string, string) {
+	container := strings.Split(format, ",")[0]
+	switch container {
+	case "mov":
+		return "mp4", "audio/mp4"
+	case "aac":
+		return "adts", "audio/aac"
+	case "wav":
+		return "wav", "audio/wav"
+	case "aiff":
+		return "aiff", "audio/aiff"
+	case "mp3":
+		return "mp3", "audio/mpeg"
+	case "flac":
+		return "flac", "audio/flac"
+	case "ogg":
+		return "ogg", "audio/ogg"
+	case "asf":
+		return "asf", "audio/x-ms-wma"
+	case "matroska":
+		if strings.EqualFold(filepath.Ext(filename), ".webm") {
+			return "webm", "audio/webm"
+		}
+		return "matroska", "audio/x-matroska"
+	default:
+		return container, audioType(container)
+	}
+}

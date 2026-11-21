@@ -1,0 +1,22 @@
+export type Track = {
+  id: string; title: string; artist: string; album: string; albumArtist: string;
+  genre: string; year: number; trackNumber: number; discNumber: number;
+  duration: number; size: number; format: string; bitrate: number; sampleRate: number;
+  bitDepth: number; channels: number; originalName: string; version: string; tags: string[];
+  favorite: boolean; coverUrl: string; hasLyrics: boolean; lyricsText?: string; aliases?: string[]; searchText?: string; mimeType?: string; container?: string;
+  playCount: number; playedSeconds: number; lastPlayedAt: string;
+  addedAt: string; updatedAt: string; deletedAt?: string;
+};
+export type Album = { id: string; title: string; artist: string; year: number; coverUrl: string; trackCount: number; duration: number; trackIds: string[] };
+export type Artist = { id: string; name: string; coverUrl: string; trackCount: number; albumCount: number; trackIds: string[] };
+export type Rules = { favorite?: boolean; tags?: string[]; artist?: string; genre?: string; yearFrom?: number; yearTo?: number; unplayed?: boolean; unheardDays?: number; limit?: number };
+export type Playlist = { id: string; name: string; description: string; kind: 'manual' | 'smart'; rules: Rules; trackIds: string[]; coverUrl: string; createdAt: string; updatedAt: string };
+export type Stats = { totalTracks: number; totalAlbums: number; totalArtists: number; totalDuration: number; totalBytes: number; favoriteTracks: number; playedSeconds: number; playCount: number };
+export type Library = { tracks: Track[]; albums: Album[]; artists: Artist[]; playlists: Playlist[]; tags: string[]; stats: Stats };
+export type Upload = { id: string; filename: string; size: number; offset: number; fingerprint: string; status: string; trackId?: string; duplicate?: boolean };
+export type HistoryEntry = { id: string; trackId: string; sessionId: string; seconds: number; completed: boolean; playedAt: string; updatedAt: string };
+export type PlayerState = { deviceId: string; label: string; trackId: string; position: number; queueIds: string[]; queueIndex: number; shuffle: boolean; repeat: 'off' | 'all' | 'one'; volume: number; updatedAt: string };
+export type Quality = 'original' | 'standard' | 'compact';
+export type CacheEntry = { id: string; track: Track; blob: Blob; quality: Quality; bitrate: number; size: number; cachedAt: string };
+export type CacheInfo = Omit<CacheEntry, 'blob'>;
+export type View = { kind: 'home' | 'library' | 'albums' | 'artists' | 'favorites' | 'playlists' | 'history' | 'stats' | 'offline' | 'trash' | 'album' | 'artist' | 'playlist'; id?: string };

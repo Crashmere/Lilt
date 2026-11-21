@@ -1,0 +1,9 @@
+{
+  "app": "lilt",
+  "build": ["make", "linux"],
+  "binary": "bin/lilt-linux-amd64",
+  "portal": true,
+  "restricted": true,
+  "gzip": false,
+  "database_backups": []
+}

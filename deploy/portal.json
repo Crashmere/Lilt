@@ -1,0 +1,129 @@
+{
+  "id": "lilt",
+  "name": "Lilt",
+  "description": "个人音乐收藏库与浏览器播放器，音乐、封面和歌词均由自己上传。",
+  "icon": "/lilt/apple-touch-icon.png",
+  "url": "/lilt/",
+  "repo": "https://github.com/Crashmere/Lilt",
+  "root": "/opt/lilt",
+  "port": 18089,
+  "user": "lilt",
+  "units": ["lilt.service"],
+  "database": "/opt/lilt/data/lilt.sqlite",
+  "resources": [
+    {
+      "id": "data",
+      "name": "业务数据",
+      "path": "/opt/lilt/data",
+      "purpose": "歌曲、专辑与歌手元数据、版本、别名、标签、收藏、歌词、歌单与规则、播放历史、浏览器进度、持久上传和手动封面原件归属；音乐与封面均由本人提供，不依赖外部曲库。",
+      "kind": "data",
+      "browse": true,
+      "cleanup": false
+    },
+    {
+      "id": "originals",
+      "name": "音乐与封面原件",
+      "path": "/opt/lilt/data/originals",
+      "purpose": "按 SHA-256 保存的上传音频和手动封面原始字节，嵌入封面随音频保留；替换歌曲仍保留旧原件，普通移除可恢复，元数据修改和兼容播放不会改写原件。",
+      "kind": "media",
+      "browse": true,
+      "cleanup": false
+    },
+    {
+      "id": "uploads",
+      "name": "上传暂存",
+      "path": "/opt/lilt/data/uploads",
+      "purpose": "已写入并确认偏移的未完成音频分段，供浏览器中断后续传；取消仅清理所选未完成上传，nas 手工全量备份收录持久暂存。",
+      "kind": "cache",
+      "browse": false,
+      "cleanup": false
+    },
+    {
+      "id": "covers",
+      "name": "封面派生",
+      "path": "/opt/lilt/data/covers",
+      "purpose": "从嵌入封面或手动上传图像生成的安全静态 JPEG，原始字节另外保留；nas 手工全量备份包含已存派生文件。",
+      "kind": "cache",
+      "browse": false,
+      "cleanup": false
+    },
+    {
+      "id": "playback",
+      "name": "兼容播放文件",
+      "path": "/opt/lilt/data/playback",
+      "purpose": "按源指纹和音质生成并复用的标准或省流量 AAC/M4A 与实际播放参数；不覆盖原音频，nas 手工全量备份收录已存文件。",
+      "kind": "cache",
+      "browse": false,
+      "cleanup": false
+    },
+    {
+      "id": "releases",
+      "name": "部署版本",
+      "path": "/opt/lilt/releases",
+      "purpose": "程序、哈希、发布验收和回退记录；清理只限本应用发布材料，保留当前版本及失败保护。",
+      "kind": "releases",
+      "browse": true,
+      "cleanup": true
+    },
+    {
+      "id": "config",
+      "name": "运行配置",
+      "path": "/opt/lilt/config",
+      "purpose": "Lilt systemd、Nginx、私有 Origin 环境、Portal 声明及发布来源；共享网关、认证和隧道由 server-operations 维护。",
+      "kind": "config",
+      "browse": false,
+      "cleanup": false
+    },
+    {
+      "id": "bin",
+      "name": "服务程序",
+      "path": "/opt/lilt/bin",
+      "purpose": "本地构建的服务程序、嵌入网页和固定受限发布入口；FFmpeg 复用 nas 已安装运行工具。",
+      "kind": "binaries",
+      "browse": false,
+      "cleanup": false
+    },
+    {
+      "id": "docs",
+      "name": "维护文档",
+      "path": "/opt/lilt/docs",
+      "purpose": "架构、API、原件保留、浏览器状态、上传、部署和恢复契约。",
+      "kind": "documents",
+      "browse": true,
+      "cleanup": false
+    }
+  ],
+  "apis": [
+    {"method": "GET", "path": "/healthz", "description": "直连数据库健康状态"},
+    {"method": "GET", "path": "/lilt/healthz", "description": "前缀健康状态，公开入口仍需设备授权"},
+    {"method": "GET", "path": "/lilt/api/library", "description": "读取歌曲、专辑、歌手、歌单、标签与统计"},
+    {"method": "GET", "path": "/lilt/api/tracks", "description": "按关键词、收藏、标签、专辑、歌手或回收站查询歌曲"},
+    {"method": "GET", "path": "/lilt/api/tracks/{id}", "description": "读取歌曲详情与歌词"},
+    {"method": "PATCH", "path": "/lilt/api/tracks/{id}", "description": "编辑资料、版本、别名、标签、收藏和歌词，不改写音频"},
+    {"method": "DELETE", "path": "/lilt/api/tracks/{id}", "description": "移入可恢复的回收站，保留原件"},
+    {"method": "POST", "path": "/lilt/api/tracks/{id}/restore", "description": "恢复已移除歌曲"},
+    {"method": "GET", "path": "/lilt/api/tracks/{id}/stream", "description": "读取原音频或独立标准、省流量播放版本，支持 Range"},
+    {"method": "HEAD", "path": "/lilt/api/tracks/{id}/stream", "description": "读取音频响应头与实际播放参数"},
+    {"method": "GET", "path": "/lilt/api/tracks/{id}/download", "description": "以原文件名下载未经改写的音频原件"},
+    {"method": "HEAD", "path": "/lilt/api/tracks/{id}/download", "description": "读取原件下载响应头"},
+    {"method": "GET", "path": "/lilt/api/tracks/{id}/cover", "description": "读取安全静态封面"},
+    {"method": "POST", "path": "/lilt/api/tracks/{id}/cover", "description": "上传最多 16 MiB 封面，保留原图并生成展示 JPEG"},
+    {"method": "GET", "path": "/lilt/api/albums/{id}", "description": "按碟号和曲目序号读取专辑歌曲"},
+    {"method": "GET", "path": "/lilt/api/artists/{id}", "description": "读取歌手与关联歌曲、专辑"},
+    {"method": "GET", "path": "/lilt/api/export", "description": "导出曲库元数据、歌单与听歌历史 JSON，不是备份恢复入口"},
+    {"method": "GET", "path": "/lilt/api/uploads", "description": "读取可继续的持久上传与服务端偏移"},
+    {"method": "POST", "path": "/lilt/api/uploads", "description": "准备音频上传，识别完整相同文件及可恢复会话"},
+    {"method": "PATCH", "path": "/lilt/api/uploads/{id}", "description": "写入最多 32 MiB 原始分段，持久落盘后确认偏移"},
+    {"method": "POST", "path": "/lilt/api/uploads/{id}/complete", "description": "校验完整 SHA-256 并入库，或明确替换已有逻辑歌曲"},
+    {"method": "DELETE", "path": "/lilt/api/uploads/{id}", "description": "取消所选未完成上传及其暂存，不删除已入库原件"},
+    {"method": "POST", "path": "/lilt/api/playlists", "description": "创建手动或规则歌单"},
+    {"method": "GET", "path": "/lilt/api/playlists/{id}", "description": "读取歌单与实际歌曲"},
+    {"method": "PUT", "path": "/lilt/api/playlists/{id}", "description": "更新名称、说明、规则与手动歌曲排序"},
+    {"method": "DELETE", "path": "/lilt/api/playlists/{id}", "description": "移除歌单，保留歌曲"},
+    {"method": "GET", "path": "/lilt/api/playlists/{id}/export", "description": "导出使用原始文件名的 M3U 歌单"},
+    {"method": "GET", "path": "/lilt/api/history", "description": "读取最近听歌会话"},
+    {"method": "POST", "path": "/lilt/api/history", "description": "按会话幂等记录累计实际听歌秒数与完成状态"},
+    {"method": "GET", "path": "/lilt/api/player-states", "description": "读取各浏览器独立保存的播放快照"},
+    {"method": "PUT", "path": "/lilt/api/player-states/{deviceId}", "description": "保存本浏览器队列与进度，不自动接管其他设备"}
+  ]
+}

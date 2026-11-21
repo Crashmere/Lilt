@@ -1,0 +1,29 @@
+[Unit]
+Description=Lilt personal music library and player
+After=network.target
+
+[Service]
+Type=simple
+User=lilt
+Group=lilt
+WorkingDirectory=/opt/lilt
+ExecStart=/opt/lilt/bin/lilt serve --addr 127.0.0.1:18089 --data /opt/lilt/data --prefix /lilt/
+EnvironmentFile=/opt/lilt/config/lilt.env
+Environment=TZ=Asia/Shanghai
+Environment=GOMEMLIMIT=384MiB
+Environment=OMP_NUM_THREADS=1
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/lilt/data
+Nice=5
+MemoryMax=512M
+TasksMax=128
+
+[Install]
+WantedBy=multi-user.target
