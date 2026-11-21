@@ -284,7 +284,14 @@ func (s *Store) finishMetadataWrite() error {
 		return err
 	}
 	defer tx.Rollback()
+	if _, err = tx.Exec(`INSERT OR IGNORE INTO track_fingerprints (fingerprint,track_id,size)
+SELECT fingerprint,id,json_extract(document,'$.size') FROM tracks WHERE id=?`, w.Track.ID); err != nil {
+		return err
+	}
 	if _, err = tx.Exec("UPDATE tracks SET fingerprint=?,original_path=?,document=? WHERE id=?", w.Hash, w.Path, string(data), w.Track.ID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec("INSERT OR IGNORE INTO track_fingerprints (fingerprint,track_id,size) VALUES (?,?,?)", w.Hash, w.Track.ID, w.Track.Size); err != nil {
 		return err
 	}
 	if err = tx.Commit(); err != nil {

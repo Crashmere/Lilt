@@ -15,7 +15,7 @@
       "id": "data",
       "name": "业务数据",
       "path": "/opt/lilt/data",
-      "purpose": "歌曲、专辑与歌手元数据、版本、别名、标签、收藏、歌词、歌单与规则、播放历史、浏览器进度、持久上传和手动封面原件归属；音乐与封面均由本人提供，不依赖外部曲库。",
+      "purpose": "歌曲、专辑与歌手元数据、版本、别名、标签、收藏、歌词、歌单与规则、播放历史、浏览器进度、持久上传、手动封面原件归属和文件历史哈希；历史哈希用于识别编辑前的文件，不保留编辑副本；音乐与封面均由本人提供，不依赖外部曲库。",
       "kind": "data",
       "browse": true,
       "cleanup": false
@@ -112,7 +112,7 @@
     {"method": "GET", "path": "/lilt/api/artists/{id}", "description": "读取歌手与关联歌曲、专辑"},
     {"method": "GET", "path": "/lilt/api/export", "description": "导出曲库元数据、歌单与听歌历史 JSON，不是备份恢复入口"},
     {"method": "GET", "path": "/lilt/api/uploads", "description": "读取可继续的持久上传与服务端偏移"},
-    {"method": "POST", "path": "/lilt/api/uploads", "description": "准备音频上传，识别完整相同文件及可恢复会话"},
+    {"method": "POST", "path": "/lilt/api/uploads", "description": "准备音频上传，按当前与编辑前的文件哈希识别已有歌曲及可恢复会话；明确替换使用所选音频"},
     {"method": "PATCH", "path": "/lilt/api/uploads/{id}", "description": "写入最多 32 MiB 原始分段，持久落盘后确认偏移"},
     {"method": "POST", "path": "/lilt/api/uploads/{id}/complete", "description": "校验完整 SHA-256 并入库，或明确替换已有逻辑歌曲"},
     {"method": "DELETE", "path": "/lilt/api/uploads/{id}", "description": "取消所选未完成上传及其暂存，不删除已入库原件"},

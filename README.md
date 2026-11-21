@@ -6,7 +6,7 @@ The application target is `nas`. Authenticated entrances on `ali` and `vps` reac
 
 ## Features
 
-- Batch and directory uploads with durable resume, full-file SHA-256 verification and exact-file duplicate detection.
+- Batch and directory uploads with durable resume, full-file SHA-256 verification and duplicate detection across metadata edits.
 - Track metadata, composition credits, lyrics and artwork written back into audio without re-encoding or edit copies; Chinese pinyin and alias search, album/disc ordering, favorites and tags.
 - Manual and rule-based playlists, an independent playback queue and explicit continuation from another browser.
 - Original audio or separately generated standard/compact AAC playback, with Range-capable streams and original downloads.

@@ -34,6 +34,11 @@ CREATE TABLE IF NOT EXISTS tracks (
  document TEXT NOT NULL, deleted_at TEXT
 );
 CREATE INDEX IF NOT EXISTS tracks_fingerprint ON tracks(fingerprint);
+CREATE TABLE IF NOT EXISTS track_fingerprints (
+ fingerprint TEXT NOT NULL, track_id TEXT NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+ size INTEGER NOT NULL CHECK(size>0), PRIMARY KEY(fingerprint,track_id)
+);
+CREATE INDEX IF NOT EXISTS track_fingerprints_track ON track_fingerprints(track_id);
 CREATE TABLE IF NOT EXISTS revisions (
  id INTEGER PRIMARY KEY, track_id TEXT NOT NULL REFERENCES tracks(id), fingerprint TEXT NOT NULL,
  original_path TEXT NOT NULL, document TEXT NOT NULL, replaced_at TEXT NOT NULL
@@ -106,6 +111,11 @@ func Open(dir, prefix string) (*Store, error) {
 		tx.Rollback()
 		db.Close()
 		return nil, fmt.Errorf("unsupported catalog schema: %s", version)
+	}
+	if err = initializeFingerprintHistory(tx); err != nil {
+		tx.Rollback()
+		db.Close()
+		return nil, err
 	}
 	// Additive qualification snapshots leave existing listening sessions and their timestamps intact.
 	if _, err = tx.Exec(`INSERT OR IGNORE INTO history_metrics (session_id,threshold,counted)

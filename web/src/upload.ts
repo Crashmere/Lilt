@@ -54,7 +54,7 @@ export function useUploads(refresh: () => Promise<void>, notify: (text: string) 
             }
             fingerprint = hash.digest(); update(item.key, { fingerprint });
           }
-          const { upload } = await json<{ upload: Upload }>('/uploads', 'POST', { filename: item.file.name, relativePath: item.path, size: item.file.size, fingerprint });
+          const { upload } = await json<{ upload: Upload }>('/uploads', 'POST', { filename: item.file.name, relativePath: item.path, size: item.file.size, fingerprint, replaceTrackId: item.replaceTrackId });
           if (upload.duplicate && !item.replaceTrackId) {
             const existing = upload.trackId ? await request<{ track: Track }>(`/tracks/${encodeURIComponent(upload.trackId)}`).then(result => result.track) : undefined;
             update(item.key, { phase: 'duplicate', progress: 1, trackId: upload.trackId, track: existing }); continue;
@@ -78,8 +78,10 @@ export function useUploads(refresh: () => Promise<void>, notify: (text: string) 
             update(item.key, { progress: offset / item.file.size });
           }
           const result = await json<{ track: Track; duplicate: boolean }>(`/uploads/${encodeURIComponent(upload.id)}/complete`, 'POST', item.replaceTrackId ? { replaceTrackId: item.replaceTrackId } : {});
-          if (item.lyrics) await json(`/tracks/${encodeURIComponent(result.track.id)}`, 'PATCH', { lyricsText: await item.lyrics.text() });
-          if (item.cover) { const form = new FormData(); form.append('file', item.cover); await request(`/tracks/${encodeURIComponent(result.track.id)}/cover`, { method: 'POST', body: form }); }
+          if (!result.duplicate || item.replaceTrackId) {
+            if (item.lyrics) await json(`/tracks/${encodeURIComponent(result.track.id)}`, 'PATCH', { lyricsText: await item.lyrics.text() });
+            if (item.cover) { const form = new FormData(); form.append('file', item.cover); await request(`/tracks/${encodeURIComponent(result.track.id)}/cover`, { method: 'POST', body: form }); }
+          }
           update(item.key, { phase: result.duplicate ? 'duplicate' : 'done', progress: 1, track: result.track, trackId: result.track.id });
         } catch (error) {
           update(item.key, { phase: stop.current || (error instanceof DOMException && error.name === 'AbortError') ? 'paused' : 'error', error: stop.current ? undefined : messageOf(error) });

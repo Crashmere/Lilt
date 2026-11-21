@@ -17,10 +17,11 @@ import (
 const MaxChunkSize int64 = 32 << 20
 
 type UploadInput struct {
-	Filename     string `json:"filename"`
-	Size         int64  `json:"size"`
-	Fingerprint  string `json:"fingerprint"`
-	RelativePath string `json:"relativePath"`
+	Filename       string `json:"filename"`
+	Size           int64  `json:"size"`
+	Fingerprint    string `json:"fingerprint"`
+	RelativePath   string `json:"relativePath"`
+	ReplaceTrackID string `json:"replaceTrackId,omitempty"`
 }
 
 type OffsetError struct{ Upload Upload }
@@ -126,6 +127,9 @@ func (s *Store) StartUpload(ctx context.Context, in UploadInput) (Upload, error)
 	if err != nil || len(decoded) != 32 || in.Size <= 0 || in.Size > 64<<30 || in.Filename == "" || in.Filename == "." {
 		return Upload{}, fmt.Errorf("文件名、大小或 SHA-256 无效：%w", ErrInvalid)
 	}
+	if in.ReplaceTrackID != "" && !validID(in.ReplaceTrackID) {
+		return Upload{}, ErrInvalid
+	}
 	in.RelativePath = tidy(in.RelativePath, 4096)
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -135,14 +139,10 @@ func (s *Store) StartUpload(ctx context.Context, in UploadInput) (Upload, error)
 	if err = s.reconcileUploads(ctx); err != nil {
 		return Upload{}, err
 	}
-	var duplicateID string
-	var duplicateSize int64
-	err = s.db.QueryRowContext(ctx, "SELECT id,json_extract(document,'$.size') FROM tracks WHERE fingerprint=? ORDER BY deleted_at IS NOT NULL,id LIMIT 1", in.Fingerprint).Scan(&duplicateID, &duplicateSize)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+	// Explicit replacement needs the supplied bytes, not a historical hash whose file was removed.
+	duplicateID, err := s.duplicateTrack(ctx, in.Fingerprint, in.Size, in.ReplaceTrackID == "")
+	if err != nil {
 		return Upload{}, err
-	}
-	if duplicateID != "" && duplicateSize != in.Size {
-		return Upload{}, fmt.Errorf("文件大小与 SHA-256 对应的已有文件不一致：%w", ErrInvalid)
 	}
 	if duplicateID == "" {
 		u, e := scanUpload(s.db.QueryRowContext(ctx, "SELECT "+uploadColumns+" FROM uploads WHERE fingerprint=? AND size=? AND status='uploading' ORDER BY created_at LIMIT 1", in.Fingerprint, in.Size))
@@ -345,18 +345,17 @@ func (s *Store) CompleteUpload(ctx context.Context, id, replaceID string) (Track
 		return Track{}, false, fmt.Errorf("完整文件 SHA-256 校验失败，请取消后重新上传：%w", ErrInvalid)
 	}
 	if replaceID == "" {
-		var existingID string
-		err = s.db.QueryRowContext(ctx, "SELECT id FROM tracks WHERE fingerprint=? ORDER BY deleted_at IS NOT NULL,id LIMIT 1", h).Scan(&existingID)
-		if err == nil {
+		existingID, err := s.duplicateTrack(ctx, h, size, true)
+		if err != nil {
+			return Track{}, false, err
+		}
+		if existingID != "" {
 			if _, err = s.db.ExecContext(ctx, "UPDATE uploads SET status='complete',track_id=?,duplicate=1 WHERE id=?", existingID, id); err != nil {
 				return Track{}, false, err
 			}
 			os.Remove(s.uploadPath(id))
 			t, _, _, err := s.track(ctx, existingID)
 			return t, true, err
-		}
-		if !errors.Is(err, sql.ErrNoRows) {
-			return Track{}, false, err
 		}
 	}
 	t, coverIndex, err := probeTrack(ctx, source, u.Filename, u.RelativePath)
@@ -428,6 +427,14 @@ func (s *Store) CompleteUpload(ctx context.Context, id, replaceID string) (Track
 		_, err = tx.ExecContext(ctx, "INSERT INTO tracks (id,fingerprint,original_path,document) VALUES (?,?,?,?)", t.ID, h, relative, string(document))
 	}
 	if err != nil {
+		return Track{}, false, err
+	}
+	if replaceID != "" {
+		if _, err = tx.ExecContext(ctx, "DELETE FROM track_fingerprints WHERE track_id=?", t.ID); err != nil {
+			return Track{}, false, err
+		}
+	}
+	if _, err = tx.ExecContext(ctx, "INSERT OR IGNORE INTO track_fingerprints (fingerprint,track_id,size) VALUES (?,?,?)", h, t.ID, size); err != nil {
 		return Track{}, false, err
 	}
 	if _, err = tx.ExecContext(ctx, "UPDATE uploads SET status='complete',track_id=?,duplicate=? WHERE id=?", t.ID, u.Duplicate, id); err != nil {
