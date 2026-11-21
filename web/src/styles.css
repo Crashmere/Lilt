@@ -22,7 +22,7 @@
 @media(max-width:740px){
   .track-name button{font-size:14px}.track-name p{font-size:11px}
   .modal .field,.modal .field .check-label{font-size:12px}.modal .field input,.modal .field textarea,.modal .field select{font-size:14px}.modal .field textarea.lyrics-editor{font-size:14px!important}.field-title .text-button{font-size:12px}.bulk-fields .field-title select{font-size:14px}
-  .status-banner,.status-banner button,.upload-item-top>span,.upload-item>p,.retained-uploads>p,.retained-uploads>div,.retained-uploads small,.file-selected{font-size:11px}.upload-item-top>strong{font-size:12px}
+  .status-banner,.status-banner button,.bulk-progress,.modal-footer{font-size:11px}.upload-item-top>span,.upload-item>p,.retained-uploads>p,.retained-uploads>div,.retained-uploads small,.file-selected{font-size:11px}.upload-item-top>strong{font-size:12px}
 }
 
 .sidebar{padding-bottom:calc(20px + env(safe-area-inset-bottom,0px));overflow:hidden}
