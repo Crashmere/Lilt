@@ -1,16 +1,17 @@
-import { useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { ArrowDown, ArrowUp, Check, Disc3, GripVertical, Heart, MoreHorizontal, Music2, Play, Plus, Settings2, X } from 'lucide-react';
+import { useState, type CSSProperties, type ReactNode } from 'react';
+import { ArrowDown, ArrowUp, Check, Disc3, GripVertical, Heart, LoaderCircle, MoreHorizontal, Music2, Play, Plus, Settings2, X } from 'lucide-react';
 import type { Player } from './player';
 import type { PlaylistMemberships } from './playlist-memberships';
 import type { FilterColumn } from './library-filters';
 import type { Album, Playlist, Track } from './types';
 import { AlbumLink, TrackCredits, type CollectionNavigation } from './track-links';
 import { duration } from './utils';
+import { useReorder, type Reorder } from './reorder';
 
 export function Artwork({ url, title, className = '' }: { url?: string; title?: string; className?: string }) {
   const [failed, setFailed] = useState('');
   return <div className={`artwork ${className}`}>
-    {url && failed !== url ? <img src={url} alt={title || ''} loading="lazy" onError={() => setFailed(url)} /> : <div className="artwork-empty"><Disc3 strokeWidth={1} /></div>}
+    {url && failed !== url ? <img src={url} alt={title || ''} loading="lazy" draggable={false} onError={() => setFailed(url)} /> : <div className="artwork-empty"><Disc3 strokeWidth={1} /></div>}
   </div>;
 }
 
@@ -54,21 +55,21 @@ type TrackTableProps = {
   bulkEdit: (tracks: Track[]) => void;
   collectionNavigation: CollectionNavigation;
   filterColumns?: FilterColumn[];
-  compact?: boolean; albumTracks?: boolean; onReorder?: (from: number, to: number) => void; empty?: string;
+  compact?: boolean; albumTracks?: boolean; onReorder?: Reorder; empty?: string;
 };
 export function TrackTable({ tracks, player, favorite, actions, playlistMemberships, showPlaylists, addToPlaylist, bulkEdit, collectionNavigation, filterColumns = [], compact = false, albumTracks = false, onReorder, empty = '没有曲目' }: TrackTableProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [selecting, setSelecting] = useState(false);
-  const dragged = useRef(-1);
+  const reorder = useReorder(tracks, onReorder);
   const ids = tracks.map(track => track.id);
   const selectedTracks = tracks.filter(track => selected.has(track.id));
   function select(id: string) { setSelected(old => { const next = new Set(old); if (next.has(id)) next.delete(id); else next.add(id); return next; }); }
   if (!tracks.length) return <Empty title={empty} />;
   const rows = <>
     <div className="track-heading"><label className="check-cell"><input type="checkbox" checked={selectedTracks.length === tracks.length} aria-label="选择全部曲目" onChange={event => setSelected(event.target.checked ? new Set(ids) : new Set())} /></label><span className="number-cell">#</span><span>曲目</span>{!albumTracks && <span className="album-cell">专辑</span>}<span className="playlist-cell">歌单</span>{filterColumns.map(column => <span className="filter-column-heading" key={column.key}>{column.label}</span>)}<span className="time-cell">时长</span><span className="track-actions" /></div>
-    {tracks.map((track, index) => <div key={`${track.id}-${index}`} className={`track-row ${player.trackId === track.id ? 'current' : ''} ${selected.has(track.id) ? 'selected' : ''}`} draggable={!!onReorder} onDragStart={() => { dragged.current = index; }} onDragOver={event => { if (onReorder) event.preventDefault(); }} onDrop={event => { event.preventDefault(); if (onReorder && dragged.current >= 0 && dragged.current !== index) onReorder(dragged.current, index); dragged.current = -1; }}>
+    {tracks.map((track, index) => <div key={track.id} {...reorder.rowProps(index)} className={`track-row ${player.trackId === track.id ? 'current' : ''} ${selected.has(track.id) ? 'selected' : ''} ${reorder.rowProps(index).className}`}>
       <label className="check-cell"><input type="checkbox" checked={selected.has(track.id)} aria-label={`选择 ${track.title}`} onChange={() => select(track.id)} /></label>
-      <button className="number-cell row-play" onClick={() => player.begin(ids, index)} aria-label={`播放 ${track.title}`}>{player.trackId === track.id && player.playing ? <span className="playing-bars"><i /><i /><i /></span> : <><span>{onReorder ? <GripVertical size={16} /> : albumTracks ? track.trackNumber || index + 1 : index + 1}</span><Play size={15} fill="currentColor" /></>}</button>
+      {onReorder ? <span className="number-cell reorder-grip" title="拖动调整顺序">{reorder.saving === index ? <LoaderCircle size={15} className="spin" /> : <GripVertical size={16} />}</span> : <button className="number-cell row-play" onClick={() => player.begin(ids, index)} aria-label={`播放 ${track.title}`}>{player.trackId === track.id && player.playing ? <span className="playing-bars"><i /><i /><i /></span> : <><span>{albumTracks ? track.trackNumber || index + 1 : index + 1}</span><Play size={15} fill="currentColor" /></>}</button>}
       <div className="track-name">{!albumTracks && <Artwork url={track.coverUrl} />}<div><button onClick={() => player.begin(ids, index)}>{track.title || track.originalName}</button><p><TrackCredits track={track} navigation={collectionNavigation} albumClassName={albumTracks ? undefined : 'inline-album'} />{track.version && <span className="version">{track.version}</span>}</p></div></div>
       {!albumTracks && <div className="album-cell"><span><AlbumLink track={track} navigation={collectionNavigation} /></span>{track.tags?.length > 0 && <small>{track.tags.slice(0, 2).join(' · ')}</small>}</div>}
       <div className="playlist-cell" aria-label="歌单"><TrackPlaylists playlists={playlistMemberships.get(track.id)} onOpen={() => showPlaylists(track)} /></div>
@@ -77,10 +78,10 @@ export function TrackTable({ tracks, player, favorite, actions, playlistMembersh
         return <span className="filter-column-value" key={column.key} data-filter={column.key} title={value}>{value}</span>;
       })}
       <span className="time-cell">{duration(track.duration)}</span>
-      <div className="track-actions">{onReorder && <><button className="icon-button reorder-button" aria-label={`上移 ${track.title}`} disabled={index === 0} onClick={() => onReorder(index, index - 1)}><ArrowUp size={14} /></button><button className="icon-button reorder-button" aria-label={`下移 ${track.title}`} disabled={index === tracks.length - 1} onClick={() => onReorder(index, index + 1)}><ArrowDown size={14} /></button></>}<button className={`icon-button ${track.favorite ? 'accent' : ''}`} aria-label={track.favorite ? `取消收藏 ${track.title}` : `收藏 ${track.title}`} onClick={() => favorite(track)}><Heart size={17} fill={track.favorite ? 'currentColor' : 'none'} /></button><button className="icon-button" aria-label={`${track.title} 更多操作`} onClick={() => actions(track)}><MoreHorizontal size={19} /></button></div>
+      <div className="track-actions">{onReorder && <><button className="icon-button reorder-button" aria-label={`上移 ${track.title}`} disabled={index === 0 || reorder.saving !== null} onClick={() => reorder.move(index, index - 1)}><ArrowUp size={14} /></button><button className="icon-button reorder-button" aria-label={`下移 ${track.title}`} disabled={index === tracks.length - 1 || reorder.saving !== null} onClick={() => reorder.move(index, index + 1)}><ArrowDown size={14} /></button></>}<button className={`icon-button ${track.favorite ? 'accent' : ''}`} aria-label={track.favorite ? `取消收藏 ${track.title}` : `收藏 ${track.title}`} onClick={() => favorite(track)}><Heart size={17} fill={track.favorite ? 'currentColor' : 'none'} /></button><button className="icon-button" aria-label={`${track.title} 更多操作`} onClick={() => actions(track)}><MoreHorizontal size={19} /></button></div>
     </div>)}
   </>;
-  return <div className={`track-list ${compact ? 'compact' : ''} ${albumTracks ? 'album-tracks' : ''} ${selecting ? 'selecting' : ''} ${filterColumns.length ? 'filtering' : ''}`} style={filterColumns.length ? { '--filter-column-count': filterColumns.length } as CSSProperties : undefined}>
+  return <div ref={reorder.root} {...reorder.listProps} className={`track-list ${compact ? 'compact' : ''} ${albumTracks ? 'album-tracks' : ''} ${selecting ? 'selecting' : ''} ${filterColumns.length ? 'filtering' : ''} ${reorder.listProps.className}`} style={filterColumns.length ? { '--filter-column-count': filterColumns.length } as CSSProperties : undefined}>
     <div className="mobile-selection-control"><button className="text-button" onClick={() => { setSelecting(old => !old); if (selecting) setSelected(new Set()); }}>{selecting ? '完成' : '选择'}</button></div>
     {selectedTracks.length > 0 && <div className="selection-bar"><span>{selectedTracks.length} 首已选</span><button onClick={() => bulkEdit(selectedTracks)}>批量编辑</button><button onClick={() => player.enqueue(selectedTracks.map(track => track.id))}>加入队列</button><button onClick={() => addToPlaylist(selectedTracks.map(track => track.id))}>加入歌单</button><button className="icon-button" aria-label="取消选择" onClick={() => setSelected(new Set())}><X size={16} /></button></div>}
     {filterColumns.length ? <div className="filter-table-scroll"><div className="filter-table-content">{rows}</div></div> : rows}

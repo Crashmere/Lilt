@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, CheckCheck, ChevronDown, CircleAlert, Download, FolderUp, ImagePlus, ListMusic, LoaderCircle, MoreHorizontal, Music2, Pause, Play, Plus, Repeat, Repeat1, RotateCw, Shuffle, Trash2, UploadCloud, X } from 'lucide-react';
+import { Check, CheckCheck, ChevronDown, CircleAlert, Download, FolderUp, GripVertical, ImagePlus, ListMusic, LoaderCircle, MoreHorizontal, Music2, Pause, Play, Plus, Repeat, Repeat1, RotateCw, Shuffle, Trash2, UploadCloud, X } from 'lucide-react';
 import { ApiError, json, messageOf, request, trackURL } from './api';
 import { Artwork, Empty, Modal, TrackPlaylists } from './components';
 import { TrackCredits, type CollectionNavigation } from './track-links';
@@ -9,8 +9,8 @@ import type { Playlist, Rules, Track, Upload } from './types';
 import type { Uploader, UploadPlaylist } from './upload';
 import { droppedFiles } from './drop-files';
 import { formatUploadRate } from './upload-rate';
-import { useLyrics } from './lyrics';
 import { bytes, duration, parseLyrics } from './utils';
+import { useReorder } from './reorder';
 
 function PlayerGlyph({ name }: { name: 'shuffle' | 'previous' | 'play' | 'pause' | 'next' | 'repeat' | 'more' | 'lyrics' | 'queue' | 'volume' }) {
   return <span className={`player-glyph player-glyph-${name}`} aria-hidden="true" />;
@@ -54,7 +54,8 @@ export function PlayerBar({ player, panel, onQueue, onLyrics, onMore, collection
   }
 
   return <footer className={`player-bar ${!player.track ? 'player-empty' : ''}`}>
-    <audio ref={player.audioRef} preload={player.playRequested ? 'auto' : 'metadata'} />
+    <audio ref={player.audioRefs[0]} preload="metadata" />
+    <audio ref={player.audioRefs[1]} preload="metadata" />
     <div className="transport">
       <button className={`icon-button mode-button shuffle-button ${player.snapshot.shuffle ? 'active' : ''}`} aria-label="随机播放" aria-pressed={player.snapshot.shuffle} onClick={player.toggleShuffle}><PlayerGlyph name="shuffle" /></button>
       <button className="icon-button skip-button previous-button" aria-label="上一首" onClick={player.previous} disabled={!player.track}><PlayerGlyph name="previous" /></button>
@@ -81,22 +82,22 @@ export function PlayerBar({ player, panel, onQueue, onLyrics, onMore, collection
 }
 
 export function QueuePanel({ player, playlistMemberships, showPlaylists, onClose, onSave, onMore, collectionNavigation }: { player: Player; playlistMemberships: PlaylistMemberships; showPlaylists: (track: Track) => void; onClose: () => void; onSave: (ids: string[]) => void; onMore: (track: Track) => void; collectionNavigation: CollectionNavigation }) {
-  const dragged = useRef(-1);
+  const reorder = useReorder(player.queue, player.reorder);
   return <aside className="side-panel" aria-label="播放队列">
     <header><div><h2>播放队列 <small>{player.queue.length}</small></h2></div><button className="icon-button" aria-label="关闭队列" onClick={onClose}><X size={22} /></button></header>
     <div className="panel-toolbar"><button className="text-button" onClick={() => onSave(player.snapshot.queueIds)} disabled={!player.queue.length}><Plus size={16} />存为歌单</button><button className="text-button" onClick={player.clear} disabled={!player.queue.length}>清空</button></div>
     <div className="queue-modes"><button className={`pill ${player.snapshot.shuffle ? 'active' : ''}`} aria-pressed={player.snapshot.shuffle} onClick={player.toggleShuffle}><Shuffle size={13} />随机</button><button className={`pill ${player.snapshot.repeat !== 'off' ? 'active' : ''}`} onClick={player.toggleRepeat}>{player.snapshot.repeat === 'one' ? <Repeat1 size={13} /> : <Repeat size={13} />}{player.snapshot.repeat === 'one' ? '单曲循环' : player.snapshot.repeat === 'all' ? '全部循环' : '循环关闭'}</button></div>
-    <div className="queue-items">{player.queue.length ? player.queue.map((track, index) => <div className={`queue-row ${player.snapshot.queueIndex === index ? 'current' : ''}`} key={`${track.id}-${index}`} draggable onDragStart={() => { dragged.current = index; }} onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); if (dragged.current >= 0 && dragged.current !== index) player.reorder(dragged.current, index); dragged.current = -1; }}>
-      <span className="queue-number">{index + 1}</span><Artwork url={track.coverUrl} />
+    <div ref={reorder.root} {...reorder.listProps} className={`queue-items ${reorder.listProps.className}`}>{player.queue.length ? player.queue.map((track, index) => <div {...reorder.rowProps(index)} className={`queue-row ${player.snapshot.queueIndex === index ? 'current' : ''} ${reorder.rowProps(index).className}`} key={`${track.id}-${index}`}>
+      <span className="queue-number" title="拖动调整顺序"><span>{index + 1}</span><GripVertical size={14} aria-hidden="true" /></span><Artwork url={track.coverUrl} />
       <div className="queue-track"><button className="queue-name" onClick={() => player.begin(player.snapshot.queueIds, index)}><strong>{track.title}</strong></button><p className="queue-credits"><TrackCredits track={track} navigation={collectionNavigation} /></p></div>
       <div className="playlist-cell" aria-label="歌单"><TrackPlaylists playlists={playlistMemberships.get(track.id)} onOpen={() => showPlaylists(track)} /></div>
-      <div className="queue-row-actions"><button className="icon-button" aria-label={`${track.title} 更多操作`} onClick={() => onMore(track)}><MoreHorizontal size={16} /></button><button className="icon-button" aria-label="上移" disabled={index === 0} onClick={() => player.reorder(index, index - 1)}>↑</button><button className="icon-button" aria-label="下移" disabled={index === player.queue.length - 1} onClick={() => player.reorder(index, index + 1)}>↓</button><button className="icon-button" aria-label={`从队列移除 ${track.title}`} onClick={() => player.remove(index)}><X size={15} /></button></div>
+      <div className="queue-row-actions"><button className="icon-button" aria-label={`${track.title} 更多操作`} onClick={() => onMore(track)}><MoreHorizontal size={16} /></button><button className="icon-button" aria-label="上移" disabled={index === 0} onClick={() => reorder.move(index, index - 1)}>↑</button><button className="icon-button" aria-label="下移" disabled={index === player.queue.length - 1} onClick={() => reorder.move(index, index + 1)}>↓</button><button className="icon-button" aria-label={`从队列移除 ${track.title}`} onClick={() => player.remove(index)}><X size={15} /></button></div>
     </div>) : <Empty title="队列为空" />}</div>
   </aside>;
 }
 
 export function LyricsPanel({ player, onClose, onEdit, onAdjust }: { player: Player; onClose: () => void; onEdit: (track: Track) => void; onAdjust: (track: Track, seconds: number) => Promise<void> }) {
-  const { text, loading, error, reload } = useLyrics(player.track);
+  const { text, loading, error, reload } = player.lyrics;
   const [savingId, setSavingId] = useState('');
   const [saveError, setSaveError] = useState<{ trackId: string; message: string }>();
   const saving = useRef(false);

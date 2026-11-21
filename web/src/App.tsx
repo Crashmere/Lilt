@@ -7,6 +7,7 @@ import { LibraryFilterModal } from './library-filter-modal';
 import { activeFilterColumns, EMPTY_FILTERS, matchesFilters, type LibraryFilters } from './library-filters';
 import { BulkEditor, LyricsPanel, PlayerBar, PlaylistEditor, QueuePanel, TrackEditor, UploadModal } from './panels';
 import { usePlayer } from './player';
+import type { Reorder } from './reorder';
 import { indexPlaylistMemberships } from './playlist-memberships';
 import { TrackCredits, type CollectionNavigation } from './track-links';
 import { flushHistory, loadLibrary, saveLibrary } from './storage';
@@ -164,6 +165,15 @@ export default function App() {
 
   const album = library.albums.find(item => item.id === view.id);
   const playlist = library.playlists.find(item => item.id === view.id);
+  const reorderPlaylist: Reorder = (from, to) => run(async () => {
+    if (!playlist) return;
+    const ids = [...playlist.trackIds];
+    const [id] = ids.splice(from, 1);
+    ids.splice(to, 0, id);
+    const result = await json<{ playlist: Playlist }>(`/playlists/${encodeURIComponent(playlist.id)}`, 'PUT', { trackIds: ids });
+    setLibrary(old => ({ ...old, playlists: old.playlists.map(item => item.id === playlist.id ? result.playlist : item) }));
+    await refresh();
+  });
   const playlistMemberships = indexPlaylistMemberships(library.playlists);
   const collectionNavigation: CollectionNavigation = {
     artistIds: new Map(library.artists.map(artist => [artist.name, artist.id])),
@@ -178,7 +188,7 @@ export default function App() {
   const activeFilterCount = libraryFilterColumns.length;
   visibleTracks = visibleTracks.filter(item => matches(item, deferredQuery) && (view.kind === 'library' ? matchesFilters(item, libraryFilters, playlistMemberships.get(item.id)?.length || 0) : !tag || item.tags?.includes(tag)));
   if (!['album', 'playlist'].includes(view.kind)) visibleTracks = [...visibleTracks].sort((a, b) => sort === 'title' ? a.title.localeCompare(b.title, 'zh-CN') : sort === 'artist' ? a.artist.localeCompare(b.artist, 'zh-CN') : sort === 'album' ? a.album.localeCompare(b.album, 'zh-CN') : sort === 'played' ? b.playCount - a.playCount : sort === 'duration' ? b.duration - a.duration : new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime());
-  const table = (tracks: Track[], compact = false, onReorder?: (from: number, to: number) => void, albumTracks = false) => {
+  const table = (tracks: Track[], compact = false, onReorder?: Reorder, albumTracks = false) => {
     if (!tracks.length && view.kind === 'library' && activeFilterCount) return <Empty title="没有匹配的曲目"><button className="button secondary" onClick={() => setFiltersOpen(true)}><SlidersHorizontal size={16} />调整筛选</button></Empty>;
     return <TrackTable key={`${view.kind}-${view.id || ''}`} tracks={tracks} player={player} favorite={track => { void favorite(track); }} actions={setTrackActions} playlistMemberships={playlistMemberships} showPlaylists={setPlaylistTrack} addToPlaylist={setAddPlaylistIds} bulkEdit={setBulkEditing} collectionNavigation={collectionNavigation} filterColumns={view.kind === 'library' ? libraryFilterColumns : undefined} compact={compact} albumTracks={albumTracks} onReorder={onReorder} empty={deferredQuery || tag ? '没有匹配的曲目' : '没有曲目'} />;
   };
@@ -216,7 +226,7 @@ export default function App() {
       {isArtistView && <ArtistBrowser library={library} artistId={view.kind === 'artist' ? view.id : undefined} query={deferredQuery} tag={tag} loading={loading} onSelect={item => { startTransition(() => setView({ kind: 'artist', id: item.id })); location.hash = `artist/${encodeURIComponent(item.id)}`; }} onTag={setTag} onRefresh={() => { void refresh(); }} onPlay={playTracks} onEnqueue={ids => player.enqueue(ids)} onOpenAlbum={openedAlbum} onAlbumActions={setAlbumActions} renderTracks={tracks => table(tracks, false, undefined, true)} />}
       {view.kind === 'playlists' && <PlaylistCards playlists={library.playlists.filter(item => !deferredQuery || item.name.toLocaleLowerCase().includes(deferredQuery.toLocaleLowerCase()))} onOpen={item => navigate({ kind: 'playlist', id: item.id })} onCreate={() => setPlaylistEditor({})} />}
       {['album', 'playlist'].includes(view.kind) && <><button className="back-button" onClick={() => navigate({ kind: view.kind === 'album' ? 'albums' : 'playlists' })}><ArrowLeft size={16} />{pageName}</button>{(album && view.kind === 'album' || playlist && view.kind === 'playlist') ? <div className="collection-header"><Artwork url={view.kind === 'album' ? album?.coverUrl : playlist?.coverUrl} /><div><span className="eyebrow">{view.kind === 'playlist' && playlist?.kind === 'smart' ? '智能歌单' : pageName}</span><h1>{view.kind === 'album' ? album?.title : playlist?.name}</h1><p>{view.kind === 'album' ? `${album?.artist} · ${album?.year ? `${album.year} · ` : ''}` : ''}{visibleTracks.length} 首 · {longDuration(visibleTracks.reduce((sum, item) => sum + item.duration, 0))}</p>{playlist?.description && view.kind === 'playlist' && <p>{playlist.description}</p>}<div className="collection-actions"><button className="button primary" disabled={!visibleTracks.length} onClick={() => playTracks(visibleTracks)}><Play size={17} fill="currentColor" />播放</button><button className="button secondary" disabled={!visibleTracks.length} onClick={() => player.enqueue(visibleTracks.map(item => item.id))}><ListMusic size={17} />加入队列</button>{playlist && view.kind === 'playlist' && <><button className="button secondary" onClick={() => setPlaylistEditor({ playlist })}>编辑歌单</button><a className="icon-button" aria-label="导出歌单" href={`${API}/playlists/${encodeURIComponent(playlist.id)}/export`}><Download size={19} /></a><button className="icon-button" aria-label="删除歌单" onClick={() => { if (window.confirm(`删除歌单「${playlist.name}」？音乐文件不会删除。`)) void run(async () => { await request(`/playlists/${encodeURIComponent(playlist.id)}`, { method: 'DELETE' }); await refresh(); navigate({ kind: 'playlists' }); notify('已删除歌单'); }); }}><Trash2 size={18} /></button></>}</div></div></div> : <Empty title="此收藏已不存在" />}</>}
-      {isTrackView && <><div className="library-tools">{library.tags.length > 0 && <div className="tag-filters"><Pill active={!tag} onClick={() => setTag('')}>全部</Pill>{library.tags.map(item => <Pill key={item} active={tag === item} onClick={() => setTag(tag === item ? '' : item)}>{item}</Pill>)}</div>}{!['album', 'playlist'].includes(view.kind) && <select aria-label="曲目排序" value={sort} onChange={event => setSort(event.target.value)}><option value="added">最近加入</option><option value="title">曲名</option><option value="artist">艺术家</option><option value="album">专辑</option><option value="played">播放次数</option><option value="duration">时长</option></select>}</div>{table(visibleTracks, false, playlist?.kind === 'manual' && view.kind === 'playlist' && !query && !tag ? (from, to) => { void run(async () => { const ids = [...playlist.trackIds]; const [id] = ids.splice(from, 1); ids.splice(to, 0, id); await json(`/playlists/${encodeURIComponent(playlist.id)}`, 'PUT', { name: playlist.name, description: playlist.description, trackIds: ids }); await refresh(); }); } : undefined)}</>}
+      {isTrackView && <><div className="library-tools">{library.tags.length > 0 && <div className="tag-filters"><Pill active={!tag} onClick={() => setTag('')}>全部</Pill>{library.tags.map(item => <Pill key={item} active={tag === item} onClick={() => setTag(tag === item ? '' : item)}>{item}</Pill>)}</div>}{!['album', 'playlist'].includes(view.kind) && <select aria-label="曲目排序" value={sort} onChange={event => setSort(event.target.value)}><option value="added">最近加入</option><option value="title">曲名</option><option value="artist">艺术家</option><option value="album">专辑</option><option value="played">播放次数</option><option value="duration">时长</option></select>}</div>{table(visibleTracks, false, playlist?.kind === 'manual' && view.kind === 'playlist' && !query && !tag ? reorderPlaylist : undefined)}</>}
       {view.kind === 'history' && (history.length ? <div className="history-list">
         <div className="history-heading"><span>曲目</span><span className="playlist-cell">歌单</span><span>聆听时长</span><span>播放时间</span><span /></div>
         {history.map(entry => {
