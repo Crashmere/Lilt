@@ -40,7 +40,7 @@ export default function App() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const tag = view.kind === 'library' ? libraryFilters.tag : selectedTag;
   function setTag(next: string) {
-    if (view.kind === 'library') setLibraryFilters(old => ({ ...old, tag: next }));
+    if (view.kind === 'library') setLibraryFilters(old => ({ ...old, tag: next, tagState: '' }));
     else setSelectedTag(next);
   }
   const [sort, setSort] = useState('added');
@@ -136,7 +136,7 @@ export default function App() {
   const albumActionTracks = (albumActions?.trackIds || []).map(id => library.tracks.find(track => track.id === id)).filter((track): track is Track => !!track);
   let visibleTracks = view.kind === 'favorites' ? library.tracks.filter(item => item.favorite) : view.kind === 'album' ? (album?.trackIds || []).map(id => library.tracks.find(item => item.id === id)).filter((item): item is Track => !!item) : view.kind === 'playlist' ? (playlist?.trackIds || []).map(id => library.tracks.find(item => item.id === id)).filter((item): item is Track => !!item) : library.tracks;
   const activeFilterCount = filterCount(libraryFilters);
-  visibleTracks = visibleTracks.filter(item => matches(item, deferredQuery) && (view.kind === 'library' ? matchesFilters(item, libraryFilters) : !tag || item.tags?.includes(tag)));
+  visibleTracks = visibleTracks.filter(item => matches(item, deferredQuery) && (view.kind === 'library' ? matchesFilters(item, libraryFilters, playlistMemberships.get(item.id)?.length || 0) : !tag || item.tags?.includes(tag)));
   if (!['album', 'playlist'].includes(view.kind)) visibleTracks = [...visibleTracks].sort((a, b) => sort === 'title' ? a.title.localeCompare(b.title, 'zh-CN') : sort === 'artist' ? a.artist.localeCompare(b.artist, 'zh-CN') : sort === 'album' ? a.album.localeCompare(b.album, 'zh-CN') : sort === 'played' ? b.playCount - a.playCount : sort === 'duration' ? b.duration - a.duration : new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime());
   const table = (tracks: Track[], compact = false, onReorder?: (from: number, to: number) => void, albumTracks = false) => {
     if (!tracks.length && view.kind === 'library' && activeFilterCount) return <Empty title="没有匹配的曲目"><button className="button secondary" onClick={() => setFiltersOpen(true)}><SlidersHorizontal size={16} />调整筛选</button></Empty>;
@@ -204,7 +204,7 @@ export default function App() {
     <PlayerBar player={player} panel={panel} onQueue={() => showPanel('queue')} onLyrics={() => showPanel('lyrics')} onMore={setTrackActions} />
     {panel === 'queue' && <QueuePanel player={player} playlistMemberships={playlistMemberships} showPlaylists={setPlaylistTrack} onClose={() => setPanel(null)} onSave={ids => setPlaylistEditor({ ids })} onMore={setTrackActions} />}
     {panel === 'lyrics' && <LyricsPanel player={player} onClose={() => setPanel(null)} onEdit={track => { void openEditor(track); }} />}
-    {filtersOpen && view.kind === 'library' && <LibraryFilterModal value={libraryFilters} tracks={library.tracks} query={query} onClose={() => setFiltersOpen(false)} onApply={setLibraryFilters} />}
+    {filtersOpen && view.kind === 'library' && <LibraryFilterModal value={libraryFilters} tracks={library.tracks} playlistMemberships={playlistMemberships} query={query} onClose={() => setFiltersOpen(false)} onApply={setLibraryFilters} />}
     {uploadOpen && <UploadModal uploader={uploader} playlist={uploadPlaylist} onClose={() => setUploadOpen(false)} onLocate={id => { void locateUpload(id); }} />}
     {editing && <TrackEditor key={editing.id} track={editing} onClose={() => setEditing(undefined)} onSaved={async track => { setLibrary(old => ({ ...old, tracks: old.tracks.map(item => item.id === track.id ? track : item) })); await refresh(); notify('已写回音频文件'); }} />}
     {bulkEditing && <BulkEditor tracks={bulkEditing} onClose={() => setBulkEditing(undefined)} onRefresh={refresh} onSaved={() => notify(`已更新 ${bulkEditing.length} 首曲目`)} />}

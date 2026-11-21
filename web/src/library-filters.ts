@@ -14,24 +14,48 @@ export const RANGE_FILTERS = [
   { key: 'duration', label: '时长', from: 'durationFrom', to: 'durationTo', unit: '分钟', scale: 60, step: 0.1 },
 ] as const;
 
+export const PRESENCE_FILTERS = [
+  { key: 'genre', state: 'genreState' }, { key: 'version', state: 'versionState' },
+  { key: 'composer', state: 'composerState' }, { key: 'lyricist', state: 'lyricistState' },
+  { key: 'tag', state: 'tagState' }, { key: 'year', state: 'yearState' },
+  { key: 'bpm', state: 'bpmState' }, { key: 'bitDepth', state: 'bitDepthState' },
+] as const;
+
+export type PresenceKey = typeof PRESENCE_FILTERS[number]['key'];
+type PresenceStateKey = typeof PRESENCE_FILTERS[number]['state'];
+export function presenceState(key: string): PresenceStateKey | undefined { return PRESENCE_FILTERS.find(field => field.key === key)?.state; }
+
 type TextKey = typeof TEXT_FILTERS[number]['key'];
 type RangeKey = typeof RANGE_FILTERS[number]['from' | 'to'];
-export type LibraryFilters = Record<TextKey | RangeKey | 'tag' | 'format' | 'sampleRate' | 'bitDepth' | 'channels' | 'favorite' | 'lyrics' | 'cover', string>;
+export type LibraryFilters = Record<TextKey | RangeKey | PresenceStateKey | 'tag' | 'format' | 'sampleRate' | 'bitDepth' | 'channels' | 'favorite' | 'lyrics' | 'cover' | 'playlists', string>;
 
 export const EMPTY_FILTERS: LibraryFilters = {
   title: '', artist: '', album: '', albumArtist: '', genre: '', version: '', composer: '', lyricist: '', tag: '',
   yearFrom: '', yearTo: '', bpmFrom: '', bpmTo: '', durationFrom: '', durationTo: '',
-  format: '', sampleRate: '', bitDepth: '', channels: '', favorite: '', lyrics: '', cover: '',
+  format: '', sampleRate: '', bitDepth: '', channels: '', favorite: '', lyrics: '', cover: '', playlists: '',
+  genreState: '', versionState: '', composerState: '', lyricistState: '', tagState: '', yearState: '', bpmState: '', bitDepthState: '',
 };
 
+export function setPresence(filters: LibraryFilters, key: PresenceKey, state: string): LibraryFilters {
+  const stateKey = presenceState(key)!;
+  const range = RANGE_FILTERS.find(field => field.key === key);
+  return range ? { ...filters, [stateKey]: state, [range.from]: '', [range.to]: '' } : { ...filters, [stateKey]: state, [key]: '' };
+}
+
+function hasPresence(filters: LibraryFilters, key: string): boolean {
+  const stateKey = presenceState(key);
+  return !!(stateKey && filters[stateKey]);
+}
+
 export function filterCount(filters: LibraryFilters): number {
-  return TEXT_FILTERS.filter(({ key }) => filters[key].trim()).length
-    + RANGE_FILTERS.filter(({ from, to }) => filters[from] || filters[to]).length
-    + (['tag', 'format', 'sampleRate', 'bitDepth', 'channels', 'favorite', 'lyrics', 'cover'] as const).filter(key => filters[key]).length;
+  return TEXT_FILTERS.filter(({ key }) => hasPresence(filters, key) || filters[key].trim()).length
+    + RANGE_FILTERS.filter(({ key, from, to }) => hasPresence(filters, key) || filters[from] || filters[to]).length
+    + (['tag', 'format', 'sampleRate', 'bitDepth', 'channels', 'favorite', 'lyrics', 'cover', 'playlists'] as const).filter(key => hasPresence(filters, key) || filters[key]).length;
 }
 
 export function filterError(filters: LibraryFilters): string {
-  for (const { label, from, to, step } of RANGE_FILTERS) {
+  for (const { key: field, label, from, to, step } of RANGE_FILTERS) {
+    if (hasPresence(filters, field)) continue;
     for (const key of [from, to]) {
       if (!filters[key]) continue;
       const value = Number(filters[key]);
@@ -44,25 +68,32 @@ export function filterError(filters: LibraryFilters): string {
   return '';
 }
 
-export function matchesFilters(track: Track, filters: LibraryFilters): boolean {
+export function matchesFilters(track: Track, filters: LibraryFilters, playlistCount: number): boolean {
+  for (const { key, state } of PRESENCE_FILTERS) {
+    if (!filters[state]) continue;
+    const value = key === 'tag' ? track.tags?.some(tag => tag.trim()) : track[key];
+    const present = typeof value === 'number' ? value > 0 : typeof value === 'string' ? !!value.trim() : !!value;
+    if (present !== (filters[state] === 'present')) return false;
+  }
   for (const { key } of TEXT_FILTERS) {
-    if (!filters[key].trim()) continue;
+    if (hasPresence(filters, key) || !filters[key].trim()) continue;
     const value = normalize(track[key] || '');
     if (!normalize(filters[key]).trim().split(/\s+/).every(part => value.includes(part))) return false;
   }
-  if (filters.tag && !track.tags?.includes(filters.tag)) return false;
+  if (!hasPresence(filters, 'tag') && filters.tag && !track.tags?.includes(filters.tag)) return false;
   for (const { key, from, to, scale } of RANGE_FILTERS) {
-    if (!filters[from] && !filters[to]) continue;
+    if (hasPresence(filters, key) || (!filters[from] && !filters[to])) continue;
     const value = track[key] || 0;
     // Zero denotes unknown metadata, not a year or tempo that satisfies an upper bound.
     if (!(value > 0) || (filters[from] && value < Number(filters[from]) * scale) || (filters[to] && value > Number(filters[to]) * scale)) return false;
   }
   if (filters.format && normalize(track.format || '') !== filters.format) return false;
   for (const key of ['sampleRate', 'bitDepth', 'channels'] as const) {
-    if (filters[key] && track[key] !== Number(filters[key])) return false;
+    if (!hasPresence(filters, key) && filters[key] && track[key] !== Number(filters[key])) return false;
   }
   for (const [key, present] of [['favorite', track.favorite], ['lyrics', track.hasLyrics], ['cover', !!track.coverUrl]] as const) {
     if (filters[key] && present !== (filters[key] === 'yes')) return false;
   }
+  if ((filters.playlists === 'none' && playlistCount !== 0) || (filters.playlists === 'one' && playlistCount !== 1) || (filters.playlists === 'multiple' && playlistCount < 2)) return false;
   return true;
 }

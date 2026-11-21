@@ -459,8 +459,13 @@
 .library-filter-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 20px}
 .library-filter-field{display:flex;flex-direction:column;min-width:0;gap:8px;border:0;padding:0;margin:0;color:#7f8272;font-size:12px}
 .library-filter-field>legend{display:block;width:100%;padding:0;margin-bottom:8px}
-.library-filter-field>legend>small{float:right;font-size:10px;color:#a0998d}
+.library-filter-field-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:27px}
+.library-filter-field-heading>span{display:flex;align-items:baseline;gap:7px;min-width:0}
+.library-filter-field-heading small{font-size:10px;color:#a0998d}
+.library-filter-field-heading>.library-filter-presence{width:72px;flex:none;min-height:27px;padding:4px 7px;font-size:11px;border-radius:5px;color:#898373;background:#f4f1e9}
+.library-filter-field-heading>.library-filter-presence[data-active=true]{color:var(--accent);border-color:#ddc5ae;background:var(--accent-soft)}
 .library-filter-field>input,.library-filter-field>select{width:100%;font-size:13px;min-height:39px;background:#fffdf8;padding:9px 11px}
+.library-filter-field input:disabled,.library-filter-field>select:disabled{background:#f1eee6;color:#9a9488;cursor:default;opacity:.65}
 .library-filter-range>div{display:flex;align-items:center;gap:8px}
 .library-filter-range input{width:100%;min-width:0;font-size:12px;padding:9px 10px;background:#fffdf8;appearance:textfield}
 .library-filter-range input::-webkit-inner-spin-button,.library-filter-range input::-webkit-outer-spin-button{appearance:none;margin:0}
