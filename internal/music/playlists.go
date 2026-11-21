@@ -17,6 +17,7 @@ type PlaylistInput struct {
 	Kind        *string     `json:"kind"`
 	Rules       *SmartRules `json:"rules"`
 	TrackIDs    *[]string   `json:"trackIds"`
+	AddTrackIDs *[]string   `json:"addTrackIds"`
 }
 
 func smartMatches(t Track, rules SmartRules, cutoff time.Time) bool {
@@ -214,6 +215,21 @@ func (s *Store) SavePlaylist(ctx context.Context, id string, in PlaylistInput) (
 	}
 	if in.TrackIDs != nil {
 		p.TrackIDs = *in.TrackIDs
+	}
+	if in.AddTrackIDs != nil {
+		if id == "" || p.Kind != "manual" || in.TrackIDs != nil {
+			return Playlist{}, fmt.Errorf("追加曲目仅适用于现有普通歌单，且不能同时替换曲目列表：%w", ErrInvalid)
+		}
+		seen := make(map[string]bool, len(p.TrackIDs))
+		for _, trackID := range p.TrackIDs {
+			seen[trackID] = true
+		}
+		for _, trackID := range *in.AddTrackIDs {
+			if !seen[trackID] {
+				p.TrackIDs = append(p.TrackIDs, trackID)
+				seen[trackID] = true
+			}
+		}
 	}
 	if err = s.validatePlaylist(ctx, &p); err != nil {
 		return Playlist{}, err

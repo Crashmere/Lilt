@@ -8,7 +8,7 @@ import { usePlayer } from './player';
 import { indexPlaylistMemberships } from './playlist-memberships';
 import { flushHistory, loadLibrary, saveLibrary } from './storage';
 import type { Album, Artist, HistoryEntry, Library, Playlist, Track, View } from './types';
-import { useUploads } from './upload';
+import { useUploads, type UploadPlaylist } from './upload';
 import { bytes, date, duration, longDuration, matches, readLocal, writeLocal } from './utils';
 
 const EMPTY_LIBRARY: Library = { tracks: [], albums: [], artists: [], playlists: [], tags: [], stats: { totalTracks: 0, totalAlbums: 0, totalArtists: 0, totalDuration: 0, totalBytes: 0, favoriteTracks: 0, playedSeconds: 0, playCount: 0 } };
@@ -37,6 +37,7 @@ export default function App() {
   const [sort, setSort] = useState('added');
   const [sidebar, setSidebar] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [uploadPlaylist, setUploadPlaylist] = useState<UploadPlaylist>();
   const [panel, setPanel] = useState<'queue' | 'lyrics' | null>(null);
   const [editing, setEditing] = useState<Track>();
   const [bulkEditing, setBulkEditing] = useState<Track[]>();
@@ -73,6 +74,11 @@ export default function App() {
     } finally { setLoading(false); }
   }
   const uploader = useUploads(refresh, notify);
+  function openUpload() {
+    const target = view.kind === 'playlist' ? library.playlists.find(item => item.id === view.id && item.kind === 'manual') : undefined;
+    setUploadPlaylist(target ? { id: target.id, name: target.name } : undefined);
+    setUploadOpen(true);
+  }
   function navigate(next: View) { setView(next); location.hash = `${next.kind}${next.id ? `/${encodeURIComponent(next.id)}` : ''}`; setSidebar(false); setQuery(''); setTag(''); }
   useEffect(() => {
     void refresh(); void flushHistory();
@@ -144,11 +150,11 @@ export default function App() {
       </div>
       <div className="sidebar-bottom"><span className="connection-dot" data-online={online} title={online ? '在线' : '离线'} /><span>{library.stats.totalTracks} 首音乐</span><span className="sidebar-size" title="音乐库原文件总大小">{bytes(library.stats.totalBytes)}</span></div>
     </aside>
-    <main className={`main-content ${isArtistView ? 'artist-main' : ''}`}><header className="topbar"><button className="icon-button mobile-menu" aria-label="打开导航" onClick={() => setSidebar(true)}><Menu size={23} /></button><div className="breadcrumb"><span>Lilt</span><ChevronRight size={13} /><span>{pageName}</span></div><div className="search-box"><Search size={18} /><input ref={searchRef} aria-label="搜索音乐" placeholder="搜索曲名、艺术家、专辑" value={query} onChange={event => { setQuery(event.target.value); if (view.kind === 'home' || view.kind === 'stats' || view.kind === 'history' || view.kind === 'trash') { setView({ kind: 'library' }); location.hash = 'library'; } }} />{query && <button className="icon-button" aria-label="清除搜索" onClick={() => setQuery('')}><X size={15} /></button>}</div><button className="button primary upload-button" onClick={() => setUploadOpen(true)}><Upload size={16} /><span>上传音乐</span>{uploader.running && <LoaderCircle className="spin" size={15} />}</button></header>
+    <main className={`main-content ${isArtistView ? 'artist-main' : ''}`}><header className="topbar"><button className="icon-button mobile-menu" aria-label="打开导航" onClick={() => setSidebar(true)}><Menu size={23} /></button><div className="breadcrumb"><span>Lilt</span><ChevronRight size={13} /><span>{pageName}</span></div><div className="search-box"><Search size={18} /><input ref={searchRef} aria-label="搜索音乐" placeholder="搜索曲名、艺术家、专辑" value={query} onChange={event => { setQuery(event.target.value); if (view.kind === 'home' || view.kind === 'stats' || view.kind === 'history' || view.kind === 'trash') { setView({ kind: 'library' }); location.hash = 'library'; } }} />{query && <button className="icon-button" aria-label="清除搜索" onClick={() => setQuery('')}><X size={15} /></button>}</div><button className="button primary upload-button" onClick={openUpload}><Upload size={16} /><span>上传音乐</span>{uploader.running && <LoaderCircle className="spin" size={15} />}</button></header>
       {error && <div className={`status-banner ${online ? 'warning' : ''}`}><WifiOff size={16} /><span>{error}</span><button onClick={() => { void refresh(); }} disabled={loading}>重试</button></div>}
       {!loaded && loading ? <div className="loading-state"><LoaderCircle size={28} className="spin" /><span>正在载入音乐库</span></div> : !loaded ? <Empty title="音乐库暂时无法载入"><button className="button secondary" onClick={() => { void refresh(); }}>重试</button></Empty> : <div className={`page-content ${isArtistView ? 'artist-page' : ''}`} key={isArtistView ? 'artists' : `${view.kind}-${view.id || ''}`}>
       {!isArtistView && !['album', 'playlist'].includes(view.kind) && <div className="page-heading"><div><h1>{view.kind === 'home' ? '音乐' : pageName}</h1>{view.kind === 'library' && <p>{library.tracks.length} 首 · {longDuration(library.stats.totalDuration)}</p>}{view.kind === 'favorites' && <p>{library.stats.favoriteTracks} 首</p>}</div><div className="heading-actions">{isTrackView && visibleTracks.length > 0 && <button className="button primary" onClick={() => playTracks(visibleTracks)}><Play size={17} fill="currentColor" />播放</button>}{view.kind === 'playlists' && <button className="button primary" onClick={() => setPlaylistEditor({})}><Plus size={17} />新建歌单</button>}{view.kind === 'stats' && <a className="button secondary" href={`${API}/export`}><Download size={16} />导出收藏数据</a>}<button className="icon-button" aria-label="刷新音乐库" onClick={() => { void refresh(); }} disabled={loading}><RefreshCw size={18} className={loading ? 'spin' : ''} /></button></div></div>}
-      {view.kind === 'home' && (library.tracks.length === 0 ? <Empty title="还没有音乐"><button className="button primary" onClick={() => setUploadOpen(true)}><Upload size={17} />上传音乐</button></Empty> : <>
+      {view.kind === 'home' && (library.tracks.length === 0 ? <Empty title="还没有音乐"><button className="button primary" onClick={openUpload}><Upload size={17} />上传音乐</button></Empty> : <>
         {player.track && !player.playing && player.position > 2 && <section className="resume-card"><Artwork url={player.track.coverUrl} /><div><span className="eyebrow">继续上次播放</span><h3>{player.track.title}</h3><p>{player.track.artist} · {duration(player.position)}</p></div><button className="round-play" aria-label="继续上次播放" onClick={() => player.play()}><Play size={22} fill="currentColor" /></button></section>}
         <section className="home-section"><div className="section-heading"><h2>最近加入</h2><button className="text-button" onClick={() => navigate({ kind: 'albums' })}>全部专辑<ChevronRight size={15} /></button></div>{recentAlbums.length ? <AlbumCards albums={recentAlbums} onOpen={openedAlbum} onPlay={playTracks} /> : table(visibleTracks.slice(0, 6), true)}</section>
         <div className="discovery-grid"><button className="discovery-card favorites-discovery" disabled={!library.stats.favoriteTracks} onClick={() => playTracks(library.tracks.filter(item => item.favorite))}><Heart size={31} strokeWidth={1.3} /><div><h3>收藏常听</h3><p>{library.stats.favoriteTracks} 首收藏</p></div><Play size={19} fill="currentColor" /></button><button className="discovery-card" disabled={!unplayed.length} onClick={() => playTracks(unplayed)}><Disc3 size={31} strokeWidth={1.3} /><div><h3>尚未播放</h3><p>{unplayed.length} 首待听</p></div><Play size={19} fill="currentColor" /></button><button className="discovery-card" disabled={!unheard.length} onClick={() => playTracks(unheard)}><Clock3 size={31} strokeWidth={1.3} /><div><h3>久未重听</h3><p>超过 30 天未听 · {unheard.length} 首</p></div><Play size={19} fill="currentColor" /></button></div>
@@ -186,7 +192,7 @@ export default function App() {
     <PlayerBar player={player} panel={panel} onQueue={() => showPanel('queue')} onLyrics={() => showPanel('lyrics')} onMore={setTrackActions} />
     {panel === 'queue' && <QueuePanel player={player} playlistMemberships={playlistMemberships} showPlaylists={setPlaylistTrack} onClose={() => setPanel(null)} onSave={ids => setPlaylistEditor({ ids })} onMore={setTrackActions} />}
     {panel === 'lyrics' && <LyricsPanel player={player} onClose={() => setPanel(null)} onEdit={track => { void openEditor(track); }} />}
-    {uploadOpen && <UploadModal uploader={uploader} tracks={library.tracks} onClose={() => setUploadOpen(false)} onLocate={id => { void locateUpload(id); }} />}
+    {uploadOpen && <UploadModal uploader={uploader} tracks={library.tracks} playlist={uploadPlaylist} onClose={() => setUploadOpen(false)} onLocate={id => { void locateUpload(id); }} />}
     {editing && <TrackEditor key={editing.id} track={editing} onClose={() => setEditing(undefined)} onSaved={async track => { setLibrary(old => ({ ...old, tracks: old.tracks.map(item => item.id === track.id ? track : item) })); await refresh(); notify('已写回音频文件'); }} />}
     {bulkEditing && <BulkEditor tracks={bulkEditing} onClose={() => setBulkEditing(undefined)} onRefresh={refresh} onSaved={() => notify(`已更新 ${bulkEditing.length} 首曲目`)} />}
     {coverEditing && <BulkCoverEditor album={coverEditing.album} tracks={coverEditing.tracks} onClose={() => setCoverEditing(undefined)} onRefresh={refresh} onSaved={() => notify(`已更新 ${coverEditing.tracks.length} 首曲目的封面`)} />}
