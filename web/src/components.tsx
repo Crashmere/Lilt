@@ -27,7 +27,7 @@ export function Empty({ title, text, children }: { title: string; text?: string;
 export function AlbumCards({ albums, onOpen, onPlay }: { albums: Album[]; onOpen: (album: Album) => void; onPlay: (ids: string[]) => void }) {
   return <div className="album-grid">{albums.map(album => <article className="album-card" key={album.id}>
     <div className="album-art"><button className="art-open" onClick={() => onOpen(album)} aria-label={`查看专辑 ${album.title}`}><Artwork url={album.coverUrl} title={album.title} /></button><button className="art-play" onClick={() => onPlay(album.trackIds)} aria-label={`播放专辑 ${album.title}`}><Play size={21} fill="currentColor" /></button></div>
-    <button className="album-title" onClick={() => onOpen(album)}>{album.title || '未命名专辑'}</button><p>{album.artist || '未知艺术家'}</p><span>{album.year || `${album.trackCount} 首`}</span>
+    <button className="album-title" onClick={() => onOpen(album)}>{album.title || '未命名专辑'}</button><p>{album.artist || '未知艺术家'}</p><span>{album.year ? `${album.year} · ` : ''}{album.trackCount} 首</span>
   </article>)}</div>;
 }
 
