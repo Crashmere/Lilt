@@ -285,7 +285,11 @@
 .artist-album-heading>div{min-width:0}
 .artist-album-heading h2{font:650 21px "DM Sans","PingFang SC",sans-serif;letter-spacing:0;line-height:1.4;overflow-wrap:anywhere}
 .artist-album-heading p{font-size:11px;color:var(--muted);margin-top:7px}
-.artist-album-heading>.icon-button{border-radius:50%;background:#ebe7de;color:var(--accent);width:34px;height:34px}
+.artist-album-title{display:flex;align-items:baseline;gap:7px}
+.artist-album-title h2{min-width:0}
+.album-page-link{width:26px;height:26px;color:#969183;align-self:center}
+.artist-album-actions{display:flex;align-items:center;gap:7px;flex:none}
+.artist-album-actions>.icon-button{border-radius:50%;background:#ebe7de;color:var(--accent);width:34px;height:34px}
 .track-list.album-tracks{--track-columns:20px 26px minmax(0,1fr) 42px 62px}
 .album-tracks>.track-heading>.playlist-cell{display:none}
 .album-tracks>.track-row{padding-top:10px;padding-bottom:10px;row-gap:4px;border-bottom:1px solid var(--line);border-radius:0}
@@ -338,7 +342,7 @@
   .artist-album-cover{width:115px;margin-right:17px}
   .artist-album-heading{min-height:115px}
   .artist-album-heading h2{font-size:18px}
-  .artist-album-heading>.icon-button{width:30px;height:30px}
+  .artist-album-actions>.icon-button{width:30px;height:30px}
   .track-list.album-tracks{--track-columns:minmax(0,1fr) 35px 60px}
   .track-list.album-tracks.selecting{--track-columns:22px minmax(0,1fr) 35px 56px}
   .album-tracks>.track-row>.track-name{grid-column:1}
