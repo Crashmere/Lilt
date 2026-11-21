@@ -123,6 +123,36 @@ func albumID(t Track) string {
 
 func artistID(name string) string { return stableID("r_", name) }
 
+func trackArtistNames(t Track) []string {
+	names := []string{}
+	seen := map[string]bool{}
+	for _, name := range strings.Split(t.Artist+"/"+t.AlbumArtist, "/") {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		id := artistID(name)
+		if !seen[id] {
+			names = append(names, name)
+			seen[id] = true
+		}
+	}
+	return names
+}
+
+func matchesArtist(t Track, value string) bool {
+	// Preserve saved filters and rules that use the original combined credits.
+	if strings.EqualFold(value, t.Artist) || strings.EqualFold(value, t.AlbumArtist) || value == artistID(t.Artist) || value == artistID(t.AlbumArtist) {
+		return true
+	}
+	for _, name := range trackArtistNames(t) {
+		if strings.EqualFold(value, name) || value == artistID(name) {
+			return true
+		}
+	}
+	return false
+}
+
 func orderedTracks(tracks []Track) []Track {
 	result := append([]Track{}, tracks...)
 	sort.SliceStable(result, func(i, j int) bool {
@@ -154,11 +184,7 @@ func collections(tracks []Track) ([]Album, []Artist, []string) {
 	tagNames := map[string]string{}
 	for _, t := range tracks {
 		albumTracks[albumID(t)] = append(albumTracks[albumID(t)], t)
-		names := []string{t.Artist}
-		if t.AlbumArtist != "" && !strings.EqualFold(t.Artist, t.AlbumArtist) {
-			names = append(names, t.AlbumArtist)
-		}
-		for _, name := range names {
+		for _, name := range trackArtistNames(t) {
 			id := artistID(name)
 			artistNames[id] = name
 			artistTracks[id] = append(artistTracks[id], t)
@@ -461,7 +487,7 @@ func FilterTracks(tracks []Track, values url.Values) []Track {
 		if album := values.Get("album"); album != "" && album != albumID(t) && !strings.EqualFold(album, t.Album) {
 			continue
 		}
-		if artist := values.Get("artist"); artist != "" && artist != artistID(t.Artist) && artist != artistID(t.AlbumArtist) && !strings.EqualFold(artist, t.Artist) && !strings.EqualFold(artist, t.AlbumArtist) {
+		if artist := values.Get("artist"); artist != "" && !matchesArtist(t, artist) {
 			continue
 		}
 		result = append(result, t)

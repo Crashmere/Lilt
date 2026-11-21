@@ -35,7 +35,7 @@ func smartMatches(t Track, rules SmartRules, cutoff time.Time) bool {
 			return false
 		}
 	}
-	if rules.Artist != "" && !strings.EqualFold(rules.Artist, t.Artist) && !strings.EqualFold(rules.Artist, t.AlbumArtist) && rules.Artist != artistID(t.Artist) && rules.Artist != artistID(t.AlbumArtist) {
+	if rules.Artist != "" && !matchesArtist(t, rules.Artist) {
 		return false
 	}
 	if rules.Genre != "" && !strings.EqualFold(rules.Genre, t.Genre) {

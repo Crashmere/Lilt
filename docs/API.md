@@ -10,6 +10,8 @@ All production business routes are under `/lilt/api/` and protected by shared de
 
 `Artist`: `id`, `name`, `coverUrl`, `trackCount`, `albumCount`, `trackIds: string[]`.
 
+Artist groups split both `Track.artist` and `Track.albumArtist` on ASCII `/`, trim names and ignore empty or duplicate names per track. Original credit strings and album grouping remain unchanged. Artist filters and smart rules accept individual artist names/IDs as well as the original combined credits.
+
 `Playlist`: `id`, `name`, `description`, `kind` (`manual` or `smart`), `rules`, `trackIds: string[]`, `coverUrl`, `createdAt`, `updatedAt`. Smart rules support optional `favorite`, `tags: string[]`, `artist`, `genre`, `yearFrom`, `yearTo`, `unplayed`, `unheardDays`, `limit`.
 
 `Stats`: `totalTracks`, `totalAlbums`, `totalArtists`, `totalDuration`, `totalBytes`, `favoriteTracks`, `playedSeconds`, `playCount`. `totalBytes` sums current original-file sizes for non-deleted tracks.
