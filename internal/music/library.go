@@ -238,7 +238,15 @@ func collections(tracks []Track) ([]Album, []Artist, []string) {
 		a.AlbumCount = len(albumSet)
 		artists = append(artists, a)
 	}
-	sort.Slice(artists, func(i, j int) bool { return strings.ToLower(artists[i].Name) < strings.ToLower(artists[j].Name) })
+	sort.Slice(artists, func(i, j int) bool {
+		if artists[i].TrackCount != artists[j].TrackCount {
+			return artists[i].TrackCount > artists[j].TrackCount
+		}
+		if artists[i].AlbumCount != artists[j].AlbumCount {
+			return artists[i].AlbumCount > artists[j].AlbumCount
+		}
+		return strings.ToLower(artists[i].Name) < strings.ToLower(artists[j].Name)
+	})
 	tags := []string{}
 	for _, name := range tagNames {
 		tags = append(tags, name)
