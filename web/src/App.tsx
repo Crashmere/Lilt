@@ -1,4 +1,4 @@
-import { startTransition, useDeferredValue, useEffect, useRef, useState } from 'react';
+import { startTransition, useDeferredValue, useEffect, useEffectEvent, useRef, useState } from 'react';
 import { ArrowLeft, BarChart3, Check, ChevronRight, Clock3, Disc3, Download, Heart, House, LibraryBig, ListMusic, LoaderCircle, Menu, MoreHorizontal, Music2, Play, Plus, RefreshCw, Search, Settings2, SlidersHorizontal, Trash2, Upload, UsersRound, WifiOff, X } from 'lucide-react';
 import { ApiError, json, messageOf, readLibrary, request, trackURL, API } from './api';
 import { AlbumCards, Artwork, Empty, Modal, Pill, PlaylistCards, TrackPlaylists, TrackTable } from './components';
@@ -162,6 +162,18 @@ export default function App() {
   async function restoreTrack(track: Track) { await run(async () => { await json(`/tracks/${encodeURIComponent(track.id)}/restore`, 'POST'); setTrash(old => old.filter(item => item.id !== track.id)); await refresh(); notify('已恢复曲目'); }); }
   function playTracks(tracks: Track[] | string[]) { player.begin(tracks.map(item => typeof item === 'string' ? item : item.id)); }
   function showPanel(next: 'queue' | 'lyrics') { setPanel(old => old === next ? null : next); }
+  const onLyricsKey = useEffectEvent((event: KeyboardEvent) => {
+    if (event.key !== '`' && event.code !== 'Backquote') return;
+    if (event.defaultPrevented || event.repeat || event.isComposing || event.keyCode === 229 || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+    const target = event.target;
+    if (target instanceof HTMLElement && (target.isContentEditable || target.closest('input, textarea, select, [role="textbox"]'))) return;
+    event.preventDefault();
+    showPanel('lyrics');
+  });
+  useEffect(() => {
+    document.addEventListener('keydown', onLyricsKey);
+    return () => document.removeEventListener('keydown', onLyricsKey);
+  }, []);
 
   const album = library.albums.find(item => item.id === view.id);
   const playlist = library.playlists.find(item => item.id === view.id);
