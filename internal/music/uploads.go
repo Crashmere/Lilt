@@ -443,6 +443,7 @@ func (s *Store) CompleteUpload(ctx context.Context, id, replaceID string) (Track
 	if err = tx.Commit(); err != nil {
 		return Track{}, false, err
 	}
+	s.invalidateLibrary()
 	os.Remove(s.uploadPath(id))
 	t, _, _, err = s.track(ctx, t.ID)
 	return t, u.Duplicate, err

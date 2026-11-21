@@ -11,18 +11,26 @@ const database = new Promise<IDBDatabase>((resolve, reject) => {
 });
 database.catch(() => undefined);
 
-async function operation<T>(storeName: string, mode: IDBTransactionMode, action: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+async function operation<T>(mode: IDBTransactionMode, action: (store: IDBObjectStore) => () => T): Promise<T> {
   const db = await database;
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(storeName, mode);
-    const result = action(tx.objectStore(storeName));
-    tx.oncomplete = () => resolve(result.result);
+    const tx = db.transaction('settings', mode);
+    const result = action(tx.objectStore('settings'));
+    tx.oncomplete = () => resolve(result());
     tx.onerror = () => reject(tx.error || new Error('存储失败。'));
     tx.onabort = () => reject(tx.error || new Error('存储空间不足。'));
   });
 }
-export const saveLibrary = (library: Library) => operation('settings', 'readwrite', store => store.put(library, 'library'));
-export const loadLibrary = () => operation<Library | undefined>('settings', 'readonly', store => store.get('library'));
+export const saveLibrary = (library: Library, etag: string) => operation('readwrite', store => {
+  store.put(library, 'library');
+  store.put(etag, 'library-etag');
+  return () => undefined;
+});
+export const loadLibrary = () => operation('readonly', store => {
+  const library = store.get('library');
+  const etag = store.get('library-etag');
+  return (): { library: Library; etag: string } | undefined => library.result ? { library: library.result, etag: typeof etag.result === 'string' ? etag.result : '' } : undefined;
+});
 export function recordHistory(entry: Pick<HistoryEntry, 'trackId' | 'sessionId' | 'seconds' | 'completed'>): void {
   const pending = readLocal<Record<string, typeof entry>>('lilt.pending-history', {});
   pending[entry.sessionId] = entry;

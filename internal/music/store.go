@@ -13,18 +13,22 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	_ "modernc.org/sqlite"
 )
 
 type Store struct {
-	db       *sql.DB
-	dir      string
-	prefix   string
-	mu       sync.Mutex
-	encodeMu sync.Mutex
+	db              *sql.DB
+	dir             string
+	prefix          string
+	mu              sync.Mutex
+	encodeMu        sync.Mutex
+	libraryRevision atomic.Uint64
 }
+
+func (s *Store) invalidateLibrary() { s.libraryRevision.Add(1) }
 
 const schema = `
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);

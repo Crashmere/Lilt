@@ -74,7 +74,10 @@ func (s *Store) RecordHistory(ctx context.Context, in HistoryInput) error {
 	if err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err = tx.Commit(); err == nil {
+		s.invalidateLibrary()
+	}
+	return err
 }
 
 func (s *Store) History(ctx context.Context, limit int) ([]HistoryEntry, error) {

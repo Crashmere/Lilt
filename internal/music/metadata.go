@@ -55,6 +55,9 @@ func (s *Store) editTrack(ctx context.Context, id string, p TrackPatch, cover io
 		data, err := trackDocument(t)
 		if err == nil {
 			_, err = s.db.ExecContext(ctx, "UPDATE tracks SET document=? WHERE id=?", string(data), id)
+			if err == nil {
+				s.invalidateLibrary()
+			}
 		}
 		return t, err
 	}
@@ -145,6 +148,7 @@ func (s *Store) editTrack(ctx context.Context, id string, p TrackPatch, cover io
 	if err = s.finishMetadataWrite(); err != nil {
 		return Track{}, err
 	}
+	s.hydrate(&t)
 	return t, nil
 }
 
@@ -297,6 +301,7 @@ SELECT fingerprint,id,json_extract(document,'$.size') FROM tracks WHERE id=?`, w
 	if err = tx.Commit(); err != nil {
 		return err
 	}
+	s.invalidateLibrary()
 	// Shared audio and explicit upload revisions remain owned; editing creates no revision.
 	if w.OldPath != w.Path {
 		var refs int

@@ -2,12 +2,15 @@ package music
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
 	"net/url"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"unicode"
@@ -24,9 +27,13 @@ func (s *Store) hydrate(t *Track) {
 		t.Aliases = []string{}
 	}
 	if t.CoverURL != "" {
-		t.CoverURL = s.prefix + "api/tracks/" + t.ID + "/cover?v=" + url.QueryEscape(t.UpdatedAt)
+		t.CoverURL = s.prefix + "api/tracks/" + t.ID + "/cover"
+		if info, err := os.Stat(filepath.Join(s.dir, "covers", t.ID, "cover.jpg")); err == nil {
+			t.CoverURL += "?v=" + coverVersion(info)
+		}
 	}
 	t.HasLyrics = t.LyricsText != ""
+	t.LyricsVersion = fmt.Sprintf("%x", sha256.Sum256([]byte(t.LyricsText)))
 	t.SearchText = trackSearchText(*t)
 }
 
@@ -417,6 +424,9 @@ func (s *Store) DeleteTrack(ctx context.Context, id string, restore bool) (Track
 		return Track{}, err
 	}
 	_, err = s.db.ExecContext(ctx, "UPDATE tracks SET document=?,deleted_at=? WHERE id=?", string(document), deleted, id)
+	if err == nil {
+		s.invalidateLibrary()
+	}
 	return t, err
 }
 

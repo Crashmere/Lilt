@@ -4,7 +4,7 @@ All production business routes are under `/lilt/api/` and protected by shared de
 
 ## Data Shapes
 
-`Track`: `id`, `title`, `artist`, `album`, `albumArtist`, `genre`, `composer`, `lyricist`, `comment`, `copyright`, `isrc`, `bpm`, `year`, `trackNumber`, `discNumber`, `duration`, `size`, `format` (audio codec), `container`, `mimeType` (current audio container MIME), optional generated `searchText` (normalized names, credits, tags, aliases, full pinyin and initials), `bitrate`, `sampleRate`, `bitDepth`, `channels`, `originalName`, `version`, `tags: string[]`, `aliases: string[]`, `favorite`, `coverUrl`, `hasLyrics`, optional `lyricsText`, `playCount`, `playedSeconds`, `lastPlayedAt`, `addedAt`, `updatedAt`, optional `deletedAt`.
+`Track`: `id`, `title`, `artist`, `album`, `albumArtist`, `genre`, `composer`, `lyricist`, `comment`, `copyright`, `isrc`, `bpm`, `year`, `trackNumber`, `discNumber`, `duration`, `size`, `format` (audio codec), `container`, `mimeType` (current audio container MIME), optional generated `searchText` (normalized names, credits, tags, aliases, full pinyin and initials), `bitrate`, `sampleRate`, `bitDepth`, `channels`, `originalName`, `version`, `tags: string[]`, `aliases: string[]`, `favorite`, `coverUrl`, `hasLyrics`, optional `lyricsText`, generated `lyricsVersion` (SHA-256 of the current lyrics text), `playCount`, `playedSeconds`, `lastPlayedAt`, `addedAt`, `updatedAt`, optional `deletedAt`.
 
 `Album`: `id`, `title`, `artist`, `year`, `coverUrl`, `trackCount`, `duration`, `trackIds: string[]`.
 
@@ -20,10 +20,10 @@ Artist groups split both `Track.artist` and `Track.albumArtist` on ASCII `/`, tr
 
 ## Library and Media
 
-- `GET /api/library` returns `{ tracks, albums, artists, playlists, tags, stats }` for non-deleted tracks.
+- `GET /api/library` returns `{ tracks, albums, artists, playlists, tags, stats }` for non-deleted tracks. It supports `HEAD` and conditional `If-None-Match` requests with a complete-response ETag; unchanged responses return 304 without JSON. Responses use `private, no-cache`, so every online reuse checks the authenticated server. The validator covers listening statistics and resolved smart playlists as well as track and playlist metadata.
 - `GET /api/tracks` returns `{ tracks }`, with optional `q`, `favorite`, `tag`, `album`, `artist`, `trash` filters. With `trash=true` or `trash=1`, it also returns `playlists`: ordinary playlists with `trackIds` resolved against all trashed tracks, preserving their retained membership. Smart playlists apply only to the active library and are omitted from this field.
 - `GET /api/tracks/{id}` returns `{ track }`, including `lyricsText`.
-- `GET /api/tracks/{id}/lyrics` returns `{ lyricsText, updatedAt }` directly from the catalog without waiting for the audio/upload write lock or probing legacy audio tags. Empty lyrics return an empty string; a missing track returns 404.
+- `GET /api/tracks/{id}/lyrics` returns `{ lyricsText, updatedAt, lyricsVersion }` directly from the catalog without waiting for the audio/upload write lock or probing legacy audio tags. Empty lyrics return an empty string; a missing track returns 404. `lyricsVersion` changes only with the text, independently of favorites or other metadata.
 - `PATCH /api/tracks/{id}` accepts `title`, `artist`, `album`, `albumArtist`, `genre`, `composer`, `lyricist`, `comment`, `copyright`, `isrc`, `bpm`, `year`, `trackNumber`, `discNumber`, `version`, `tags`, `aliases`, `lyricsText`, `removeCover` and `favorite`; returns `{ track }`. Metadata, lyrics and cover changes write back to the current audio without re-encoding its audio stream or creating edit revisions. Empty strings/arrays and numeric zero clear optional fields; title is required, and empty artist/album credits receive the library defaults. Year/disc number range is 0-9999, track number 0-99999, BPM 0-9999 and lyrics at most 1 MiB. `expectedUpdatedAt`, when supplied, must match the latest track timestamp; stale edits return 409. A favorite-only patch updates the catalog without rewriting audio. Files that cannot roundtrip all requested fields return 400 without replacing the current audio.
 - `DELETE /api/tracks/{id}` moves the track to trash. `POST /api/tracks/{id}/restore` restores it.
 - `GET /api/tracks/{id}/stream?quality=original|standard|compact` serves range-capable audio and supports `HEAD`. Compatible playback is generated separately from originals. `X-Lilt-Quality`, `X-Lilt-Format`, `X-Lilt-Bitrate` (bits per second), `X-Lilt-Sample-Rate` and `X-Lilt-Channels` describe the selected playback output rather than the source when encoded. The first compatible `HEAD` or `GET` can trigger generation.
@@ -32,6 +32,14 @@ Artist groups split both `Track.artist` and `Track.albumArtist` on ASCII `/`, tr
 - `GET /api/albums/{id}` returns `{ album, tracks }`.
 - `GET /api/artists/{id}` returns `{ artist, tracks, albums }`.
 - `GET /api/export` downloads catalog metadata, playlists and listening history as JSON; it is a portability export, not a backup/restore service.
+
+Cover URLs include an independent `v` derived from the display file's nanosecond modification time and size. GET/HEAD responses carry that version as their ETag. A matching `v` permits one day of private HTTP caching; missing or outdated versions require revalidation. Favorites and metadata edits that preserve the display file preserve its URL.
+
+## Application Shell
+
+`GET /lilt/shell-manifest.json` returns `{ version, assets: [{ url, etag }] }` for the embedded HTML, scripts, styles, images, fonts and brand manifest. It remains authenticated and contains no library data. The server derives it from the embedded build, including fixed-name asset content, so every shell resource has a validator and the shell version changes with its dependencies.
+
+Content-fingerprinted build assets use one year of private immutable HTTP caching. HTML, the service worker, fonts and the shell manifest require revalidation; exact public brand assets retain their existing access exceptions and also require revalidation. Missing asset files return 404 rather than application HTML.
 
 ## Resumable Audio Uploads
 

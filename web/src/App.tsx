@@ -1,6 +1,6 @@
 import { startTransition, useDeferredValue, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, BarChart3, Check, ChevronRight, Clock3, Disc3, Download, Heart, House, LibraryBig, ListMusic, LoaderCircle, Menu, MoreHorizontal, Music2, Play, Plus, RefreshCw, Search, Settings2, SlidersHorizontal, Trash2, Upload, UsersRound, WifiOff, X } from 'lucide-react';
-import { ApiError, json, messageOf, read, request, trackURL, API } from './api';
+import { ApiError, json, messageOf, readLibrary, request, trackURL, API } from './api';
 import { AlbumCards, Artwork, Empty, Modal, Pill, PlaylistCards, TrackPlaylists, TrackTable } from './components';
 import { ArtistBrowser } from './artists';
 import { LibraryFilterModal } from './library-filter-modal';
@@ -65,6 +65,7 @@ export default function App() {
   const refreshAbort = useRef<AbortController | undefined>(undefined);
   const hasLibrary = useRef(false);
   const cacheAllowed = useRef(true);
+  const libraryEtag = useRef('');
 
   function notify(text: string) { setToast(text); if (toastTimer.current) clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToast(''), 4500); }
   const player = usePlayer(library.tracks, notify);
@@ -75,16 +76,19 @@ export default function App() {
     refreshAbort.current = abort;
     setLoading(true);
     try {
-      const result = await read<Library>('/library', abort.signal);
+      const response = await readLibrary(abort.signal, hasLibrary.current ? libraryEtag.current : '');
       if (abort.signal.aborted) return;
+      if (!response.library) { setError(''); setLoaded(true); return; }
+      const result = response.library;
       if (!Array.isArray(result.tracks)) throw new TypeError('音乐库响应不完整，请重试。');
       const next = { ...result, tracks: result.tracks || [], albums: result.albums || [], artists: result.artists || [], playlists: result.playlists || [], tags: result.tags || [] };
       hasLibrary.current = true;
+      libraryEtag.current = response.etag;
       startTransition(() => setLibrary(next)); setError(''); setLoaded(true);
-      void saveLibrary(next).catch(() => undefined);
+      void saveLibrary(next, response.etag).catch(() => undefined);
     } catch (error) {
       if (abort.signal.aborted) return;
-      if (error instanceof ApiError && error.status === 401) { cacheAllowed.current = false; hasLibrary.current = false; setLibrary(EMPTY_LIBRARY); setLoaded(false); setError(messageOf(error)); }
+      if (error instanceof ApiError && error.status === 401) { cacheAllowed.current = false; hasLibrary.current = false; libraryEtag.current = ''; setLibrary(EMPTY_LIBRARY); setLoaded(false); setError(messageOf(error)); }
       else {
         setError(hasLibrary.current ? '当前无法连接，已保留音乐库，请重试。' : messageOf(error));
       }
@@ -102,9 +106,10 @@ export default function App() {
     void loadLibrary().then(saved => {
       if (!active || !cacheAllowed.current || hasLibrary.current || !saved) return;
       hasLibrary.current = true;
-      setLibrary(saved); setLoaded(true);
-    }).catch(() => undefined);
-    void refresh(); void flushHistory();
+      libraryEtag.current = saved.etag;
+      setLibrary(saved.library); setLoaded(true);
+    }).catch(() => undefined).finally(() => { if (active) void refresh(); });
+    void flushHistory();
     const hash = () => { setView(currentView()); setSidebar(false); setFiltersOpen(false); };
     const connected = () => { setOnline(true); void refresh(); void flushHistory(); };
     const disconnected = () => setOnline(false);

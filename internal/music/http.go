@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -29,10 +30,14 @@ type ServerConfig struct {
 }
 
 type server struct {
-	store   *Store
-	cfg     ServerConfig
-	origins map[string]bool
-	chunks  chan struct{}
+	store         *Store
+	cfg           ServerConfig
+	origins       map[string]bool
+	chunks        chan struct{}
+	libraryMu     sync.Mutex
+	libraryCache  librarySnapshot
+	assetETags    map[string]string
+	shellManifest []byte
 }
 
 func NormalizePrefix(prefix string) (string, error) {
@@ -52,6 +57,9 @@ func NewHandler(store *Store, cfg ServerConfig) (http.Handler, error) {
 	}
 	cfg.Prefix = prefix
 	s := &server{store: store, cfg: cfg, origins: map[string]bool{}, chunks: make(chan struct{}, 2)}
+	if err := s.prepareAssets(); err != nil {
+		return nil, err
+	}
 	for _, origin := range cfg.Origins {
 		u, err := url.Parse(strings.TrimSpace(origin))
 		if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "" && u.Path != "/" {
@@ -240,12 +248,15 @@ func (s *server) health(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) library(w http.ResponseWriter, r *http.Request) {
-	library, err := s.store.Library(r.Context())
+	snapshot, err := s.libraryPayload(r.Context())
 	if err != nil {
 		apiError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, library)
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "private, no-cache")
+	w.Header().Set("ETag", snapshot.etag)
+	http.ServeContent(w, r, "library.json", time.Time{}, bytes.NewReader(snapshot.body))
 }
 
 func (s *server) tracks(w http.ResponseWriter, r *http.Request) {
@@ -296,7 +307,7 @@ func (s *server) lyrics(w http.ResponseWriter, r *http.Request) {
 		apiError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"lyricsText": track.LyricsText, "updatedAt": track.UpdatedAt})
+	writeJSON(w, http.StatusOK, map[string]any{"lyricsText": track.LyricsText, "updatedAt": track.UpdatedAt, "lyricsVersion": track.LyricsVersion})
 }
 
 func (s *server) updateTrack(w http.ResponseWriter, r *http.Request) {
@@ -448,9 +459,25 @@ func (s *server) cover(w http.ResponseWriter, r *http.Request) {
 		apiError(w, ErrNotFound)
 		return
 	}
+	file, err := os.Open(filepath.Join(s.store.dir, "covers", t.ID, "cover.jpg"))
+	if err != nil {
+		apiError(w, err)
+		return
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		apiError(w, err)
+		return
+	}
+	version := coverVersion(info)
 	w.Header().Set("Content-Type", "image/jpeg")
-	w.Header().Set("Cache-Control", "private, max-age=86400")
-	serveFile(w, r, "cover.jpg", filepath.Join(s.store.dir, "covers", t.ID, "cover.jpg"))
+	w.Header().Set("ETag", strconv.Quote(version))
+	w.Header().Set("Cache-Control", "private, no-cache")
+	if r.URL.Query().Get("v") == version {
+		w.Header().Set("Cache-Control", "private, max-age=86400")
+	}
+	http.ServeContent(w, r, "cover.jpg", info.ModTime(), file)
 }
 
 func (s *server) replaceCover(w http.ResponseWriter, r *http.Request) {
@@ -786,10 +813,21 @@ func (s *server) static(w http.ResponseWriter, r *http.Request) {
 	}
 	name := strings.TrimPrefix(r.URL.Path, s.cfg.Prefix)
 	name = strings.TrimPrefix(path.Clean("/"+name), "/")
+	if name == "shell-manifest.json" {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Cache-Control", "private, no-cache")
+		w.Header().Set("ETag", contentETag(s.shellManifest))
+		http.ServeContent(w, r, name, time.Time{}, bytes.NewReader(s.shellManifest))
+		return
+	}
 	if name == "" {
 		name = "index.html"
 	}
 	if info, err := fs.Stat(s.cfg.Assets, name); err != nil || info.IsDir() {
+		if path.Ext(name) != "" || strings.HasPrefix(name, "assets/") || strings.HasPrefix(name, "fonts/") {
+			http.NotFound(w, r)
+			return
+		}
 		name = "index.html"
 	}
 	file, err := s.cfg.Assets.Open(name)
@@ -808,10 +846,12 @@ func (s *server) static(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if name == "index.html" {
-		w.Header().Set("Cache-Control", "no-cache")
-	} else {
-		w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Header().Set("ETag", s.assetETags[name])
+	w.Header().Set("Cache-Control", "private, no-cache")
+	if fingerprintedAsset.MatchString(name) {
+		w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
+	} else if name == "favicon.svg" || name == "apple-touch-icon.png" || name == "icon-192.png" || name == "icon-512.png" || name == "manifest.webmanifest" {
+		w.Header().Set("Cache-Control", "public, no-cache")
 	}
 	if name == "manifest.webmanifest" {
 		w.Header().Set("Content-Type", "application/manifest+json; charset=utf-8")

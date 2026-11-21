@@ -247,6 +247,7 @@ func (s *Store) SavePlaylist(ctx context.Context, id string, in PlaylistInput) (
 	if err != nil {
 		return Playlist{}, err
 	}
+	s.invalidateLibrary()
 	tracks, err := s.Tracks(ctx, false)
 	if err != nil {
 		return Playlist{}, err
@@ -289,6 +290,9 @@ func (s *Store) DeletePlaylist(ctx context.Context, id string) error {
 		return err
 	}
 	count, err := result.RowsAffected()
+	if err == nil && count > 0 {
+		s.invalidateLibrary()
+	}
 	if err == nil && count == 0 {
 		return ErrNotFound
 	}
