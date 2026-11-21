@@ -3,10 +3,10 @@ import { Check, ChevronDown, Download, FolderUp, ListMusic, LoaderCircle, Pause,
 import { ApiError, json, messageOf, request, trackURL } from './api';
 import { Artwork, Empty, Modal } from './components';
 import type { Player } from './player';
-import type { PlayerState, Playlist, Rules, Track } from './types';
+import type { Playlist, Rules, Track } from './types';
 import type { Uploader } from './upload';
 import { getCached } from './storage';
-import { bytes, date, duration, parseLyrics } from './utils';
+import { bytes, duration, parseLyrics } from './utils';
 
 function PlayerGlyph({ name }: { name: 'shuffle' | 'previous' | 'play' | 'pause' | 'next' | 'repeat' | 'more' | 'lyrics' | 'queue' | 'volume' }) {
   return <span className={`player-glyph player-glyph-${name}`} aria-hidden="true" />;
@@ -104,14 +104,6 @@ export function LyricsPanel({ player, onClose, onEdit }: { player: Player; onClo
   lyrics.lines.forEach((line, index) => { if (line.time + offset <= player.position) current = index; });
   useEffect(() => { activeRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, [current]);
   return <aside className="side-panel lyrics-panel"><header><div><span className="eyebrow">正在播放</span><h2>歌词</h2></div><button className="icon-button" aria-label="关闭歌词" onClick={onClose}><X size={22} /></button></header>{player.track ? <><div className="lyrics-track"><Artwork url={player.track.coverUrl} /><h3>{player.track.title}</h3><p>{player.track.artist}</p></div>{lyrics.lines.length > 0 && <div className="lyrics-offset"><button onClick={() => setOffset(value => value - 0.5)}>提前 0.5 秒</button><span>{offset > 0 ? '+' : ''}{offset.toFixed(1)} 秒</span><button onClick={() => setOffset(value => value + 0.5)}>延后 0.5 秒</button></div>}<div className="lyrics-body">{lyrics.lines.length ? lyrics.lines.map((line, index) => <button key={`${line.time}-${index}`} className={`lyric-line ${index === current ? 'active' : ''}`} ref={index === current ? activeRef : undefined} onClick={() => player.seek(Math.max(0, line.time + offset))}>{line.text || '♪'}</button>) : text ? <p className="plain-lyrics">{lyrics.plain}</p> : <Empty title={error || '此曲目没有歌词'}><button className="button secondary" onClick={() => onEdit(player.track!)}>添加歌词</button></Empty>}</div></> : <Empty title="尚未播放" text="选择曲目后查看歌词。" />}</aside>;
-}
-
-export function DevicesModal({ player, tracks, onClose, notify }: { player: Player; tracks: Track[]; onClose: () => void; notify: (text: string) => void }) {
-  const [states, setStates] = useState<PlayerState[]>([]);
-  const [label, setLabel] = useState(player.snapshot.label);
-  const [error, setError] = useState('');
-  useEffect(() => { void request<{ states: PlayerState[] }>('/player-states').then(result => setStates(result.states || [])).catch(error => setError(messageOf(error))); }, []);
-  return <Modal title="播放设备" onClose={onClose}><div className="modal-body"><label className="field">此浏览器名称<div className="inline-field"><input value={label} onChange={event => setLabel(event.target.value)} maxLength={80} /><button className="button secondary" onClick={() => { player.setLabel(label); notify('设备名称已保存'); }}>保存</button></div></label>{error && <p className="error-text">{error}</p>}<div className="devices-list">{states.filter(state => state.deviceId !== player.snapshot.deviceId && state.trackId).map(state => { const track = tracks.find(item => item.id === state.trackId); return <article key={state.deviceId}><div><strong>{state.label || '其他浏览器'}</strong><p>{track?.title || '曲目已不在音乐库'} · {duration(state.position)}</p><small>{date(state.updatedAt)}</small></div><button className="button secondary" disabled={!track} onClick={() => { player.continueFrom(state); onClose(); }}>继续播放</button></article>; })}{!states.some(state => state.deviceId !== player.snapshot.deviceId && state.trackId) && !error && <p className="muted">没有其他设备的播放记录。</p>}</div></div></Modal>;
 }
 
 export function UploadModal({ uploader, tracks, onClose, onLocate }: { uploader: Uploader; tracks: Track[]; onClose: () => void; onLocate: (id: string) => void }) {

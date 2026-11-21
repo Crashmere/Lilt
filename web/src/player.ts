@@ -1,5 +1,5 @@
 import { useEffect, useEffectEvent, useRef, useState } from 'react';
-import { ApiError, json, trackURL } from './api';
+import { ApiError, trackURL } from './api';
 import { getCached, peekCached, recordHistory } from './storage';
 import type { PlayerState, Track } from './types';
 import { identity, readLocal, writeLocal } from './utils';
@@ -13,10 +13,7 @@ function shuffledIds(ids: string[]): string[] {
   return result;
 }
 function initialState(): PlayerState {
-  const deviceId = readLocal<string>('lilt.device-id', identity());
-  writeLocal('lilt.device-id', deviceId);
   return readLocal<PlayerState>('lilt.player', {
-    deviceId, label: /iPhone|Android/.test(navigator.userAgent) ? '手机浏览器' : '电脑浏览器',
     trackId: '', position: 0, queueIds: [], queueIndex: 0, shuffle: false, repeat: 'off', volume: 0.8, updatedAt: '',
   });
 }
@@ -86,12 +83,11 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
     if (lease?.tabId === tabId.current) writeLocal('lilt.playback-lease', { ...lease, playing: false, updatedAt: Date.now() });
   }
 
-  const persist = useEffectEvent((remote = false) => {
+  const persist = useEffectEvent(() => {
     const lease = readLocal<Lease | null>('lilt.playback-lease', null);
     if (lease?.playing && lease.tabId !== tabId.current && Date.now() - lease.updatedAt < 9000) return;
     const state: PlayerState = { ...snapshot, trackId, position: audioRef.current?.currentTime || position, updatedAt: new Date().toISOString() };
     writeLocal('lilt.player', state);
-    if (remote && navigator.onLine) void json(`/player-states/${encodeURIComponent(snapshot.deviceId)}`, 'PUT', state).catch(() => undefined);
   });
   const finish = useEffectEvent((completed = false) => {
     const current = session.current;
@@ -130,7 +126,7 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
     intent.current.play = true;
     void audioRef.current.play().catch(() => notify(playbackError(trackId)));
   }
-  function pause(): void { intent.current.play = false; audioRef.current?.pause(); releaseLease(); persist(true); }
+  function pause(): void { intent.current.play = false; audioRef.current?.pause(); releaseLease(); persist(); }
   function seek(value: number): void {
     const audio = audioRef.current;
     if (!audio) return;
@@ -193,12 +189,6 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
     } else setSnapshot(old => ({ ...old, queueIds: old.queueIds.filter((_, i) => i !== index), queueIndex: index < old.queueIndex ? old.queueIndex - 1 : old.queueIndex }));
   }
   function setVolume(volume: number): void { setSnapshot(old => ({ ...old, volume })); if (audioRef.current) audioRef.current.volume = volume; }
-  function setLabel(label: string): void { setSnapshot(old => ({ ...old, label: label.trim() || old.label })); }
-  function continueFrom(state: PlayerState): void {
-    const ids = state.queueIds.filter(id => tracks.some(item => item.id === id));
-    const index = Math.max(0, ids.indexOf(state.trackId));
-    begin(ids, index, state.position, true);
-  }
 
   const onCanPlay = useEffectEvent(() => {
     const audio = audioRef.current;
@@ -224,7 +214,7 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   });
   const onPlay = useEffectEvent(() => { setPlaying(true); if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'; });
   const onPause = useEffectEvent(() => {
-    setPlaying(false); finish(); persist(true);
+    setPlaying(false); finish(); persist();
     releaseLease();
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
   });
@@ -298,7 +288,7 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
     if (playing && lease?.tabId === tabId.current) writeLocal('lilt.playback-lease', { ...lease, updatedAt: Date.now() });
     if (!lease?.playing || lease.tabId === tabId.current) persist();
   });
-  const remoteHeartbeat = useEffectEvent(() => { if (playing) { persist(true); finish(); } });
+  const historyHeartbeat = useEffectEvent(() => { if (playing) finish(); });
   const onStorage = useEffectEvent((event: StorageEvent) => {
     if (event.key !== 'lilt.playback-lease' || !playing) return;
     const lease = readLocal<Lease | null>('lilt.playback-lease', null);
@@ -307,13 +297,13 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   const leave = useEffectEvent(() => { finish(); pause(); });
   useEffect(() => {
     const tick = setInterval(heartbeat, 2000);
-    const remote = setInterval(remoteHeartbeat, 15000);
+    const historyTick = setInterval(historyHeartbeat, 15000);
     window.addEventListener('storage', onStorage);
     window.addEventListener('pagehide', leave);
-    return () => { clearInterval(tick); clearInterval(remote); window.removeEventListener('storage', onStorage); window.removeEventListener('pagehide', leave); };
+    return () => { clearInterval(tick); clearInterval(historyTick); window.removeEventListener('storage', onStorage); window.removeEventListener('pagehide', leave); };
   }, []);
   useEffect(() => () => { if (source.current.objectURL) URL.revokeObjectURL(source.current.objectURL); }, []);
-  useEffect(() => { persist(true); }, [snapshot]);
+  useEffect(() => { persist(); }, [snapshot]);
   useEffect(() => {
     if (!track || !('mediaSession' in navigator)) return;
     navigator.mediaSession.metadata = new MediaMetadata({ title: track.title, artist: track.artist, album: track.album, artwork: track.coverUrl ? [{ src: new URL(track.coverUrl, location.origin).href }] : [] });
@@ -322,7 +312,7 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   return {
     audioRef, snapshot, track, trackId, queue, position, playing, loading,
     conflict, setConflict,
-    begin, play, pause, seek, next, previous, enqueue, reorder, remove, setVolume, setLabel, continueFrom,
+    begin, play, pause, seek, next, previous, enqueue, reorder, remove, setVolume,
     toggleShuffle: () => setSnapshot(old => {
       if (old.shuffle || !old.queueIds.length) return { ...old, shuffle: !old.shuffle };
       return { ...old, shuffle: true, queueIds: [old.queueIds[old.queueIndex], ...shuffledIds(old.queueIds.filter((_, index) => index !== old.queueIndex))], queueIndex: 0 };

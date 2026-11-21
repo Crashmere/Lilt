@@ -136,16 +136,3 @@ type HistoryEntry struct {
 	PlayedAt  string  `json:"playedAt"`
 	UpdatedAt string  `json:"updatedAt"`
 }
-
-type PlayerState struct {
-	DeviceID   string   `json:"deviceId"`
-	Label      string   `json:"label"`
-	TrackID    string   `json:"trackId"`
-	Position   float64  `json:"position"`
-	QueueIDs   []string `json:"queueIds"`
-	QueueIndex int      `json:"queueIndex"`
-	Shuffle    bool     `json:"shuffle"`
-	Repeat     string   `json:"repeat"`
-	Volume     float64  `json:"volume"`
-	UpdatedAt  string   `json:"updatedAt"`
-}

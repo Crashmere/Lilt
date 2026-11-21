@@ -12,11 +12,9 @@ All production business routes are under `/lilt/api/` and protected by shared de
 
 `Playlist`: `id`, `name`, `description`, `kind` (`manual` or `smart`), `rules`, `trackIds: string[]`, `coverUrl`, `createdAt`, `updatedAt`. Smart rules support optional `favorite`, `tags: string[]`, `artist`, `genre`, `yearFrom`, `yearTo`, `unplayed`, `unheardDays`, `limit`.
 
-`Stats`: `totalTracks`, `totalAlbums`, `totalArtists`, `totalDuration`, `totalBytes`, `favoriteTracks`, `playedSeconds`, `playCount`.
+`Stats`: `totalTracks`, `totalAlbums`, `totalArtists`, `totalDuration`, `totalBytes`, `favoriteTracks`, `playedSeconds`, `playCount`. `totalBytes` sums current original-file sizes for non-deleted tracks.
 
 `Upload`: `id`, `filename`, `size`, `offset`, `fingerprint`, `status`, optional `trackId`, optional `duplicate`.
-
-`PlayerState`: `deviceId`, `label`, `trackId`, `position`, `queueIds: string[]`, `queueIndex`, `shuffle`, `repeat` (`off`, `all`, `one`), `volume`, `updatedAt`.
 
 ## Library and Media
 
@@ -42,7 +40,7 @@ All production business routes are under `/lilt/api/` and protected by shared de
 
 The browser uploads audio first and associates manually supplied artwork/lyrics through the track endpoints. Directory structure and filenames are fallback metadata, never external lookup keys.
 
-## Playlists, History and Player State
+## Playlists and History
 
 - `POST /api/playlists` accepts `{ name, description?, kind?, rules?, trackIds? }`; returns `{ playlist }`.
 - `GET /api/playlists/{id}` returns `{ playlist, tracks }`.
@@ -51,7 +49,5 @@ The browser uploads audio first and associates manually supplied artwork/lyrics 
 - `GET /api/playlists/{id}/export` downloads an M3U playlist using original filenames.
 - `POST /api/history` accepts `{ trackId, sessionId, seconds, completed? }`. Seconds are cumulative actual listening time for that session; repeated updates are idempotent. Each session contributes one `playCount` after completion or listening for `min(30 seconds, half the source duration at the session's first accepted update)`. Qualification is durable and monotonic: audio replacement cannot remove an already-counted play, and later cumulative updates can qualify an initially short session. Any positive listening time excludes a track from the smart `unplayed` rule.
 - `GET /api/history` returns `{ history }` with recent listening sessions. Each entry contains `id`, `trackId`, `sessionId`, `seconds`, `completed`, `playedAt` (session start), and `updatedAt`.
-- `GET /api/player-states` returns `{ states }`.
-- `PUT /api/player-states/{deviceId}` stores the browser's player snapshot and returns `{ state }`.
 
 API routes are implemented and documented together. Extend this contract only when the corresponding server and browser behavior is present.

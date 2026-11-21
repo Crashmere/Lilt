@@ -88,8 +88,6 @@ func NewHandler(store *Store, cfg ServerConfig) (http.Handler, error) {
 	mux.HandleFunc("GET "+base+"/playlists/{id}/export", s.exportPlaylist)
 	mux.HandleFunc("POST "+base+"/history", s.saveHistory)
 	mux.HandleFunc("GET "+base+"/history", s.history)
-	mux.HandleFunc("GET "+base+"/player-states", s.states)
-	mux.HandleFunc("PUT "+base+"/player-states/{deviceId}", s.saveState)
 	mux.HandleFunc(base+"/", func(w http.ResponseWriter, r *http.Request) { writeError(w, http.StatusNotFound, "接口不存在") })
 	if prefix != "/" {
 		mux.HandleFunc(strings.TrimSuffix(prefix, "/"), func(w http.ResponseWriter, r *http.Request) {
@@ -666,29 +664,6 @@ func (s *server) history(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"history": history})
-}
-
-func (s *server) states(w http.ResponseWriter, r *http.Request) {
-	states, err := s.store.PlayerStates(r.Context())
-	if err != nil {
-		apiError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"states": states})
-}
-
-func (s *server) saveState(w http.ResponseWriter, r *http.Request) {
-	var state PlayerState
-	if err := decodeJSON(w, r, &state, false); err != nil {
-		apiError(w, err)
-		return
-	}
-	state, err := s.store.SavePlayerState(r.Context(), r.PathValue("deviceId"), state)
-	if err != nil {
-		apiError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"state": state})
 }
 
 func (s *server) static(w http.ResponseWriter, r *http.Request) {

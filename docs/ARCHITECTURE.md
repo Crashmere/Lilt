@@ -28,9 +28,9 @@ The player remains mounted while library views, search results, dialogs and play
 
 The player and library-row ellipsis buttons open one shared song-specific More Features menu. Additional song operations belong in this menu.
 
-Each browser maintains its own device identifier and player snapshot. Library data and playlists are shared through the server; another browser's saved snapshot is offered for explicit continuation rather than automatic takeover. Same-origin tabs coordinate playback locally. This does not create a guaranteed cross-Origin or cross-device remote-control channel.
+Each browser keeps its player snapshot locally. Library data, playlists and listening history are shared through the server; queues and playback progress remain browser-local. Same-origin tabs coordinate playback locally. Legacy server snapshots remain in the catalog, without active read/write endpoints.
 
-Listening updates use a session identifier and cumulative actual listening time so retries do not add the same seconds again. Offline pending updates remain browser-local until they can be sent to the server. Saved browser state and offline audio are not part of NAS data recovery until their corresponding server records have synchronized.
+Listening updates use a session identifier and cumulative actual listening time so retries do not add the same seconds again. Offline pending updates remain browser-local until they can be sent to the server. Browser player state and offline audio are not part of NAS data recovery.
 
 Optional offline audio and the last saved library are stored in IndexedDB. A scoped service worker supports reopening the previously visited application shell; it does not intercept authenticated business APIs or create a public media endpoint. The browser or user can remove local storage, and another device does not automatically receive those files. Offline storage is a convenience, not a permanent recovery copy.
 

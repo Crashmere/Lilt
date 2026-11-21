@@ -11,7 +11,7 @@ The runtime identity is `lilt`; local publication uses the restricted `lilt-depl
 | `/opt/lilt/bin/lilt` | Static Linux amd64 Go program with embedded web assets |
 | `/opt/lilt/bin/deploy-{ssh,release}.sh` | Root-owned fixed publication entry points |
 | `/opt/lilt/config/` | systemd unit, application Nginx location, private runtime environment, Portal declaration and source receipt |
-| `/opt/lilt/data/lilt.sqlite` | Tracks, metadata, lyrics, playlists, uploads, listening sessions, browser player snapshots and artwork ownership |
+| `/opt/lilt/data/lilt.sqlite` | Tracks, metadata, lyrics, playlists, uploads, listening sessions, retained legacy player snapshots and artwork ownership |
 | `/opt/lilt/data/originals/` | Immutable accepted audio objects and retained prior replacement objects |
 | `/opt/lilt/data/originals/artwork/` | Accepted manually uploaded artwork bytes, addressed by SHA-256 |
 | `/opt/lilt/data/uploads/` | Durable incomplete audio upload files |
@@ -42,7 +42,7 @@ The same application-owned Nginx source is installed on `nas`, `ali` and `vps`. 
 
 Anonymous GET/HEAD is limited to `/lilt/favicon.svg`, `/lilt/apple-touch-icon.png`, `/lilt/icon-192.png`, `/lilt/icon-512.png` and `/lilt/manifest.webmanifest`. The opaque 180-by-180 Apple icon and manifest icons are generated from retained source by `scripts/icons.sh` on the maintenance Mac and included in the build. `/lilt/sw.js`, application code, business APIs and uploaded media remain authenticated.
 
-Browser queues and offline audio remain device/Origin-local. Clearing browser storage can remove them, and background execution depends on the platform. Server player snapshots permit explicit continuation but do not forcibly stop another device. Real mobile lock-screen playback, Home Screen installation and first-Origin login are device acceptance, separate from HTTP checks.
+Browser queues, progress and offline audio remain device/Origin-local. Clearing browser storage can remove them, and background execution depends on the platform. Same-origin tabs coordinate playback locally. Real mobile lock-screen playback, Home Screen installation and first-Origin login are device acceptance, separate from HTTP checks.
 
 ## Initial NAS Installation
 
