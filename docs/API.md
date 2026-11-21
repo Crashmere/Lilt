@@ -20,7 +20,7 @@ Artist groups split both `Track.artist` and `Track.albumArtist` on ASCII `/`, tr
 
 ## Library and Media
 
-- `GET /api/library` returns `{ tracks, albums, artists, playlists, tags, stats }` for non-deleted tracks. It supports `HEAD` and conditional `If-None-Match` requests with a complete-response ETag; unchanged responses return 304 without JSON. Responses use `private, no-cache`, so every online reuse checks the authenticated server. The validator covers listening statistics and resolved smart playlists as well as track and playlist metadata.
+- `GET /api/library` returns `{ tracks, albums, artists, playlists, tags, stats }` for non-deleted tracks. It supports `HEAD` and conditional `If-None-Match` requests with a complete-response ETag; unchanged responses return 304 without JSON. Gzip negotiation uses `Vary: Accept-Encoding` and a distinct representation ETag; explicit `gzip;q=0` disables it, and Range requests address uncompressed JSON. Responses use `private, no-cache`, so every online reuse checks the authenticated server. The validator covers listening statistics and resolved smart playlists as well as track and playlist metadata.
 - `GET /api/tracks` returns `{ tracks }`, with optional `q`, `favorite`, `tag`, `album`, `artist`, `trash` filters. With `trash=true` or `trash=1`, it also returns `playlists`: ordinary playlists with `trackIds` resolved against all trashed tracks, preserving their retained membership. Smart playlists apply only to the active library and are omitted from this field.
 - `GET /api/tracks/{id}` returns `{ track }`, including `lyricsText`.
 - `GET /api/tracks/{id}/lyrics` returns `{ lyricsText, updatedAt, lyricsVersion }` directly from the catalog without waiting for the audio/upload write lock or probing legacy audio tags. Empty lyrics return an empty string; a missing track returns 404. `lyricsVersion` changes only with the text, independently of favorites or other metadata.
@@ -33,7 +33,7 @@ Artist groups split both `Track.artist` and `Track.albumArtist` on ASCII `/`, tr
 - `GET /api/artists/{id}` returns `{ artist, tracks, albums }`.
 - `GET /api/export` downloads catalog metadata, playlists and listening history as JSON; it is a portability export, not a backup/restore service.
 
-Cover URLs include an independent `v` derived from the display file's nanosecond modification time and size. GET/HEAD responses carry that version as their ETag. A matching `v` permits one day of private HTTP caching; missing or outdated versions require revalidation. Favorites and metadata edits that preserve the display file preserve its URL.
+Cover URLs include an independent `v` derived from the display file's nanosecond modification time and size. Optional `size=160|480` selects a non-upscaled JPEG thumbnail for small rows or larger artwork; omitting it retains the display image. Thumbnails use the installed single-threaded libvips runtime and a 16 MiB process-memory cache without adding persistent files or catalog records. GET/HEAD responses carry a version-and-size ETag. A matching `v` permits one day of private HTTP caching; missing or outdated versions require revalidation. Favorites and metadata edits that preserve the display file preserve its URL.
 
 ## Application Shell
 

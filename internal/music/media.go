@@ -68,7 +68,12 @@ func (b *boundedBuffer) Write(p []byte) (int, error) {
 }
 
 func runMedia(ctx context.Context, name string, args ...string) ([]byte, error) {
+	return runMediaWithFiles(ctx, nil, name, args...)
+}
+
+func runMediaWithFiles(ctx context.Context, files []*os.File, name string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.ExtraFiles = files
 	out := &boundedBuffer{limit: 4 << 20}
 	log := &boundedBuffer{limit: 64 << 10}
 	cmd.Stdout = out

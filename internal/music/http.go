@@ -36,6 +36,9 @@ type server struct {
 	chunks        chan struct{}
 	libraryMu     sync.Mutex
 	libraryCache  librarySnapshot
+	thumbnailMu   sync.Mutex
+	thumbnails    map[string][]byte
+	thumbnailSize int
 	assetETags    map[string]string
 	shellManifest []byte
 }
@@ -255,8 +258,18 @@ func (s *server) library(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "private, no-cache")
-	w.Header().Set("ETag", snapshot.etag)
-	http.ServeContent(w, r, "library.json", time.Time{}, bytes.NewReader(snapshot.body))
+	w.Header().Set("Vary", "Accept-Encoding")
+	body := snapshot.body
+	etag := snapshot.etag
+	// Range addresses the identity representation; encoded variants have distinct validators.
+	if r.Header.Get("Range") == "" && acceptsGzip(r.Header.Get("Accept-Encoding")) {
+		body = snapshot.gzipBody
+		etag = strings.TrimSuffix(etag, `"`) + `-gzip"`
+		w.Header().Set("Content-Encoding", "gzip")
+	}
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+	http.ServeContent(w, r, "library.json", time.Time{}, bytes.NewReader(body))
 }
 
 func (s *server) tracks(w http.ResponseWriter, r *http.Request) {
@@ -471,13 +484,30 @@ func (s *server) cover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	version := coverVersion(info)
+	var thumbnail []byte
+	size := r.URL.Query().Get("size")
+	if size == "160" || size == "480" {
+		thumbnail, err = s.coverThumbnail(r.Context(), file, version, size)
+		if err != nil {
+			apiError(w, err)
+			return
+		}
+	}
 	w.Header().Set("Content-Type", "image/jpeg")
-	w.Header().Set("ETag", strconv.Quote(version))
+	etag := version
+	if thumbnail != nil {
+		etag += "-" + size
+	}
+	w.Header().Set("ETag", strconv.Quote(etag))
 	w.Header().Set("Cache-Control", "private, no-cache")
 	if r.URL.Query().Get("v") == version {
 		w.Header().Set("Cache-Control", "private, max-age=86400")
 	}
-	http.ServeContent(w, r, "cover.jpg", info.ModTime(), file)
+	if thumbnail != nil {
+		http.ServeContent(w, r, "cover.jpg", time.Time{}, bytes.NewReader(thumbnail))
+	} else {
+		http.ServeContent(w, r, "cover.jpg", info.ModTime(), file)
+	}
 }
 
 func (s *server) replaceCover(w http.ResponseWriter, r *http.Request) {

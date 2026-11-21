@@ -64,7 +64,7 @@ export function ArtistBrowser({ library, artistId, query, tag, loading, onSelect
         </header>
         {library.tags.length > 0 && <div className="library-tools"><div className="tag-filters"><Pill active={!tag} onClick={() => onTag('')}>全部</Pill>{library.tags.map(item => <Pill key={item} active={tag === item} onClick={() => onTag(tag === item ? '' : item)}>{item}</Pill>)}</div></div>}
         {groups.map(({ album, tracks }) => <article className="artist-album" key={album.id}>
-          <Artwork url={album.coverUrl} title={album.title} className="artist-album-cover" />
+          <Artwork url={album.coverUrl} title={album.title} className="artist-album-cover" size={480} />
           <div className="artist-album-content">
             <header className="artist-album-heading">
               <div><div className="artist-album-title"><h2>{album.title || '未命名专辑'}</h2><button className="icon-button album-page-link" aria-label={`查看专辑 ${album.title}`} title="查看专辑" onClick={() => onOpenAlbum(album)}><svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true" focusable="false"><path d="M6.5 3.75 11.75 9 6.5 14.25" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg></button></div><p>{album.year || '年份未填写'} · {tracks.length} 首</p></div>

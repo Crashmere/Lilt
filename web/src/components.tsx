@@ -8,10 +8,11 @@ import { AlbumLink, TrackCredits, type CollectionNavigation } from './track-link
 import { duration } from './utils';
 import { useReorder, type Reorder } from './reorder';
 
-export function Artwork({ url, title, className = '' }: { url?: string; title?: string; className?: string }) {
+export function Artwork({ url, title, className = '', size = 160 }: { url?: string; title?: string; className?: string; size?: 160 | 480 }) {
   const [failed, setFailed] = useState('');
+  const thumbnail = url?.startsWith('/lilt/api/tracks/') ? `${url}${url.includes('?') ? '&' : '?'}size=${size}` : url;
   return <div className={`artwork ${className}`}>
-    {url && failed !== url ? <img src={url} alt={title || ''} loading="lazy" draggable={false} onError={() => setFailed(url)} /> : <div className="artwork-empty"><Disc3 strokeWidth={1} /></div>}
+    {thumbnail && failed !== thumbnail ? <img src={thumbnail} alt={title || ''} loading="lazy" decoding="async" fetchPriority="low" draggable={false} onError={() => setFailed(thumbnail)} /> : <div className="artwork-empty"><Disc3 strokeWidth={1} /></div>}
   </div>;
 }
 
@@ -30,7 +31,7 @@ export function Empty({ title, text, children }: { title: string; text?: string;
 
 export function AlbumCards({ albums, onOpen, onPlay }: { albums: Album[]; onOpen: (album: Album) => void; onPlay: (ids: string[]) => void }) {
   return <div className="album-grid">{albums.map(album => <article className="album-card" key={album.id}>
-    <div className="album-art"><button className="art-open" onClick={() => onOpen(album)} aria-label={`查看专辑 ${album.title}`}><Artwork url={album.coverUrl} title={album.title} /></button><button className="art-play" onClick={() => onPlay(album.trackIds)} aria-label={`播放专辑 ${album.title}`}><Play size={21} fill="currentColor" /></button></div>
+    <div className="album-art"><button className="art-open" onClick={() => onOpen(album)} aria-label={`查看专辑 ${album.title}`}><Artwork url={album.coverUrl} title={album.title} size={480} /></button><button className="art-play" onClick={() => onPlay(album.trackIds)} aria-label={`播放专辑 ${album.title}`}><Play size={21} fill="currentColor" /></button></div>
     <button className="album-title" onClick={() => onOpen(album)}>{album.title || '未命名专辑'}</button><p>{album.artist || '未知艺术家'}</p><span>{album.year ? `${album.year} · ` : ''}{album.trackCount} 首</span>
   </article>)}</div>;
 }

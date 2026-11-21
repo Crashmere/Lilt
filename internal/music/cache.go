@@ -1,6 +1,8 @@
 package music
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -25,6 +27,7 @@ func coverVersion(info fs.FileInfo) string {
 
 type librarySnapshot struct {
 	body      []byte
+	gzipBody  []byte
 	etag      string
 	revision  uint64
 	expiresAt time.Time
@@ -67,7 +70,15 @@ func (s *server) libraryPayload(ctx context.Context) (librarySnapshot, error) {
 		return librarySnapshot{}, err
 	}
 	body = append(body, '\n')
-	snapshot := librarySnapshot{body: body, etag: contentETag(body), revision: revision, expiresAt: libraryExpiry(library, started)}
+	var compressed bytes.Buffer
+	zip, _ := gzip.NewWriterLevel(&compressed, gzip.BestSpeed)
+	if _, err = zip.Write(body); err != nil {
+		return librarySnapshot{}, err
+	}
+	if err = zip.Close(); err != nil {
+		return librarySnapshot{}, err
+	}
+	snapshot := librarySnapshot{body: body, gzipBody: compressed.Bytes(), etag: contentETag(body), revision: revision, expiresAt: libraryExpiry(library, started)}
 	// A concurrent publication may have changed part of this read. Never retain it
 	// under the newer revision, or let a boundary crossed during the read stay cached.
 	if revision == s.store.libraryRevision.Load() && (snapshot.expiresAt.IsZero() || time.Now().Before(snapshot.expiresAt)) && len(body) <= 8<<20 {
@@ -76,6 +87,34 @@ func (s *server) libraryPayload(ctx context.Context) (librarySnapshot, error) {
 		s.libraryCache = librarySnapshot{}
 	}
 	return snapshot, nil
+}
+
+func acceptsGzip(value string) bool {
+	wildcard := false
+	for _, item := range strings.Split(value, ",") {
+		fields := strings.Split(item, ";")
+		name := strings.TrimSpace(fields[0])
+		if !strings.EqualFold(name, "gzip") && name != "*" {
+			continue
+		}
+		quality := 1.0
+		for _, field := range fields[1:] {
+			key, val, ok := strings.Cut(strings.TrimSpace(field), "=")
+			if ok && strings.EqualFold(key, "q") {
+				q, err := strconv.ParseFloat(val, 64)
+				if err != nil || q < 0 || q > 1 {
+					quality = 0
+				} else {
+					quality = q
+				}
+			}
+		}
+		if strings.EqualFold(name, "gzip") {
+			return quality > 0
+		}
+		wildcard = quality > 0
+	}
+	return wildcard
 }
 
 type shellAsset struct {

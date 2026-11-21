@@ -119,7 +119,7 @@ export function LyricsPanel({ player, onClose, onEdit, onAdjust }: { player: Pla
   return <aside className="side-panel lyrics-panel">
     <header><div><span className="eyebrow">正在播放</span><h2>歌词</h2></div><button className="icon-button" aria-label="关闭歌词" onClick={onClose}><X size={22} /></button></header>
     {player.track ? <>
-      <div className="lyrics-track"><Artwork url={player.track.coverUrl} /><h3>{player.track.title}</h3><p>{player.track.artist}</p></div>
+      <div className="lyrics-track"><Artwork url={player.track.coverUrl} size={480} /><h3>{player.track.title}</h3><p>{player.track.artist}</p></div>
       {lyrics.lines.length > 0 && <div className="lyrics-offset" aria-busy={savingId === player.trackId}>
         <button disabled={!!savingId} onClick={() => { void adjust(-0.5); }}>提前 0.5 秒</button>
         <span role="status">{savingId === player.trackId ? '保存中…' : `${lyrics.offset > 0 ? '+' : ''}${lyrics.offset.toFixed(1)} 秒`}</span>

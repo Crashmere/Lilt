@@ -39,6 +39,7 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   const [loading, setLoading] = useState(false);
   const [playRequested, setPlayRequested] = useState(false);
   const [bufferedEnd, setBufferedEnd] = useState(0);
+  const [lyricsNextId, setLyricsNextId] = useState('');
   const [failure, setFailure] = useState('');
   const [conflict, setConflict] = useState(false);
   const tabId = useRef(identity());
@@ -58,7 +59,7 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   const nextId = snapshot.repeat === 'one' ? '' : snapshot.queueIds[snapshot.queueIndex + 1] || (snapshot.repeat === 'all' && !snapshot.shuffle ? snapshot.queueIds[0] : '');
   const nextTrack = tracks.find(item => item.id === nextId && item.id !== trackId);
   const lyrics = useLyrics(track);
-  useLyrics(nextTrack);
+  useLyrics(nextTrack?.id === lyricsNextId ? nextTrack : undefined);
 
   function clearWarm(): void {
     const prepared = warm.current;
@@ -79,11 +80,13 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
     const ahead = end - audio.currentTime;
     if (!intent.current.play || audio.seeking || audio.readyState < 3 || !complete && ahead < PREFETCH_STOP) prefetching.current = false;
     else if (complete || ahead >= PREFETCH_START) prefetching.current = true;
+    setLyricsNextId(prefetching.current ? nextTrack?.id || '' : '');
     if (prefetching.current && !warm.current && nextTrack?.audioVersion && nextTrack.size <= 128 * 1024 * 1024) {
       const standby = audio === primaryAudio.current ? secondaryAudio.current : primaryAudio.current;
       if (standby) warm.current = { trackId: nextTrack.id, url: streamURL(nextTrack, true), audio: standby };
     }
-    worker.postMessage({ type: 'lilt-audio-state', current: source.current.url, next: warm.current?.url || '', prefetch: prefetching.current, playing: intent.current.play, fill: source.current.fill });
+    worker.postMessage({ type: 'lilt-audio-state', current: source.current.url, next: warm.current?.url || '', prefetch: prefetching.current, playing: intent.current.play,
+      ahead, complete, seeking: audio.seeking || audio.readyState < 3, rate: track && track.duration > 0 ? track.size / track.duration : 0 });
     if (warm.current && !warm.current.audio.getAttribute('src')) {
       warm.current.audio.preload = 'auto'; warm.current.audio.src = warm.current.url; warm.current.audio.load();
     }
@@ -139,7 +142,8 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
     setLoading(true);
     audio.volume = snapshot.volume;
     audio.preload = autoplay ? 'auto' : 'metadata';
-    navigator.serviceWorker?.controller?.postMessage({ type: 'lilt-audio-state', current: url, next: '', prefetch: false, playing: autoplay, fill: autoplay });
+    navigator.serviceWorker?.controller?.postMessage({ type: 'lilt-audio-state', current: url, next: '', prefetch: false, playing: autoplay, ahead: 0, seeking: autoplay,
+      rate: nextTrack.duration > 0 ? nextTrack.size / nextTrack.duration : 0 });
     if (!prepared) { audio.src = url; audio.load(); }
     if (autoplay) tryPlay();
   }
