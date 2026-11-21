@@ -502,3 +502,29 @@
   .library-filter-footer{padding:13px 16px}
 }
 @media(max-width:360px){.library-filter-grid{grid-template-columns:minmax(0,1fr)}}
+
+.filter-table-scroll{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;padding-bottom:6px}
+.filter-table-content{min-width:calc(680px + 140px * var(--filter-column-count))}
+.track-list.filtering .track-heading,.track-list.filtering .track-row{grid-template-columns:22px 26px minmax(180px,1.5fr) minmax(100px,1fr) minmax(125px,1fr) repeat(var(--filter-column-count),minmax(130px,1fr)) 45px 64px;gap:10px}
+.track-list.filtering .track-row>*{grid-column:auto;grid-row:1}
+.track-list.filtering .track-heading>.album-cell,.track-list.filtering .track-row>.album-cell,.track-list.filtering .track-heading>.playlist-cell{display:block}
+.track-list.filtering .track-row>.playlist-cell{display:block;padding-left:0}
+.track-list.filtering .track-row>.playlist-cell::before{display:none}
+.filter-column-heading,.filter-column-value{min-width:0;padding-left:12px;border-left:1px solid var(--line)}
+.filter-column-heading{font-size:11px;color:var(--accent)}
+.filter-column-value{font-size:11px;color:#6e7463;line-height:1.6;overflow-wrap:anywhere}
+@media(max-width:740px){
+  .filter-table-content{min-width:calc(295px + 140px * var(--filter-column-count))}
+  .track-list.filtering .track-heading,.track-list.filtering .track-row{grid-template-columns:minmax(170px,1fr) repeat(var(--filter-column-count),minmax(125px,1fr)) 35px 60px}
+  .track-list.filtering.selecting .track-heading,.track-list.filtering.selecting .track-row{grid-template-columns:22px minmax(170px,1fr) repeat(var(--filter-column-count),minmax(125px,1fr)) 35px 60px}
+  .track-list.filtering .track-heading>.album-cell,.track-list.filtering .track-row>.album-cell,.track-list.filtering .track-heading>.playlist-cell{display:none}
+  .track-list.filtering .track-row>.track-name{grid-column:1}
+  .track-list.filtering.selecting .track-row>.check-cell{grid-column:1;grid-row:1}
+  .track-list.filtering.selecting .track-row>.track-name{grid-column:2}
+  .track-list.filtering .track-row>.time-cell{grid-column:-3}
+  .track-list.filtering .track-row>.track-actions{grid-column:-2}
+  .track-list.filtering .track-row>.playlist-cell{display:flex;grid-row:2;grid-column:1/-1;padding-left:50px}
+  .track-list.filtering.selecting .track-row>.playlist-cell{grid-column:2/-1}
+  .track-list.filtering .track-row>.playlist-cell::before{display:block}
+  .filter-column-value{font-size:12px}
+}

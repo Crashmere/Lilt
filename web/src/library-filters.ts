@@ -1,5 +1,5 @@
 import type { Track } from './types';
-import { normalize } from './utils';
+import { duration, normalize } from './utils';
 
 export const TEXT_FILTERS = [
   { key: 'title', label: '曲名' }, { key: 'artist', label: '艺术家' },
@@ -29,6 +29,23 @@ type TextKey = typeof TEXT_FILTERS[number]['key'];
 type RangeKey = typeof RANGE_FILTERS[number]['from' | 'to'];
 export type LibraryFilters = Record<TextKey | RangeKey | PresenceStateKey | 'tag' | 'format' | 'sampleRate' | 'bitDepth' | 'channels' | 'favorite' | 'lyrics' | 'cover' | 'playlists', string>;
 
+type ColumnKey = TextKey | typeof RANGE_FILTERS[number]['key'] | 'tag' | 'format' | 'sampleRate' | 'bitDepth' | 'channels' | 'favorite' | 'lyrics' | 'cover' | 'playlists';
+export type FilterColumn = { key: ColumnKey; label: string; value: (track: Track, playlistCount: number) => string };
+
+const FILTER_COLUMNS: FilterColumn[] = [
+  ...TEXT_FILTERS.map(({ key, label }) => ({ key, label, value: (track: Track) => track[key]?.trim() || '未填写' })),
+  { key: 'tag', label: '标签', value: track => track.tags?.filter(tag => tag.trim()).join('、') || '无标签' },
+  ...RANGE_FILTERS.map(({ key, label }) => ({ key, label, value: (track: Track) => key === 'duration' ? duration(track.duration) : track[key] ? `${track[key]}${key === 'bpm' ? ' BPM' : ''}` : '未填写' })),
+  { key: 'format', label: '音频编码', value: track => track.format.toUpperCase() },
+  { key: 'sampleRate', label: '采样率', value: track => `${track.sampleRate / 1000} kHz` },
+  { key: 'bitDepth', label: '位深', value: track => track.bitDepth ? `${track.bitDepth} bit` : '未提供' },
+  { key: 'channels', label: '声道', value: track => track.channels === 1 ? '单声道' : track.channels === 2 ? '立体声' : `${track.channels} 声道` },
+  { key: 'favorite', label: '收藏', value: track => track.favorite ? '已收藏' : '未收藏' },
+  { key: 'lyrics', label: '歌词', value: track => track.hasLyrics ? '有歌词' : '无歌词' },
+  { key: 'cover', label: '封面', value: track => track.coverUrl ? '有封面' : '无封面' },
+  { key: 'playlists', label: '歌单归属', value: (_track, count) => `${count} 个` },
+];
+
 export const EMPTY_FILTERS: LibraryFilters = {
   title: '', artist: '', album: '', albumArtist: '', genre: '', version: '', composer: '', lyricist: '', tag: '',
   yearFrom: '', yearTo: '', bpmFrom: '', bpmTo: '', durationFrom: '', durationTo: '',
@@ -47,11 +64,18 @@ function hasPresence(filters: LibraryFilters, key: string): boolean {
   return !!(stateKey && filters[stateKey]);
 }
 
-export function filterCount(filters: LibraryFilters): number {
-  return TEXT_FILTERS.filter(({ key }) => hasPresence(filters, key) || filters[key].trim()).length
-    + RANGE_FILTERS.filter(({ key, from, to }) => hasPresence(filters, key) || filters[from] || filters[to]).length
-    + (['tag', 'format', 'sampleRate', 'bitDepth', 'channels', 'favorite', 'lyrics', 'cover', 'playlists'] as const).filter(key => hasPresence(filters, key) || filters[key]).length;
+export function activeFilterColumns(filters: LibraryFilters): FilterColumn[] {
+  return FILTER_COLUMNS.filter(({ key }) => {
+    if (hasPresence(filters, key)) return true;
+    if (key === 'year' || key === 'bpm' || key === 'duration') {
+      const range = RANGE_FILTERS.find(field => field.key === key)!;
+      return !!(filters[range.from] || filters[range.to]);
+    }
+    return !!filters[key].trim();
+  });
 }
+
+export function filterCount(filters: LibraryFilters): number { return activeFilterColumns(filters).length; }
 
 export function filterError(filters: LibraryFilters): string {
   for (const { key: field, label, from, to, step } of RANGE_FILTERS) {

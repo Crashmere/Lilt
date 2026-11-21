@@ -4,7 +4,7 @@ import { ApiError, json, messageOf, request, trackURL, API } from './api';
 import { AlbumCards, Artwork, Empty, Modal, Pill, PlaylistCards, TrackPlaylists, TrackTable } from './components';
 import { ArtistBrowser } from './artists';
 import { LibraryFilterModal } from './library-filter-modal';
-import { EMPTY_FILTERS, filterCount, matchesFilters, type LibraryFilters } from './library-filters';
+import { activeFilterColumns, EMPTY_FILTERS, matchesFilters, type LibraryFilters } from './library-filters';
 import { BulkEditor, LyricsPanel, PlayerBar, PlaylistEditor, QueuePanel, TrackEditor, UploadModal } from './panels';
 import { usePlayer } from './player';
 import { indexPlaylistMemberships } from './playlist-memberships';
@@ -135,12 +135,13 @@ export default function App() {
   const joinedPlaylists = playlistTrack ? (playlistTrack.deletedAt ? trashMemberships : playlistMemberships).get(playlistTrack.id) || [] : [];
   const albumActionTracks = (albumActions?.trackIds || []).map(id => library.tracks.find(track => track.id === id)).filter((track): track is Track => !!track);
   let visibleTracks = view.kind === 'favorites' ? library.tracks.filter(item => item.favorite) : view.kind === 'album' ? (album?.trackIds || []).map(id => library.tracks.find(item => item.id === id)).filter((item): item is Track => !!item) : view.kind === 'playlist' ? (playlist?.trackIds || []).map(id => library.tracks.find(item => item.id === id)).filter((item): item is Track => !!item) : library.tracks;
-  const activeFilterCount = filterCount(libraryFilters);
+  const libraryFilterColumns = activeFilterColumns(libraryFilters);
+  const activeFilterCount = libraryFilterColumns.length;
   visibleTracks = visibleTracks.filter(item => matches(item, deferredQuery) && (view.kind === 'library' ? matchesFilters(item, libraryFilters, playlistMemberships.get(item.id)?.length || 0) : !tag || item.tags?.includes(tag)));
   if (!['album', 'playlist'].includes(view.kind)) visibleTracks = [...visibleTracks].sort((a, b) => sort === 'title' ? a.title.localeCompare(b.title, 'zh-CN') : sort === 'artist' ? a.artist.localeCompare(b.artist, 'zh-CN') : sort === 'album' ? a.album.localeCompare(b.album, 'zh-CN') : sort === 'played' ? b.playCount - a.playCount : sort === 'duration' ? b.duration - a.duration : new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime());
   const table = (tracks: Track[], compact = false, onReorder?: (from: number, to: number) => void, albumTracks = false) => {
     if (!tracks.length && view.kind === 'library' && activeFilterCount) return <Empty title="没有匹配的曲目"><button className="button secondary" onClick={() => setFiltersOpen(true)}><SlidersHorizontal size={16} />调整筛选</button></Empty>;
-    return <TrackTable key={`${view.kind}-${view.id || ''}`} tracks={tracks} player={player} favorite={track => { void favorite(track); }} actions={setTrackActions} playlistMemberships={playlistMemberships} showPlaylists={setPlaylistTrack} addToPlaylist={setAddPlaylistIds} bulkEdit={setBulkEditing} compact={compact} albumTracks={albumTracks} onReorder={onReorder} empty={deferredQuery || tag ? '没有匹配的曲目' : '没有曲目'} />;
+    return <TrackTable key={`${view.kind}-${view.id || ''}`} tracks={tracks} player={player} favorite={track => { void favorite(track); }} actions={setTrackActions} playlistMemberships={playlistMemberships} showPlaylists={setPlaylistTrack} addToPlaylist={setAddPlaylistIds} bulkEdit={setBulkEditing} filterColumns={view.kind === 'library' ? libraryFilterColumns : undefined} compact={compact} albumTracks={albumTracks} onReorder={onReorder} empty={deferredQuery || tag ? '没有匹配的曲目' : '没有曲目'} />;
   };
   const openedAlbum = (item: Album) => navigate({ kind: 'album', id: item.id });
   const openedArtist = (item: Artist) => navigate({ kind: 'artist', id: item.id });
