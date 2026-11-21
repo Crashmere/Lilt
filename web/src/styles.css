@@ -443,3 +443,57 @@
   .bulk-footer-actions .button{padding:9px 10px}
   .bulk-save-summary>span{display:block;max-width:110px}
 }
+
+.library-filter-trigger{white-space:nowrap}
+.library-filter-trigger.active{background:var(--accent-soft);border-color:#ddc5ae;color:var(--accent)}
+.library-filter-trigger>small{display:flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 4px;border-radius:4px;background:#ead8c4;font-size:10px;font-variant-numeric:tabular-nums}
+.modal-backdrop:has(.library-filter-modal){padding-bottom:calc(var(--player-height) + 22px)}
+.library-filter-modal{width:640px;max-height:min(820px,calc(100dvh - var(--player-height) - 48px));display:flex;flex-direction:column;overflow:hidden}
+.library-filter-modal>.modal-header{flex:none;position:static;padding:22px 26px 19px}
+.library-filter-modal>form{display:flex;flex-direction:column;min-height:0;outline:none}
+.library-filter-content{min-height:0;overflow-y:auto;padding:0 26px;overscroll-behavior:contain;scrollbar-gutter:stable}
+.library-filter-section{padding:22px 0;border-bottom:1px solid var(--line)}
+.library-filter-section:last-child{border-bottom:0}
+.library-filter-section>h3{display:flex;align-items:center;gap:9px;font-size:13px;font-weight:650;margin-bottom:18px}
+.library-filter-section>h3>svg{color:var(--accent);stroke-width:1.6}
+.library-filter-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 20px}
+.library-filter-field{display:flex;flex-direction:column;min-width:0;gap:8px;border:0;padding:0;margin:0;color:#7f8272;font-size:12px}
+.library-filter-field>legend{display:block;width:100%;padding:0;margin-bottom:8px}
+.library-filter-field>legend>small{float:right;font-size:10px;color:#a0998d}
+.library-filter-field>input,.library-filter-field>select{width:100%;font-size:13px;min-height:39px;background:#fffdf8;padding:9px 11px}
+.library-filter-range>div{display:flex;align-items:center;gap:8px}
+.library-filter-range input{width:100%;min-width:0;font-size:12px;padding:9px 10px;background:#fffdf8;appearance:textfield}
+.library-filter-range input::-webkit-inner-spin-button,.library-filter-range input::-webkit-outer-spin-button{appearance:none;margin:0}
+.library-filter-range>div>span{flex:none;font-size:10px;color:#a0998d}
+.library-filter-choices{display:flex;gap:5px}
+.library-filter-choices>button{flex:1;padding:9px 6px;border:1px solid var(--line);border-radius:6px;background:#f4f1e9;font-size:11px;white-space:nowrap}
+.library-filter-choices>button[aria-pressed=true]{background:var(--accent-soft);border-color:#ddc5ae;color:var(--accent)}
+.library-filter-choices>button:hover{border-color:#cfc2ae}
+.library-filter-footer{flex:none;position:static;padding:16px 26px;gap:16px}
+.library-filter-summary{display:flex;flex-direction:column;gap:4px;min-width:0;font-size:11px;color:#938c7d}
+.library-filter-summary>strong{font-size:13px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.library-filter-actions{display:flex;align-items:center;gap:9px;flex:none}
+.library-filter-actions>.button{font-size:12px;min-height:37px;padding:9px 13px;white-space:nowrap}
+.library-filter-reset{font-size:12px;margin-right:6px;white-space:nowrap}
+@media(max-width:740px){
+  .modal-backdrop:has(.library-filter-modal){padding:12px 12px calc(var(--player-height) + 12px)}
+  .library-filter-modal{max-height:calc(100dvh - var(--player-height) - 24px)}
+  .library-filter-modal>.modal-header{padding:19px 20px 17px}
+  .library-filter-content{padding:0 20px}
+  .library-filter-grid{gap:16px 13px}
+  .library-filter-field{font-size:12px}
+  .library-filter-field>input,.library-filter-field>select,.library-filter-range input{font-size:16px;min-height:42px;padding:9px}
+  .library-filter-range{grid-column:1/-1}
+  .library-filter-choices>button{font-size:11px;min-height:38px;padding:8px 4px}
+  .library-filter-footer{display:grid;grid-template-columns:minmax(0,1fr);padding:14px 20px;gap:12px}
+  .library-filter-summary{flex-direction:row;align-items:baseline;justify-content:space-between}
+  .library-filter-actions{justify-content:flex-end}
+  .library-filter-reset{margin-right:auto}
+  .library-filter-trigger>small{font-size:9px;min-width:16px;height:16px}
+}
+@media(max-width:390px){
+  .library-filter-content{padding:0 16px}
+  .library-filter-section{padding:19px 0}
+  .library-filter-footer{padding:13px 16px}
+}
+@media(max-width:360px){.library-filter-grid{grid-template-columns:minmax(0,1fr)}}
