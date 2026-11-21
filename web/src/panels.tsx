@@ -250,77 +250,6 @@ export function TrackEditor({ track, onClose, onSaved }: { track: Track; onClose
   </form></Modal>;
 }
 
-export function BulkCoverEditor({ album, tracks, onClose, onRefresh, onSaved }: { album: Album; tracks: Track[]; onClose: () => void; onRefresh: () => Promise<void>; onSaved: () => void }) {
-  const [cover, setCover] = useState<File>();
-  const [preview, setPreview] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [error, setError] = useState('');
-  const input = useRef<HTMLInputElement>(null);
-  const completed = useRef(new Set<string>());
-  const running = useRef(false);
-  useEffect(() => {
-    if (!cover) { setPreview(''); return; }
-  const [coverMode, setCoverMode] = useState<BulkMode>('keep');
-  const [cover, setCover] = useState<File>();
-  const [coverPreview, setCoverPreview] = useState('');
-  const coverInput = useRef<HTMLInputElement>(null);
-    const url = URL.createObjectURL(cover); setPreview(url);
-    return () => URL.revokeObjectURL(url);
-  }, [cover]);
-  useEffect(() => {
-    if (!busy) return;
-    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
-    window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
-  }, [busy]);
-  const covers = tracks.filter(track => track.coverUrl).length;
-
-  useEffect(() => {
-    if (!cover) { setCoverPreview(''); return; }
-    const url = URL.createObjectURL(cover); setCoverPreview(url);
-    return () => URL.revokeObjectURL(url);
-  }, [cover]);
-  async function save() {
-    if (!cover || running.current) return;
-    running.current = true; setBusy(true); setError('');
-    let current: Track | undefined;
-    try {
-      for (const track of tracks) {
-        if (completed.current.has(track.id)) continue;
-        current = track;
-        const path = `/tracks/${encodeURIComponent(track.id)}`;
-        const latest = (await request<{ track: Track }>(path)).track;
-        if (latest.deletedAt) throw new Error('曲目已移入回收站，请关闭后重新打开专辑。');
-        const form = new FormData(); form.append('file', cover); form.append('metadata', JSON.stringify({ expectedUpdatedAt: latest.updatedAt }));
-        await request<{ track: Track }>(`${path}/cover`, { method: 'POST', body: form });
-        completed.current.add(track.id); setProgress(completed.current.size);
-      }
-    } catch (error) { setError(`${current ? `「${current.title}」上传失败。` : ''}${messageOf(error)}`); }
-    finally {
-      try { if (completed.current.size) await onRefresh(); }
-      finally { running.current = false; setBusy(false); }
-    if (coverMode === 'set' && !cover) { setError('请选择封面图片，或选择「保持原封面」。'); return; }
-    }
-    if (completed.current.size === tracks.length) { onSaved(); onClose(); }
-  }
-  const close = () => { if (!running.current) onClose(); };
-  return <Modal title="批量上传封面" onClose={close}><form onSubmit={event => { event.preventDefault(); void save(); }}>
-    <div className="modal-body">
-      <div className="editor-cover"><Artwork url={preview || album.coverUrl} /><div><strong>{album.title}</strong><p>将替换专辑内 {tracks.length} 首曲目的封面</p><button type="button" className="button secondary" disabled={busy} onClick={() => input.current?.click()}>{cover ? '更换图片' : '选择图片'}</button>{cover && <span className="file-selected">{cover.name}</span>}</div></div>
-      <input hidden type="file" ref={input} accept="image/png,image/jpeg,image/gif,image/webp" onChange={event => {
-        const file = event.target.files?.[0]; event.target.value = '';
-        if (!file || running.current) return;
-        if (!file.size) { setError('请选择有效封面图片'); return; }
-        setCover(file); completed.current.clear(); setProgress(0); setError('');
-      }} />
-      {(busy || progress > 0) && <div className="bulk-progress"><div className="upload-meter" role="progressbar" aria-label="封面上传进度" aria-valuemin={0} aria-valuemax={tracks.length} aria-valuenow={progress}><i style={{ width: `${progress / tracks.length * 100}%` }} /></div><span>已完成 {progress}/{tracks.length} 首</span></div>}
-      {error && <p className="error-text" role="alert">{error}</p>}
-    </div>
-    <footer className="modal-footer"><span>{progress && error ? '已完成的封面保留，继续上传未完成曲目' : 'PNG / JPEG / GIF / WebP'}</span><div className="editor-footer-actions"><button type="button" className="button secondary" disabled={busy} onClick={close}>取消</button><button type="submit" className="button primary" disabled={busy || !cover || !tracks.length}>{busy ? '上传中…' : progress && error ? '继续上传' : '上传并替换'}</button></div></footer>
-  </form></Modal>;
-}
-
 const bulkFields = [['artist', '艺术家'], ['album', '专辑'], ['albumArtist', '专辑艺术家'], ['genre', '风格'], ['year', '年份']] as const;
 type BulkField = typeof bulkFields[number][0];
 type BulkMode = 'keep' | 'set' | 'clear';
@@ -332,6 +261,10 @@ export function BulkEditor({ tracks, onClose, onRefresh, onSaved }: { tracks: Tr
   });
   const [tagMode, setTagMode] = useState<'keep' | 'append' | 'replace' | 'clear'>('keep');
   const [tagsText, setTagsText] = useState('');
+  const [coverMode, setCoverMode] = useState<BulkMode>('keep');
+  const [cover, setCover] = useState<File>();
+  const [coverPreview, setCoverPreview] = useState('');
+  const coverInput = useRef<HTMLInputElement>(null);
   const [selectionOpen, setSelectionOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -341,6 +274,13 @@ export function BulkEditor({ tracks, onClose, onRefresh, onSaved }: { tracks: Tr
   const changed = bulkFields.filter(([key]) => modes[key] !== 'keep').length + (tagMode !== 'keep' ? 1 : 0) + (coverMode !== 'keep' ? 1 : 0);
   const locked = busy || progress > 0;
   const tags = [...new Set(tagsText.split(/[,，\n]/).map(value => value.trim()).filter(Boolean))];
+  const covers = tracks.filter(track => track.coverUrl).length;
+
+  useEffect(() => {
+    if (!cover) { setCoverPreview(''); return; }
+    const url = URL.createObjectURL(cover); setCoverPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [cover]);
 
   useEffect(() => {
     if (!busy) return;
@@ -349,19 +289,6 @@ export function BulkEditor({ tracks, onClose, onRefresh, onSaved }: { tracks: Tr
     return () => window.removeEventListener('beforeunload', warn);
   }, [busy]);
 
-          <div className="bulk-field bulk-cover-field" data-mode={coverMode}>
-            <div className="bulk-field-heading"><div><span className="bulk-field-label">封面</span><p>{covers ? `${covers} / ${tracks.length} 首有封面` : '无封面'}</p></div>
-              <select aria-label="封面修改方式" value={coverMode} onChange={event => { setCoverMode(event.target.value as BulkMode); setError(''); }}><option value="keep">保持原封面</option><option value="set">更换封面</option><option value="clear">移除封面</option></select>
-            </div>
-            {coverMode === 'set' && <div className="bulk-cover-editor"><Artwork url={coverPreview} /><div><button type="button" className="button secondary" onClick={() => coverInput.current?.click()}><ImagePlus size={15} />{cover ? '更换图片' : '选择图片'}</button>{cover && <p className="bulk-cover-filename">{cover.name}</p>}<p className="bulk-cover-note">{cover ? `将替换所选 ${tracks.length} 首曲目的封面` : 'PNG / JPEG / GIF / WebP'}</p></div></div>}
-            <input hidden type="file" ref={coverInput} aria-label="选择批量封面图片" accept="image/png,image/jpeg,image/gif,image/webp" onChange={event => {
-              const file = event.target.files?.[0]; event.target.value = '';
-              if (!file || locked) return;
-              if (!file.size) { setError('请选择有效封面图片'); return; }
-              setCover(file); setError('');
-            }} />
-            {coverMode === 'clear' && <p className="bulk-clear-note">所选曲目的封面将被移除</p>}
-          </div>
   function close() {
     if (!running.current && (!changed || progress === tracks.length || window.confirm(progress ? `已保存 ${progress} 首曲目。退出后，其余曲目将不再修改。` : '放弃未保存的修改？'))) onClose();
   }
@@ -373,6 +300,7 @@ export function BulkEditor({ tracks, onClose, onRefresh, onSaved }: { tracks: Tr
 
   async function save() {
     if (running.current || !changed || !tracks.length) return;
+    if (coverMode === 'set' && !cover) { setError('请选择封面图片，或选择「保持原封面」。'); return; }
     const year = Number(values.year || 0);
     if (modes.year === 'set' && (!Number.isInteger(year) || year < 1 || year > 9999)) { setError('年份应为 1 至 9999 的整数；移除年份请选择「清空」。'); return; }
     for (const [key, label] of bulkFields) {
@@ -421,6 +349,19 @@ export function BulkEditor({ tracks, onClose, onRefresh, onSaved }: { tracks: Tr
       <div className="bulk-edit-fields">
         <header className="bulk-edit-intro"><h3>修改信息</h3><p>未修改的字段保留原值</p></header>
         <fieldset disabled={locked}>
+          <div className="bulk-field bulk-cover-field" data-mode={coverMode}>
+            <div className="bulk-field-heading"><div><span className="bulk-field-label">封面</span><p>{covers ? `${covers} / ${tracks.length} 首有封面` : '无封面'}</p></div>
+              <select aria-label="封面修改方式" value={coverMode} onChange={event => { setCoverMode(event.target.value as BulkMode); setError(''); }}><option value="keep">保持原封面</option><option value="set">更换封面</option><option value="clear">移除封面</option></select>
+            </div>
+            {coverMode === 'set' && <div className="bulk-cover-editor"><Artwork url={coverPreview} /><div><button type="button" className="button secondary" onClick={() => coverInput.current?.click()}><ImagePlus size={15} />{cover ? '更换图片' : '选择图片'}</button>{cover && <p className="bulk-cover-filename">{cover.name}</p>}<p className="bulk-cover-note">{cover ? `将替换所选 ${tracks.length} 首曲目的封面` : 'PNG / JPEG / GIF / WebP'}</p></div></div>}
+            <input hidden type="file" ref={coverInput} aria-label="选择批量封面图片" accept="image/png,image/jpeg,image/gif,image/webp" onChange={event => {
+              const file = event.target.files?.[0]; event.target.value = '';
+              if (!file || locked) return;
+              if (!file.size) { setError('请选择有效封面图片'); return; }
+              setCover(file); setError('');
+            }} />
+            {coverMode === 'clear' && <p className="bulk-clear-note">所选曲目的封面将被移除</p>}
+          </div>
           {bulkFields.map(([key, label]) => <div className="bulk-field" data-mode={modes[key]} key={key}>
             <div className="bulk-field-heading"><div><label htmlFor={`bulk-${key}`}>{label}</label><p title={[...new Set(tracks.map(track => String(track[key] || '未填写')))].join('、')}>{currentValue(key)}</p></div>
               <select aria-label={`${label}修改方式`} value={modes[key]} onChange={event => { setModes(old => ({ ...old, [key]: event.target.value as BulkMode })); setError(''); }}><option value="keep">保持原值</option><option value="set">修改为</option><option value="clear">{key === 'artist' || key === 'album' || key === 'albumArtist' ? '重置' : '清空'}</option></select>
