@@ -21,7 +21,7 @@ done
 if id lilt >/dev/null 2>&1 || id lilt-deploy >/dev/null 2>&1; then echo 'Account already exists.' >&2; exit 1; fi
 test -f "$binary"
 [[ -x /opt/serverportal/bin/portal && -f /opt/server-context/scripts/upgrade-state.py ]]
-for tool in ffmpeg ffprobe jq curl ss nginx ssh-keygen visudo; do command -v "$tool" >/dev/null; done
+for tool in ffmpeg ffprobe vips jq curl ss nginx ssh-keygen visudo; do command -v "$tool" >/dev/null; done
 ssh-keygen -l -f "$public_key" >/dev/null
 if [[ $(wc -l < "$public_key") -ne 1 ]] || ! grep -q '^ssh-ed25519 ' "$public_key"; then
   echo 'Expected one Ed25519 public key.' >&2

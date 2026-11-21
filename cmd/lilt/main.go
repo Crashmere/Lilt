@@ -65,7 +65,7 @@ func run() error {
 	if command != "serve" {
 		return fmt.Errorf("unknown command: %s", command)
 	}
-	for _, name := range []string{"ffprobe", "ffmpeg"} {
+	for _, name := range []string{"ffprobe", "ffmpeg", "vips"} {
 		if _, err := exec.LookPath(name); err != nil {
 			return fmt.Errorf("required media tool %s is not available: %w", name, err)
 		}

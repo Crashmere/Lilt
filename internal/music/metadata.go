@@ -67,7 +67,7 @@ func (s *Store) editTrack(ctx context.Context, id string, p TrackPatch, cover io
 	}
 	stagedCover := ""
 	if cover != nil {
-		stagedCover, err = s.prepareCover(cover)
+		stagedCover, err = s.prepareCover(ctx, cover)
 		if err != nil {
 			return Track{}, err
 		}

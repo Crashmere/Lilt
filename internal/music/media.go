@@ -326,10 +326,17 @@ func (s *Store) extractCover(ctx context.Context, path, trackID string, index in
 	return syncDir(dir) == nil
 }
 
-func (s *Store) prepareCover(reader io.Reader) (string, error) {
-	// Inspect dimensions before decoding, without buffering the entire upload in memory.
-	source, seekable := reader.(io.ReadSeeker)
-	if !seekable {
+func (s *Store) prepareCover(ctx context.Context, reader io.Reader) (string, error) {
+	// Reuse the HTTP upload spool; libvips reads large images without a full Go-heap decode.
+	source, fileInput := reader.(*os.File)
+	if fileInput {
+		position, err := source.Seek(0, io.SeekCurrent)
+		if err != nil {
+			return "", err
+		}
+		fileInput = position == 0
+	}
+	if !fileInput {
 		temp, err := os.CreateTemp("", "lilt-cover-input-*")
 		if err != nil {
 			return "", err
@@ -344,36 +351,12 @@ func (s *Store) prepareCover(reader io.Reader) (string, error) {
 		}
 		source = temp
 	}
-	start, err := source.Seek(0, io.SeekCurrent)
-	if err != nil {
-		return "", err
-	}
 	config, format, err := image.DecodeConfig(source)
 	if err != nil || (format != "jpeg" && format != "png" && format != "gif" && format != "webp") {
 		return "", fmt.Errorf("请上传 JPEG、PNG、GIF 或 WebP 封面：%w", ErrInvalid)
 	}
-	if config.Width < 1 || config.Height < 1 || int64(config.Width)*int64(config.Height) > 25_000_000 {
-		return "", fmt.Errorf("封面尺寸过大：%w", ErrInvalid)
-	}
-	if _, err = source.Seek(start, io.SeekStart); err != nil {
-		return "", err
-	}
-	img, _, err := image.Decode(source)
-	if err != nil {
-		return "", fmt.Errorf("无法读取封面：%w", ErrInvalid)
-	}
-	width, height := config.Width, config.Height
-	if width > 1600 || height > 1600 {
-		ratio := math.Min(1600/float64(width), 1600/float64(height))
-		w, h := max(1, int(float64(width)*ratio)), max(1, int(float64(height)*ratio))
-		scaled := image.NewRGBA(image.Rect(0, 0, w, h))
-		bounds := img.Bounds()
-		for y := 0; y < h; y++ {
-			for x := 0; x < w; x++ {
-				scaled.Set(x, y, img.At(bounds.Min.X+x*width/w, bounds.Min.Y+y*height/h))
-			}
-		}
-		img = scaled
+	if config.Width < 1 || config.Height < 1 {
+		return "", fmt.Errorf("封面尺寸无效：%w", ErrInvalid)
 	}
 	dir := filepath.Join(s.dir, "covers")
 	temp, err := os.CreateTemp(dir, ".cover-*.jpg")
@@ -381,22 +364,44 @@ func (s *Store) prepareCover(reader io.Reader) (string, error) {
 		return "", err
 	}
 	name := temp.Name()
-	err = jpeg.Encode(temp, img, &jpeg.Options{Quality: 90})
-	if err == nil {
-		err = temp.Sync()
+	prepared := false
+	defer func() {
+		if !prepared {
+			os.Remove(name)
+		}
+	}()
+	if err = temp.Close(); err != nil {
+		return "", err
 	}
-	closeErr := temp.Close()
+	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	defer cancel()
+	_, err = runMedia(ctx, "vips", "--vips-concurrency=1", "--vips-cache-max=0", "--vips-cache-max-memory=16777216", "--vips-disc-threshold=16777216", "thumbnail", source.Name(), name+"[Q=90,strip]", "1600", "--height=1600", "--size=down", "--fail-on=error")
+	if err != nil {
+		log.Printf("cover normalization failed: %v", err)
+		return "", fmt.Errorf("无法处理封面，请确认图片完整后重试：%w", ErrInvalid)
+	}
+	output, err := os.Open(name)
+	if err != nil {
+		return "", err
+	}
+	img, err := jpeg.Decode(output)
+	if err == nil && (img.Bounds().Dx() < 1 || img.Bounds().Dy() < 1 || img.Bounds().Dx() > 1600 || img.Bounds().Dy() > 1600) {
+		err = fmt.Errorf("cover normalization produced invalid dimensions")
+	}
+	if err == nil {
+		err = output.Sync()
+	}
+	closeErr := output.Close()
 	if err == nil {
 		err = closeErr
 	}
 	if err != nil {
-		os.Remove(name)
 		return "", err
 	}
 	if err = syncDir(dir); err != nil {
-		os.Remove(name)
 		return "", err
 	}
+	prepared = true
 	return name, nil
 }
 
