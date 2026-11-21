@@ -248,3 +248,105 @@
   .playlist-chip{font-size:11px}
   .playlist-memberships{min-width:0}
 }
+
+.artist-main{height:100dvh;min-height:0;display:flex;flex-direction:column;padding-bottom:var(--player-height)}
+.artist-main>.topbar,.artist-main>.status-banner{flex:none}
+.page-content.artist-page{flex:1;min-height:0;width:100%;max-width:none;margin:0;padding:0;animation:none}
+.artist-browser{height:100%;display:grid;grid-template-columns:230px minmax(0,1fr)}
+.artist-directory{display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--line);background:#f0ede5}
+.artist-directory>header{display:flex;align-items:center;justify-content:space-between;padding:25px 21px 20px;border-bottom:1px solid var(--line);flex:none}
+.artist-directory h2{font:600 15px "DM Sans","PingFang SC",sans-serif;letter-spacing:0}
+.artist-directory>header>span{font-size:11px;color:var(--muted)}
+.artist-directory-scroll{overflow-y:auto;padding:10px;flex:1;min-height:0}
+.artist-entry{display:flex;align-items:center;gap:12px;width:100%;padding:12px 10px;border-radius:8px;text-align:left}
+.artist-entry:hover{background:#e8e5db}
+.artist-entry.active{background:var(--accent);color:#fff8f0}
+.artist-entry>.artwork{width:43px}
+.artist-entry>span{min-width:0}
+.artist-entry strong{display:block;font-size:13px;font-weight:600;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.artist-entry small{display:block;font-size:10px;color:var(--muted);margin-top:5px;white-space:nowrap}
+.artist-entry.active small{color:#f4ded0}
+.artist-directory .empty-state{padding:35px 8px}
+.artist-directory .empty-state h3{font-size:12px}
+.artist-directory .empty-state p{font-size:11px}
+.artist-discography{min-width:0;overflow-y:auto;padding:34px 34px 45px;container-type:inline-size}
+.artist-detail-heading{display:flex;align-items:center;justify-content:space-between;gap:18px;padding-bottom:25px;margin-bottom:28px;border-bottom:1px solid var(--line)}
+.artist-detail-heading>div:first-child{min-width:0}
+.artist-detail-heading h1{font-size:36px;overflow-wrap:anywhere}
+.artist-detail-heading p{font-size:11px;color:var(--muted);margin-top:12px}
+.artist-detail-heading .heading-actions{gap:7px;flex:none}
+.artist-discography>.library-tools{margin-top:-8px;margin-bottom:25px}
+.artist-discography .tag-filters{max-width:100%}
+.artist-album{display:grid;grid-template-columns:minmax(160px,230px) minmax(0,1fr);gap:27px;margin-bottom:44px;align-items:start}
+.artist-album:last-child{margin-bottom:0}
+.artist-album-cover{box-shadow:0 8px 24px #24281912}
+.artist-album-content{min-width:0}
+.artist-album-heading{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:16px}
+.artist-album-heading>div{min-width:0}
+.artist-album-heading h2{font:650 21px "DM Sans","PingFang SC",sans-serif;letter-spacing:0;line-height:1.4;overflow-wrap:anywhere}
+.artist-album-heading p{font-size:11px;color:var(--muted);margin-top:7px}
+.artist-album-heading>.icon-button{border-radius:50%;background:#ebe7de;color:var(--accent);width:34px;height:34px}
+.track-list.album-tracks{--track-columns:20px 26px minmax(0,1fr) 42px 62px}
+.album-tracks>.track-heading>.playlist-cell{display:none}
+.album-tracks>.track-row{padding-top:10px;padding-bottom:10px;row-gap:4px;border-bottom:1px solid var(--line);border-radius:0}
+.album-tracks>.track-row>.check-cell{grid-column:1;grid-row:1}
+.album-tracks>.track-row>.number-cell{grid-column:2;grid-row:1}
+.album-tracks>.track-row>.track-name{grid-column:3;grid-row:1}
+.album-tracks>.track-row>.time-cell{grid-column:4;grid-row:1}
+.album-tracks>.track-row>.track-actions{grid-column:5;grid-row:1}
+.album-tracks>.track-row>.playlist-cell{grid-column:3/-1;grid-row:2;padding-left:0;display:flex;align-items:center;gap:7px}
+.album-tracks>.track-row>.playlist-cell::before{content:"歌单";font-size:10px;color:#9aa08d;flex:none}
+.album-tracks .playlist-chips{flex-direction:row}
+.album-tracks .selection-bar{flex-wrap:wrap;gap:7px 13px;padding:8px 10px}
+@container(max-width:700px){
+  .artist-album{display:block}
+  .artist-album-cover{width:140px;float:left;margin:0 20px 20px 0}
+  .artist-album-heading{min-height:140px;padding-top:8px;align-items:flex-start}
+  .artist-album-content>.track-list{clear:both}
+  .artist-detail-heading h1{font-size:30px}
+}
+@media(max-width:1250px){
+  .artist-browser{grid-template-columns:205px minmax(0,1fr)}
+  .artist-discography{padding:28px 26px 40px}
+}
+@media(max-width:980px){
+  .artist-browser{grid-template-columns:180px minmax(0,1fr)}
+  .artist-directory>header{padding:24px 17px 18px}
+  .artist-directory-scroll{padding:8px}
+  .artist-entry{gap:9px;padding:12px 8px}
+  .artist-entry>.artwork{width:35px}
+  .artist-entry strong{font-size:12px}
+  .artist-entry small{font-size:9px}
+  .artist-discography{padding:26px 22px 35px}
+  .artist-detail-heading{flex-wrap:wrap}
+}
+@media(max-width:740px){
+  .artist-browser{display:flex;flex-direction:column}
+  .artist-directory{flex:none;max-height:150px;border-right:0;border-bottom:1px solid var(--line)}
+  .artist-directory>header{padding:14px 22px 0;border:0}
+  .artist-directory-scroll{display:flex;overflow-x:auto;overflow-y:hidden;gap:5px;padding:10px 14px}
+  .artist-entry{flex:none;width:155px;padding:9px 10px}
+  .artist-directory .empty-state{padding:10px;align-items:flex-start;text-align:left;gap:3px}
+  .artist-directory .empty-symbol{display:none}
+  .artist-discography{flex:1;min-height:0;padding:24px 22px 35px}
+  .artist-detail-heading{gap:14px;margin-bottom:24px;padding-bottom:20px}
+  .artist-detail-heading h1{font-size:30px}
+  .artist-detail-heading p{font-size:10px;margin-top:8px}
+  .artist-detail-heading .button{padding:8px 12px;min-height:33px;font-size:11px}
+  .artist-detail-heading .icon-button{width:26px}
+  .artist-album{margin-bottom:34px}
+  .artist-album-cover{width:115px;margin-right:17px}
+  .artist-album-heading{min-height:115px}
+  .artist-album-heading h2{font-size:18px}
+  .artist-album-heading>.icon-button{width:30px;height:30px}
+  .track-list.album-tracks{--track-columns:minmax(0,1fr) 35px 60px}
+  .track-list.album-tracks.selecting{--track-columns:22px minmax(0,1fr) 35px 56px}
+  .album-tracks>.track-row>.track-name{grid-column:1}
+  .album-tracks>.track-row>.time-cell{grid-column:2}
+  .album-tracks>.track-row>.track-actions{grid-column:3}
+  .album-tracks>.track-row>.playlist-cell{grid-column:1/-1}
+  .album-tracks.selecting>.track-row>.track-name{grid-column:2}
+  .album-tracks.selecting>.track-row>.time-cell{grid-column:3}
+  .album-tracks.selecting>.track-row>.track-actions{grid-column:4}
+  .album-tracks.selecting>.track-row>.playlist-cell{grid-column:2/-1}
+}
