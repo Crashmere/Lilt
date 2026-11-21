@@ -9,7 +9,7 @@ Read `docs/README.md`, `docs/API.md` and `docs/OPERATIONS.md` as relevant. Use s
 - Use one SQLite catalog and application-owned data directories. Keep resumable uploads durable, reconcile authoritative offsets and verify the complete SHA-256 before publication.
 - Keep the global player mounted during navigation and data updates. Playlists describe collections; the current queue is an independent snapshot. Restore browser state without automatic audible playback.
 - Share library data and playlists across authorized devices; retain queues and progress in each browser. Same-origin tabs coordinate playback locally.
-- Ordinary browser use is the baseline. Offline caches and system media controls are conditional enhancements; do not claim permanent browser storage or unlimited background execution.
+- Ordinary browser use is the baseline. Audio streams from the server; system media controls and shell caching are conditional enhancements. Do not claim permanent browser storage or unlimited background execution.
 - Block ordinary Tab/Shift+Tab focus traversal and remove focus-only decoration. Preserve text input, carets, selections, IME composition and modifier shortcuts.
 - Product UI is concise Chinese with the English Lilt brand. Do not add decorative explanatory copy, implementation notes, promotional slogans or links/actions returning to ServerPortal. Empty-state and error text must communicate an actionable state.
 - Reuse the shared authentication, restricted release, Portal declaration and icon contracts. Public exceptions are limited to exact brand assets; media and business APIs remain authenticated.

@@ -12,9 +12,9 @@ The application target is `nas`. Authenticated entrances on `ali` and `vps` reac
 - Original audio or separately generated standard/compact AAC playback, with Range-capable streams and original downloads.
 - Owner-supplied covers and plain-text or timestamped lyrics, listening history and portable metadata/playlist exports.
 - Reversible trash and explicit track replacement that retains the logical track's collection state.
-- Optional browser-local offline storage, Home Screen branding and supported system media controls.
+- Home Screen branding and supported system media controls.
 
-Offline storage and background playback depend on the browser and operating system. Restoring a saved queue never starts audible playback automatically.
+Audio playback requires a server connection; audio downloads remain available for use outside Lilt. Background playback depends on the browser and operating system. Restoring a saved queue never starts audible playback automatically.
 
 ## Local Use
 

@@ -18,6 +18,4 @@ export type Upload = { id: string; filename: string; size: number; offset: numbe
 export type HistoryEntry = { id: string; trackId: string; sessionId: string; seconds: number; completed: boolean; playedAt: string; updatedAt: string };
 export type PlayerState = { trackId: string; position: number; queueIds: string[]; queueIndex: number; shuffle: boolean; repeat: 'off' | 'all' | 'one'; volume: number; updatedAt: string };
 export type Quality = 'original' | 'standard' | 'compact';
-export type CacheEntry = { id: string; track: Track; blob: Blob; quality: Quality; bitrate: number; size: number; cachedAt: string };
-export type CacheInfo = Omit<CacheEntry, 'blob'>;
-export type View = { kind: 'home' | 'library' | 'albums' | 'artists' | 'favorites' | 'playlists' | 'history' | 'stats' | 'offline' | 'trash' | 'album' | 'artist' | 'playlist'; id?: string };
+export type View = { kind: 'home' | 'library' | 'albums' | 'artists' | 'favorites' | 'playlists' | 'history' | 'stats' | 'trash' | 'album' | 'artist' | 'playlist'; id?: string };

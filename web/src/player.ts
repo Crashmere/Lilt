@@ -1,6 +1,6 @@
 import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { ApiError, trackURL } from './api';
-import { getCached, peekCached, recordHistory } from './storage';
+import { recordHistory } from './storage';
 import type { PlayerState, Track } from './types';
 import { identity, readLocal, writeLocal } from './utils';
 
@@ -29,30 +29,23 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   const tabId = useRef(identity());
   const intent = useRef({ play: false, position: snapshot.position || 0 });
   const session = useRef<Session>({ id: identity(), trackId: '', seconds: 0, lastPosition: snapshot.position || 0 });
-  const source = useRef({ trackId: '', url: '', objectURL: '' });
+  const source = useRef({ trackId: '', url: '' });
   const initialSeekPending = useRef(false);
   const pendingStart = useRef<{ ids: string[]; index: number; start: number } | null>(null);
   const trackId = snapshot.queueIds[snapshot.queueIndex] || '';
   const track = tracks.find(item => item.id === trackId);
   const queue = snapshot.queueIds.map(id => tracks.find(item => item.id === id)).filter((item): item is Track => !!item);
 
-  function playbackError(id: string): string {
-    if (!navigator.onLine) {
-      const cached = peekCached(id);
-      if (cached && cached.quality !== 'original') return '此曲目未保存原件，请联网后重新保存离线。';
-      if (!cached) return '此歌曲尚未保存到离线列表。';
-    }
+  function playbackError(): string {
+    if (!navigator.onLine) return '当前无法连接，请联网后重试播放。';
     return '原件无法播放，请重试或使用支持该格式的浏览器。';
   }
 
   function prepareSource(nextTrack: Track, start: number, autoplay: boolean): void {
     const audio = audioRef.current;
     if (!audio) return;
-    const entry = !navigator.onLine ? peekCached(nextTrack.id) : undefined;
-    const cached = entry?.quality === 'original' ? entry : undefined;
-    const url = cached ? URL.createObjectURL(cached.blob) : trackURL(nextTrack.id, 'stream?quality=original');
-    if (source.current.objectURL) URL.revokeObjectURL(source.current.objectURL);
-    source.current = { trackId: nextTrack.id, url, objectURL: cached ? url : '' };
+    const url = trackURL(nextTrack.id, 'stream?quality=original');
+    source.current = { trackId: nextTrack.id, url };
     if (session.current.trackId !== nextTrack.id) session.current = { id: identity(), trackId: nextTrack.id, seconds: 0, lastPosition: start };
     intent.current = { play: autoplay, position: start };
     initialSeekPending.current = true;
@@ -62,7 +55,7 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
     audio.src = url;
     audio.load();
     if (autoplay) void audio.play().catch(error => {
-      if (error.name !== 'AbortError' && source.current.url === url) { intent.current.play = false; setLoading(false); notify(playbackError(nextTrack.id)); }
+      if (error.name !== 'AbortError' && source.current.url === url) { intent.current.play = false; setLoading(false); notify(playbackError()); }
     });
   }
 
@@ -72,10 +65,6 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
     writeLocal('lilt.playback-lease', { tabId: tabId.current, updatedAt: Date.now(), playing: true });
     setConflict(false);
     return true;
-  }
-
-  function sourceModeChanged(id: string): boolean {
-    return navigator.onLine ? !!source.current.objectURL : !source.current.objectURL && peekCached(id)?.quality === 'original';
   }
 
   function releaseLease(): void {
@@ -106,7 +95,7 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
     setSnapshot(old => ({ ...old, queueIds, queueIndex: nextIndex, position: start, trackId: queueIds[nextIndex] }));
     setPosition(start);
     session.current = { id: identity(), trackId: queueIds[nextIndex], seconds: 0, lastPosition: start };
-    if (trackId === queueIds[nextIndex] && audioRef.current?.src && !sourceModeChanged(queueIds[nextIndex])) {
+    if (trackId === queueIds[nextIndex] && audioRef.current?.src) {
       audioRef.current.currentTime = start;
       if (autoplay) void audioRef.current.play().catch(() => notify('无法开始播放，请再次点击播放。'));
       else audioRef.current.pause();
@@ -118,13 +107,8 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
     if (!trackId || !audioRef.current?.src) { if (tracks.length) begin(tracks.map(item => item.id), 0, 0, true, takeover); return; }
     if (!claim(takeover)) return;
     if (audioRef.current.ended) { session.current = { id: identity(), trackId, seconds: 0, lastPosition: 0 }; seek(0); }
-    if (track && sourceModeChanged(trackId)) {
-      const start = Number.isFinite(audioRef.current.currentTime) ? audioRef.current.currentTime : position;
-      prepareSource(track, start, true);
-      return;
-    }
     intent.current.play = true;
-    void audioRef.current.play().catch(() => notify(playbackError(trackId)));
+    void audioRef.current.play().catch(() => notify(playbackError()));
   }
   function pause(): void { intent.current.play = false; audioRef.current?.pause(); releaseLease(); persist(); }
   function seek(value: number): void {
@@ -223,7 +207,7 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
     intent.current.play = false;
     audioRef.current?.pause();
     releaseLease();
-    setLoading(false); setPlaying(false); notify(playbackError(trackId));
+    setLoading(false); setPlaying(false); notify(playbackError());
   });
 
   useEffect(() => {
@@ -241,31 +225,20 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
     const abort = new AbortController();
     if (source.current.trackId !== trackId) prepareSource(track, intent.current.position, intent.current.play);
     void (async () => {
-      const currentSource = source.current;
-      if (currentSource.objectURL) return;
-      const url = currentSource.url;
+      const url = source.current.url;
       try {
         if (!navigator.onLine) throw new TypeError('offline');
         const response = await fetch(url, { method: 'HEAD', credentials: 'same-origin', signal: abort.signal });
         if (!response.ok) throw new ApiError(response.status, {}, response.status === 401 ? '设备授权已失效，请重新打开服务。' : '音频暂时无法加载。');
       } catch (error) {
         if (abort.signal.aborted) return;
-        if (error instanceof ApiError && error.status === 401) { audio.pause(); throw error; }
-        const cached = await getCached(trackId).catch(() => undefined);
-        if (cancelled) return;
-        if (cached && cached.quality !== 'original') throw new Error('此曲目未保存原件，请联网后重新保存离线。');
-        if (!cached) throw error;
-        const objectURL = URL.createObjectURL(cached.blob);
-        if (source.current.objectURL) URL.revokeObjectURL(source.current.objectURL);
-        source.current = { ...currentSource, url: objectURL, objectURL };
-        initialSeekPending.current = true;
-        audio.src = objectURL; audio.load();
-        if (intent.current.play) void audio.play().catch(() => notify('点击播放以继续。'));
+        if (error instanceof ApiError && error.status === 401) audio.pause();
+        throw error;
       }
       if ('mediaSession' in navigator) {
         navigator.mediaSession.metadata = new MediaMetadata({ title: track.title, artist: track.artist, album: track.album, artwork: track.coverUrl ? [{ src: new URL(track.coverUrl, location.origin).href }] : [] });
       }
-    })().catch(error => { if (!cancelled) { setLoading(false); notify(error instanceof Error && error.message !== 'offline' ? error.message : '此歌曲尚未保存到离线列表。'); } });
+    })().catch(error => { if (!cancelled) { setLoading(false); notify(error instanceof ApiError ? error.message : '音频暂时无法加载，请检查连接后重试。'); } });
     return () => { cancelled = true; abort.abort(); };
   }, [trackId, !!track, sourceVersion]);
 
@@ -302,7 +275,6 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
     window.addEventListener('pagehide', leave);
     return () => { clearInterval(tick); clearInterval(historyTick); window.removeEventListener('storage', onStorage); window.removeEventListener('pagehide', leave); };
   }, []);
-  useEffect(() => () => { if (source.current.objectURL) URL.revokeObjectURL(source.current.objectURL); }, []);
   useEffect(() => { persist(); }, [snapshot]);
   useEffect(() => {
     if (!track || !('mediaSession' in navigator)) return;

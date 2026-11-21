@@ -1,16 +1,15 @@
 import { request } from './api';
-import type { CacheEntry, CacheInfo, HistoryEntry, Library } from './types';
+import type { HistoryEntry, Library } from './types';
 import { readLocal, writeLocal } from './utils';
 
 const database = new Promise<IDBDatabase>((resolve, reject) => {
-  if (!globalThis.indexedDB) { reject(new Error('此浏览器无法保存离线音乐。')); return; }
+  if (!globalThis.indexedDB) { reject(new Error('此浏览器无法保存音乐库信息。')); return; }
   const open = indexedDB.open('lilt-browser', 1);
-  open.onupgradeneeded = () => { open.result.createObjectStore('music', { keyPath: 'id' }); open.result.createObjectStore('settings'); };
+  open.onupgradeneeded = () => { open.result.createObjectStore('settings'); };
   open.onsuccess = () => resolve(open.result);
   open.onerror = () => reject(new Error('无法打开浏览器存储。'));
 });
 database.catch(() => undefined);
-const memory = new Map<string, CacheEntry>();
 
 async function operation<T>(storeName: string, mode: IDBTransactionMode, action: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
   const db = await database;
@@ -21,15 +20,6 @@ async function operation<T>(storeName: string, mode: IDBTransactionMode, action:
     tx.onerror = () => reject(tx.error || new Error('存储失败。'));
     tx.onabort = () => reject(tx.error || new Error('存储空间不足。'));
   });
-}
-export const peekCached = (id: string) => memory.get(id);
-export async function getCached(id: string) { const entry = memory.get(id) || await operation<CacheEntry | undefined>('music', 'readonly', store => store.get(id)); if (entry) memory.set(id, entry); return entry; }
-export async function putCached(entry: CacheEntry) { await operation('music', 'readwrite', store => store.put(entry)); memory.set(entry.id, entry); }
-export async function removeCached(id: string) { await operation('music', 'readwrite', store => store.delete(id)); memory.delete(id); }
-export async function listCached(): Promise<CacheInfo[]> {
-  const entries = await operation<CacheEntry[]>('music', 'readonly', store => store.getAll());
-  memory.clear(); entries.forEach(entry => memory.set(entry.id, entry));
-  return entries.map(({ blob: _blob, ...rest }) => rest);
 }
 export const saveLibrary = (library: Library) => operation('settings', 'readwrite', store => store.put(library, 'library'));
 export const loadLibrary = () => operation<Library | undefined>('settings', 'readonly', store => store.get('library'));
@@ -51,6 +41,6 @@ export async function flushHistory(): Promise<void> {
       if (latest[entry.sessionId]?.seconds <= entry.seconds) delete latest[entry.sessionId];
       writeLocal('lilt.pending-history', latest);
     }
-  } catch { /* Offline listening is synchronized after connectivity returns. */ }
+  } catch { /* Pending listening updates are retried after connectivity returns. */ }
   finally { flushing = false; }
 }

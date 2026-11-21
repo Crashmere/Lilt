@@ -41,11 +41,11 @@ export function PlaylistCards({ playlists, onOpen, onCreate }: { playlists: Play
 
 type TrackTableProps = {
   tracks: Track[]; player: Player; favorite: (track: Track) => void; actions: (track: Track) => void;
-  addToPlaylist: (ids: string[]) => void; cache: (tracks: Track[]) => void;
+  addToPlaylist: (ids: string[]) => void;
   bulkEdit: (tracks: Track[]) => void;
   compact?: boolean; onReorder?: (from: number, to: number) => void; empty?: string;
 };
-export function TrackTable({ tracks, player, favorite, actions, addToPlaylist, cache, bulkEdit, compact = false, onReorder, empty = '没有曲目' }: TrackTableProps) {
+export function TrackTable({ tracks, player, favorite, actions, addToPlaylist, bulkEdit, compact = false, onReorder, empty = '没有曲目' }: TrackTableProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [selecting, setSelecting] = useState(false);
   const dragged = useRef(-1);
@@ -55,7 +55,7 @@ export function TrackTable({ tracks, player, favorite, actions, addToPlaylist, c
   if (!tracks.length) return <Empty title={empty} />;
   return <div className={`track-list ${compact ? 'compact' : ''} ${selecting ? 'selecting' : ''}`}>
     <div className="mobile-selection-control"><button className="text-button" onClick={() => { setSelecting(old => !old); if (selecting) setSelected(new Set()); }}>{selecting ? '完成' : '选择'}</button></div>
-    {selectedTracks.length > 0 && <div className="selection-bar"><span>{selectedTracks.length} 首已选</span><button onClick={() => bulkEdit(selectedTracks)}>批量编辑</button><button onClick={() => player.enqueue(selectedTracks.map(track => track.id))}>加入队列</button><button onClick={() => addToPlaylist(selectedTracks.map(track => track.id))}>加入歌单</button><button onClick={() => cache(selectedTracks)}>保存离线</button><button className="icon-button" aria-label="取消选择" onClick={() => setSelected(new Set())}><X size={16} /></button></div>}
+    {selectedTracks.length > 0 && <div className="selection-bar"><span>{selectedTracks.length} 首已选</span><button onClick={() => bulkEdit(selectedTracks)}>批量编辑</button><button onClick={() => player.enqueue(selectedTracks.map(track => track.id))}>加入队列</button><button onClick={() => addToPlaylist(selectedTracks.map(track => track.id))}>加入歌单</button><button className="icon-button" aria-label="取消选择" onClick={() => setSelected(new Set())}><X size={16} /></button></div>}
     <div className="track-heading"><label className="check-cell"><input type="checkbox" checked={selectedTracks.length === tracks.length} aria-label="选择全部曲目" onChange={event => setSelected(event.target.checked ? new Set(ids) : new Set())} /></label><span className="number-cell">#</span><span>曲目</span><span className="album-cell">专辑</span><span className="time-cell">时长</span><span className="track-actions" /></div>
     {tracks.map((track, index) => <div key={`${track.id}-${index}`} className={`track-row ${player.trackId === track.id ? 'current' : ''} ${selected.has(track.id) ? 'selected' : ''}`} draggable={!!onReorder} onDragStart={() => { dragged.current = index; }} onDragOver={event => { if (onReorder) event.preventDefault(); }} onDrop={event => { event.preventDefault(); if (onReorder && dragged.current >= 0 && dragged.current !== index) onReorder(dragged.current, index); dragged.current = -1; }}>
       <label className="check-cell"><input type="checkbox" checked={selected.has(track.id)} aria-label={`选择 ${track.title}`} onChange={() => select(track.id)} /></label>

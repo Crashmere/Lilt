@@ -5,7 +5,6 @@ import { Artwork, Empty, Modal } from './components';
 import type { Player } from './player';
 import type { Playlist, Rules, Track } from './types';
 import type { Uploader } from './upload';
-import { getCached } from './storage';
 import { bytes, duration, parseLyrics } from './utils';
 
 function PlayerGlyph({ name }: { name: 'shuffle' | 'previous' | 'play' | 'pause' | 'next' | 'repeat' | 'more' | 'lyrics' | 'queue' | 'volume' }) {
@@ -92,11 +91,8 @@ export function LyricsPanel({ player, onClose, onEdit }: { player: Player; onClo
     let active = true;
     const track = player.track;
     void (async () => {
-      const cached = await getCached(track.id).catch(() => undefined);
-      if (active && cached && !navigator.onLine) setText(cached.track.lyricsText || '');
-      if (!navigator.onLine) return;
       try { const result = await request<{ track: Track }>(`/tracks/${encodeURIComponent(track.id)}`); if (active) setText(result.track.lyricsText || ''); }
-      catch (error) { if (active) { if (!cached || error instanceof ApiError && error.status === 401) setError(messageOf(error)); else setText(cached.track.lyricsText || ''); } }
+      catch (error) { if (active) setError(messageOf(error)); }
     })();
     return () => { active = false; };
   }, [player.trackId, player.track?.updatedAt]);
