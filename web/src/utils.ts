@@ -16,9 +16,19 @@ export function identity(): string { return globalThis.crypto?.randomUUID?.() ||
 export function readLocal<T>(key: string, fallback: T): T { try { return JSON.parse(localStorage.getItem(key) || 'null') ?? fallback; } catch { return fallback; } }
 export function writeLocal(key: string, value: unknown): void { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* Storage can be unavailable in private browsing. */ } }
 export type LyricLine = { time: number; text: string };
+const lyricOffsetPattern = /\[offset:([+-]?\d+)\]/i;
+
+export function adjustLyricsOffset(text: string, seconds: number): string {
+  const milliseconds = Number(text.match(lyricOffsetPattern)?.[1] || 0) + Math.round(seconds * 1000);
+  const tag = `[offset:${milliseconds}]`;
+  return lyricOffsetPattern.test(text)
+    ? text.replace(/\[offset:[+-]?\d+\]/gi, tag)
+    : `${tag}${text.includes('\r\n') ? '\r\n' : '\n'}${text}`;
+}
+
 export function parseLyrics(text: string): { lines: LyricLine[]; plain: string; offset: number } {
   const lines: LyricLine[] = [];
-  const offset = Number(text.match(/\[offset:([+-]?\d+)\]/i)?.[1] || 0) / 1000;
+  const offset = Number(text.match(lyricOffsetPattern)?.[1] || 0) / 1000;
   for (const raw of text.split(/\r?\n/)) {
     const times = [...raw.matchAll(/\[(\d+):(\d{2}(?:\.\d+)?)\]/g)];
     const body = raw.replace(/\[\d+:\d{2}(?:\.\d+)?\]/g, '').replace(/<\d+:\d{2}(?:\.\d+)?>/g, '').trim();

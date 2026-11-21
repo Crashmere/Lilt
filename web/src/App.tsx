@@ -12,7 +12,7 @@ import { TrackCredits, type CollectionNavigation } from './track-links';
 import { flushHistory, loadLibrary, saveLibrary } from './storage';
 import type { Album, Artist, HistoryEntry, Library, Playlist, Track, View } from './types';
 import { useUploads, type UploadPlaylist } from './upload';
-import { bytes, date, duration, longDuration, matches, readLocal, writeLocal } from './utils';
+import { adjustLyricsOffset, bytes, date, duration, longDuration, matches, parseLyrics, readLocal, writeLocal } from './utils';
 
 const EMPTY_LIBRARY: Library = { tracks: [], albums: [], artists: [], playlists: [], tags: [], stats: { totalTracks: 0, totalAlbums: 0, totalArtists: 0, totalDuration: 0, totalBytes: 0, favoriteTracks: 0, playedSeconds: 0, playCount: 0 } };
 const navigation = [
@@ -128,6 +128,20 @@ export default function App() {
   async function run(action: () => Promise<void>) { try { await action(); } catch (error) { notify(messageOf(error)); } }
   async function favorite(track: Track) { await run(async () => { const result = await json<{ track: Track }>(`/tracks/${encodeURIComponent(track.id)}`, 'PATCH', { favorite: !track.favorite }); setLibrary(old => ({ ...old, tracks: old.tracks.map(item => item.id === track.id ? result.track : item) })); await refresh(); }); }
   async function openEditor(track: Track) { await run(async () => { const result = await request<{ track: Track }>(`/tracks/${encodeURIComponent(track.id)}`); setEditing(result.track); setTrackActions(undefined); }); }
+  async function adjustLyrics(track: Track, seconds: number) {
+    const path = `/tracks/${encodeURIComponent(track.id)}`;
+    const current = await request<{ lyricsText: string; updatedAt: string }>(`${path}/lyrics`);
+    if (!parseLyrics(current.lyricsText).lines.length) {
+      void refresh();
+      throw new Error('歌词已变更，请刷新后重试。');
+    }
+    const result = await json<{ track: Track }>(path, 'PATCH', {
+      lyricsText: adjustLyricsOffset(current.lyricsText, seconds), expectedUpdatedAt: current.updatedAt,
+    });
+    setLibrary(old => ({ ...old, tracks: old.tracks.map(item => item.id === track.id ? result.track : item) }));
+    void refresh();
+    notify('歌词调整已写回歌曲文件');
+  }
   async function locateUpload(id: string) {
     await run(async () => {
       const track = library.tracks.find(item => item.id === id) || (await request<{ track: Track }>(`/tracks/${encodeURIComponent(id)}`)).track;
@@ -229,7 +243,7 @@ export default function App() {
     </main>
     <PlayerBar player={player} panel={panel} onQueue={() => showPanel('queue')} onLyrics={() => showPanel('lyrics')} onMore={setTrackActions} collectionNavigation={collectionNavigation} />
     {panel === 'queue' && <QueuePanel player={player} playlistMemberships={playlistMemberships} showPlaylists={setPlaylistTrack} onClose={() => setPanel(null)} onSave={ids => setPlaylistEditor({ ids })} onMore={setTrackActions} collectionNavigation={collectionNavigation} />}
-    {panel === 'lyrics' && <LyricsPanel player={player} onClose={() => setPanel(null)} onEdit={track => { void openEditor(track); }} />}
+    {panel === 'lyrics' && <LyricsPanel player={player} onClose={() => setPanel(null)} onEdit={track => { void openEditor(track); }} onAdjust={adjustLyrics} />}
     {filtersOpen && view.kind === 'library' && <LibraryFilterModal value={libraryFilters} tracks={library.tracks} playlistMemberships={playlistMemberships} query={query} onClose={() => setFiltersOpen(false)} onApply={setLibraryFilters} />}
     {uploadOpen && <UploadModal uploader={uploader} playlist={uploadPlaylist} onClose={() => setUploadOpen(false)} onLocate={id => { void locateUpload(id); }} />}
     {editing && <TrackEditor key={editing.id} track={editing} onClose={() => setEditing(undefined)} onSaved={async track => { setLibrary(old => ({ ...old, tracks: old.tracks.map(item => item.id === track.id ? track : item) })); await refresh(); notify('已写回音频文件'); }} />}

@@ -95,16 +95,39 @@ export function QueuePanel({ player, playlistMemberships, showPlaylists, onClose
   </aside>;
 }
 
-export function LyricsPanel({ player, onClose, onEdit }: { player: Player; onClose: () => void; onEdit: (track: Track) => void }) {
+export function LyricsPanel({ player, onClose, onEdit, onAdjust }: { player: Player; onClose: () => void; onEdit: (track: Track) => void; onAdjust: (track: Track, seconds: number) => Promise<void> }) {
   const { text, loading, error, reload } = useLyrics(player.track);
-  const [offset, setOffset] = useState(0);
+  const [savingId, setSavingId] = useState('');
+  const [saveError, setSaveError] = useState<{ trackId: string; message: string }>();
+  const saving = useRef(false);
   const activeRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => { setOffset(0); }, [player.trackId]);
   const lyrics = parseLyrics(text);
   let current = -1;
-  lyrics.lines.forEach((line, index) => { if (line.time + offset <= player.position) current = index; });
+  lyrics.lines.forEach((line, index) => { if (line.time <= player.position) current = index; });
   useEffect(() => { activeRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, [current]);
-  return <aside className="side-panel lyrics-panel"><header><div><span className="eyebrow">正在播放</span><h2>歌词</h2></div><button className="icon-button" aria-label="关闭歌词" onClick={onClose}><X size={22} /></button></header>{player.track ? <><div className="lyrics-track"><Artwork url={player.track.coverUrl} /><h3>{player.track.title}</h3><p>{player.track.artist}</p></div>{lyrics.lines.length > 0 && <div className="lyrics-offset"><button onClick={() => setOffset(value => value - 0.5)}>提前 0.5 秒</button><span>{offset > 0 ? '+' : ''}{offset.toFixed(1)} 秒</span><button onClick={() => setOffset(value => value + 0.5)}>延后 0.5 秒</button></div>}<div className="lyrics-body" aria-busy={loading}>{loading ? <div className="empty-state" role="status"><div className="empty-symbol"><LoaderCircle size={32} className="spin" /></div><h3>歌词加载中…</h3></div> : error ? <Empty title="歌词加载失败" text={error}><button className="button secondary" onClick={reload}>重试</button></Empty> : lyrics.lines.length ? lyrics.lines.map((line, index) => <button key={`${line.time}-${index}`} className={`lyric-line ${index === current ? 'active' : ''}`} ref={index === current ? activeRef : undefined} onClick={() => player.seek(Math.max(0, line.time + offset))}>{line.text || '♪'}</button>) : text ? <p className="plain-lyrics">{lyrics.plain}</p> : <Empty title="此曲目没有歌词"><button className="button secondary" onClick={() => onEdit(player.track!)}>添加歌词</button></Empty>}</div></> : <Empty title="尚未播放" text="选择曲目后查看歌词。" />}</aside>;
+
+  async function adjust(seconds: number) {
+    const track = player.track;
+    if (!track || loading || error || saving.current) return;
+    saving.current = true; setSavingId(track.id); setSaveError(undefined);
+    try { await onAdjust(track, seconds); }
+    catch (error) { setSaveError({ trackId: track.id, message: `调整未确认：${messageOf(error)}` }); }
+    finally { saving.current = false; setSavingId(''); }
+  }
+
+  return <aside className="side-panel lyrics-panel">
+    <header><div><span className="eyebrow">正在播放</span><h2>歌词</h2></div><button className="icon-button" aria-label="关闭歌词" onClick={onClose}><X size={22} /></button></header>
+    {player.track ? <>
+      <div className="lyrics-track"><Artwork url={player.track.coverUrl} /><h3>{player.track.title}</h3><p>{player.track.artist}</p></div>
+      {lyrics.lines.length > 0 && <div className="lyrics-offset" aria-busy={savingId === player.trackId}>
+        <button disabled={!!savingId} onClick={() => { void adjust(-0.5); }}>提前 0.5 秒</button>
+        <span role="status">{savingId === player.trackId ? '保存中…' : `${lyrics.offset > 0 ? '+' : ''}${lyrics.offset.toFixed(1)} 秒`}</span>
+        <button disabled={!!savingId} onClick={() => { void adjust(0.5); }}>延后 0.5 秒</button>
+      </div>}
+      {saveError?.trackId === player.trackId && <p className="error-text" role="alert">{saveError.message}</p>}
+      <div className="lyrics-body" aria-busy={loading}>{loading ? <div className="empty-state" role="status"><div className="empty-symbol"><LoaderCircle size={32} className="spin" /></div><h3>歌词加载中…</h3></div> : error ? <Empty title="歌词加载失败" text={error}><button className="button secondary" onClick={reload}>重试</button></Empty> : lyrics.lines.length ? lyrics.lines.map((line, index) => <button key={index} className={`lyric-line ${index === current ? 'active' : ''}`} ref={index === current ? activeRef : undefined} onClick={() => player.seek(Math.max(0, line.time))}>{line.text || '♪'}</button>) : text ? <p className="plain-lyrics">{lyrics.plain}</p> : <Empty title="此曲目没有歌词"><button className="button secondary" onClick={() => onEdit(player.track!)}>添加歌词</button></Empty>}</div>
+    </> : <Empty title="尚未播放" text="选择曲目后查看歌词。" />}
+  </aside>;
 }
 
 export function UploadModal({ uploader, playlist, onClose, onLocate }: { uploader: Uploader; playlist?: UploadPlaylist; onClose: () => void; onLocate: (id: string) => void }) {
