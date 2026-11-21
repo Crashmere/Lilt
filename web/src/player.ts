@@ -1,5 +1,5 @@
 import { useEffect, useEffectEvent, useRef, useState } from 'react';
-import { ApiError, trackURL } from './api';
+import { isTransient, trackURL } from './api';
 import { recordHistory } from './storage';
 import type { PlayerState, Track } from './types';
 import { identity, readLocal, writeLocal } from './utils';
@@ -24,13 +24,20 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   const [position, setPosition] = useState(snapshot.position || 0);
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [sourceVersion, setSourceVersion] = useState(0);
+  const [playRequested, setPlayRequested] = useState(false);
+  const [bufferedEnd, setBufferedEnd] = useState(0);
+  const [failure, setFailure] = useState('');
   const [conflict, setConflict] = useState(false);
   const tabId = useRef(identity());
   const intent = useRef({ play: false, position: snapshot.position || 0 });
   const session = useRef<Session>({ id: identity(), trackId: '', seconds: 0, lastPosition: snapshot.position || 0 });
   const source = useRef({ trackId: '', url: '' });
   const initialSeekPending = useRef(false);
+  const sourceAbort = useRef(new AbortController());
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const retries = useRef(0);
+  const lastProgress = useRef(Date.now());
+  const recoveryPosition = useRef(0);
   const pendingStart = useRef<{ ids: string[]; index: number; start: number } | null>(null);
   const trackId = snapshot.queueIds[snapshot.queueIndex] || '';
   const track = tracks.find(item => item.id === trackId);
@@ -41,22 +48,60 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
     return '原件无法播放，请重试或使用支持该格式的浏览器。';
   }
 
-  function prepareSource(nextTrack: Track, start: number, autoplay: boolean): void {
+  function cancelRecovery(reset = true): void {
+    clearTimeout(retryTimer.current); retryTimer.current = undefined;
+    sourceAbort.current.abort(); sourceAbort.current = new AbortController();
+    if (reset) retries.current = 0;
+  }
+
+  function failPlayback(message: string): void {
+    intent.current.play = false; setPlayRequested(false);
+    cancelRecovery(); audioRef.current?.pause(); releaseLease();
+    setLoading(false); setPlaying(false); setFailure(message); notify(message);
+  }
+
+  function tryPlay(): void {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const signal = sourceAbort.current.signal;
+    void audio.play().catch(error => {
+      if (signal.aborted || !intent.current.play || error.name === 'AbortError' || error.name === 'NotSupportedError') return;
+      failPlayback(error.name === 'NotAllowedError' ? '点击播放以继续。' : playbackError());
+    });
+  }
+
+  function prepareSource(nextTrack: Track, start: number, autoplay: boolean, recovering = false): void {
     const audio = audioRef.current;
     if (!audio) return;
     const url = trackURL(nextTrack.id, 'stream?quality=original');
+    cancelRecovery(!recovering);
     source.current = { trackId: nextTrack.id, url };
     if (session.current.trackId !== nextTrack.id) session.current = { id: identity(), trackId: nextTrack.id, seconds: 0, lastPosition: start };
     intent.current = { play: autoplay, position: start };
+    setPlayRequested(autoplay); setFailure(''); setBufferedEnd(0);
     initialSeekPending.current = true;
+    lastProgress.current = Date.now(); recoveryPosition.current = start;
     setLoading(true);
-    setSourceVersion(value => value + 1);
     audio.volume = snapshot.volume;
+    audio.preload = autoplay ? 'auto' : 'metadata';
     audio.src = url;
     audio.load();
-    if (autoplay) void audio.play().catch(error => {
-      if (error.name !== 'AbortError' && source.current.url === url) { intent.current.play = false; setLoading(false); notify(playbackError()); }
-    });
+    if (autoplay) tryPlay();
+  }
+
+  function retryPlayback(immediate = false): void {
+    const audio = audioRef.current;
+    if (!audio || !track || !intent.current.play || retryTimer.current !== undefined) return;
+    setLoading(true);
+    if (!navigator.onLine) return;
+    if (retries.current >= 3) { failPlayback('播放未恢复，请点击播放重试。'); return; }
+    const attempt = retries.current++;
+    retryTimer.current = setTimeout(() => {
+      retryTimer.current = undefined;
+      if (!intent.current.play || source.current.trackId !== track.id) return;
+      const start = initialSeekPending.current ? intent.current.position : audio.currentTime;
+      prepareSource(track, start, true, true);
+    }, immediate ? 0 : 1000 * 2 ** attempt);
   }
 
   function claim(takeover = false): boolean {
@@ -75,7 +120,7 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   const persist = useEffectEvent(() => {
     const lease = readLocal<Lease | null>('lilt.playback-lease', null);
     if (lease?.playing && lease.tabId !== tabId.current && Date.now() - lease.updatedAt < 9000) return;
-    const state: PlayerState = { ...snapshot, trackId, position: audioRef.current?.currentTime || position, updatedAt: new Date().toISOString() };
+    const state: PlayerState = { ...snapshot, trackId, position: initialSeekPending.current ? intent.current.position : audioRef.current?.currentTime ?? position, updatedAt: new Date().toISOString() };
     writeLocal('lilt.player', state);
   });
   const finish = useEffectEvent((completed = false) => {
@@ -92,12 +137,13 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
     let queueIds = [...ids];
     if (snapshot.shuffle) { queueIds = [ids[nextIndex], ...shuffledIds(ids.filter((_, i) => i !== nextIndex))]; nextIndex = 0; }
     intent.current = { play: autoplay, position: Math.max(0, start) };
+    setPlayRequested(autoplay); cancelRecovery(); setFailure('');
     setSnapshot(old => ({ ...old, queueIds, queueIndex: nextIndex, position: start, trackId: queueIds[nextIndex] }));
     setPosition(start);
     session.current = { id: identity(), trackId: queueIds[nextIndex], seconds: 0, lastPosition: start };
-    if (trackId === queueIds[nextIndex] && audioRef.current?.src) {
+    if (trackId === queueIds[nextIndex] && audioRef.current?.src && !audioRef.current.error) {
       audioRef.current.currentTime = start;
-      if (autoplay) void audioRef.current.play().catch(() => notify('无法开始播放，请再次点击播放。'));
+      if (autoplay) tryPlay();
       else audioRef.current.pause();
     } else { const nextTrack = tracks.find(item => item.id === queueIds[nextIndex]); if (nextTrack) prepareSource(nextTrack, start, autoplay); }
   }
@@ -106,16 +152,23 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
     if (takeover && pendingStart.current) { const pending = pendingStart.current; begin(pending.ids, pending.index, pending.start, true, true); return; }
     if (!trackId || !audioRef.current?.src) { if (tracks.length) begin(tracks.map(item => item.id), 0, 0, true, takeover); return; }
     if (!claim(takeover)) return;
+    cancelRecovery(); setFailure(''); setPlayRequested(true);
+    if (audioRef.current.error || failure) {
+      if (track) prepareSource(track, initialSeekPending.current ? intent.current.position : audioRef.current.currentTime, true);
+      return;
+    }
     if (audioRef.current.ended) { session.current = { id: identity(), trackId, seconds: 0, lastPosition: 0 }; seek(0); }
     intent.current.play = true;
-    void audioRef.current.play().catch(() => notify(playbackError()));
+    audioRef.current.preload = 'auto'; lastProgress.current = Date.now();
+    setLoading(audioRef.current.readyState < 3); tryPlay();
   }
-  function pause(): void { intent.current.play = false; audioRef.current?.pause(); releaseLease(); persist(); }
+  function pause(): void { intent.current.play = false; setPlayRequested(false); setLoading(false); cancelRecovery(); audioRef.current?.pause(); releaseLease(); persist(); }
   function seek(value: number): void {
     const audio = audioRef.current;
     if (!audio) return;
     const next = Math.max(0, Math.min(value, Number.isFinite(audio.duration) ? audio.duration : track?.duration || value));
     intent.current.position = next;
+    lastProgress.current = Date.now();
     session.current.lastPosition = next;
     audio.currentTime = next;
     setPosition(next);
@@ -134,6 +187,7 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
     }
     finish(automatic);
     intent.current = { play: true, position: 0 };
+    setPlayRequested(true);
     setPosition(0);
     session.current = { id: identity(), trackId: queueIds[index], seconds: 0, lastPosition: 0 };
     setSnapshot(old => ({ ...old, queueIds, queueIndex: index, position: 0 }));
@@ -176,71 +230,92 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
 
   const onCanPlay = useEffectEvent(() => {
     const audio = audioRef.current;
-    if (!audio) return;
+    if (!audio || audio.readyState < 1) return;
     if (initialSeekPending.current) {
       const start = Math.min(intent.current.position, Number.isFinite(audio.duration) ? audio.duration : intent.current.position);
       if (Math.abs(audio.currentTime - start) > 0.2) audio.currentTime = start;
       session.current.lastPosition = start; initialSeekPending.current = false;
     }
-    setLoading(false);
-    if (intent.current.play && audio.paused && claim()) void audio.play().catch(() => { intent.current.play = false; notify('点击播放以继续。'); });
+    setLoading(intent.current.play && audio.readyState < 3);
+    if (intent.current.play && audio.readyState >= 3 && audio.paused && claim()) tryPlay();
   });
-  const onTime = useEffectEvent(() => {
+  const onProgress = useEffectEvent(() => {
     const audio = audioRef.current;
     if (!audio) return;
+    lastProgress.current = Date.now();
+    let end = audio.currentTime;
+    for (let i = 0; i < audio.buffered.length; i++) {
+      if (audio.buffered.start(i) <= audio.currentTime + 0.1 && audio.buffered.end(i) >= audio.currentTime) end = audio.buffered.end(i);
+    }
+    setBufferedEnd(end);
+  });
+  const onWaiting = useEffectEvent(() => { if (intent.current.play) setLoading(true); });
+  const onPlaying = useEffectEvent(() => { lastProgress.current = Date.now(); setLoading(false); setFailure(''); });
+  const onTime = useEffectEvent(() => {
+    const audio = audioRef.current;
+    if (!audio || initialSeekPending.current) return;
     const delta = audio.currentTime - session.current.lastPosition;
-    if (!audio.paused && !audio.seeking && delta > 0) session.current.seconds += delta;
+    if (!audio.paused && !audio.seeking && delta > 0) {
+      session.current.seconds += delta; lastProgress.current = Date.now();
+      if (audio.currentTime - recoveryPosition.current >= 5) retries.current = 0;
+    }
     session.current.lastPosition = audio.currentTime;
     setPosition(audio.currentTime);
     if ('mediaSession' in navigator && Number.isFinite(audio.duration) && audio.duration > 0) {
       try { navigator.mediaSession.setPositionState({ duration: audio.duration, position: Math.min(audio.currentTime, audio.duration), playbackRate: audio.playbackRate }); } catch { /* Some browsers expose only partial Media Session support. */ }
     }
   });
-  const onPlay = useEffectEvent(() => { setPlaying(true); if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'; });
+  const onPlay = useEffectEvent(() => { if (!intent.current.play) { audioRef.current?.pause(); return; } setPlaying(true); if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'; });
   const onPause = useEffectEvent(() => {
+    const audio = audioRef.current;
+    if (intent.current.play && !initialSeekPending.current && !audio?.error && !audio?.ended && retryTimer.current === undefined) {
+      intent.current.play = false; setPlayRequested(false); setLoading(false); cancelRecovery();
+    }
     setPlaying(false); finish(); persist();
-    releaseLease();
+    if (!intent.current.play) releaseLease();
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
   });
   const onEnded = useEffectEvent(() => { finish(true); next(true); });
   const onError = useEffectEvent(() => {
-    intent.current.play = false;
-    audioRef.current?.pause();
-    releaseLease();
-    setLoading(false); setPlaying(false); notify(playbackError());
+    const audio = audioRef.current;
+    if (!audio || !audio.error || audio.error.code === 1) return;
+    setPlaying(false);
+    if (!intent.current.play) { setLoading(false); setFailure(playbackError()); return; }
+    if (audio.error.code === 3) { failPlayback(playbackError()); return; }
+    const code = audio.error.code;
+    setLoading(true);
+    const signal = sourceAbort.current.signal;
+    void (async () => {
+      try {
+        const response = await fetch(source.current.url, { method: 'HEAD', credentials: 'same-origin', signal: AbortSignal.any([signal, AbortSignal.timeout(10000)]) });
+        if (signal.aborted || !intent.current.play) return;
+        if (response.status === 401) { failPlayback('设备授权已失效，请重新打开服务。'); return; }
+        if (response.status === 404) { failPlayback('曲目已不可用，请选择其他曲目。'); return; }
+        const mime = response.headers.get('Content-Type')?.split(';')[0];
+        if (response.ok && code === 4 && mime && !audio.canPlayType(mime)) { failPlayback(playbackError()); return; }
+        if (!response.ok && ![408, 429, 500, 502, 503, 504].includes(response.status)) { failPlayback(playbackError()); return; }
+        retryPlayback();
+      } catch (error) {
+        if (signal.aborted || !intent.current.play) return;
+        if (isTransient(error)) retryPlayback(); else failPlayback(playbackError());
+      }
+    })();
   });
 
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
-    const handlers = { loadedmetadata: onCanPlay, timeupdate: onTime, play: onPlay, pause: onPause, ended: onEnded, error: onError };
+    const handlers = { loadedmetadata: onCanPlay, canplay: onCanPlay, seeked: onCanPlay, progress: onProgress, playing: onPlaying, waiting: onWaiting, seeking: onWaiting, timeupdate: onTime, play: onPlay, pause: onPause, ended: onEnded, error: onError };
     for (const [event, handler] of Object.entries(handlers)) audio.addEventListener(event, handler);
     return () => { for (const [event, handler] of Object.entries(handlers)) audio.removeEventListener(event, handler); };
   }, []);
 
   useEffect(() => {
     const audio = audioRef.current;
-    if (!audio || !trackId || !track) { if (audio) { audio.pause(); audio.removeAttribute('src'); } source.current.trackId = ''; return; }
-    let cancelled = false;
-    const abort = new AbortController();
+    if (!audio || !trackId || !track) { pause(); if (audio) { audio.removeAttribute('src'); audio.load(); } source.current.trackId = ''; setBufferedEnd(0); return; }
     if (source.current.trackId !== trackId) prepareSource(track, intent.current.position, intent.current.play);
-    void (async () => {
-      const url = source.current.url;
-      try {
-        if (!navigator.onLine) throw new TypeError('offline');
-        const response = await fetch(url, { method: 'HEAD', credentials: 'same-origin', signal: abort.signal });
-        if (!response.ok) throw new ApiError(response.status, {}, response.status === 401 ? '设备授权已失效，请重新打开服务。' : '音频暂时无法加载。');
-      } catch (error) {
-        if (abort.signal.aborted) return;
-        if (error instanceof ApiError && error.status === 401) audio.pause();
-        throw error;
-      }
-      if ('mediaSession' in navigator) {
-        navigator.mediaSession.metadata = new MediaMetadata({ title: track.title, artist: track.artist, album: track.album, artwork: track.coverUrl ? [{ src: new URL(track.coverUrl, location.origin).href }] : [] });
-      }
-    })().catch(error => { if (!cancelled) { setLoading(false); notify(error instanceof ApiError ? error.message : '音频暂时无法加载，请检查连接后重试。'); } });
-    return () => { cancelled = true; abort.abort(); };
-  }, [trackId, !!track, sourceVersion]);
+    return () => { cancelRecovery(); };
+  }, [trackId, !!track]);
 
   const mediaPlay = useEffectEvent(() => play());
   const mediaPause = useEffectEvent(() => pause());
@@ -290,22 +365,28 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
 
   const heartbeat = useEffectEvent(() => {
     const lease = readLocal<Lease | null>('lilt.playback-lease', null);
-    if (playing && lease?.tabId === tabId.current) writeLocal('lilt.playback-lease', { ...lease, updatedAt: Date.now() });
+    if (intent.current.play && lease?.tabId === tabId.current) writeLocal('lilt.playback-lease', { ...lease, updatedAt: Date.now() });
     if (!lease?.playing || lease.tabId === tabId.current) persist();
+    const audio = audioRef.current;
+    if (intent.current.play && audio && audio.readyState < 3 && document.visibilityState === 'visible' && Date.now() - lastProgress.current > 45000) retryPlayback();
   });
   const historyHeartbeat = useEffectEvent(() => { if (playing) finish(); });
   const onStorage = useEffectEvent((event: StorageEvent) => {
-    if (event.key !== 'lilt.playback-lease' || !playing) return;
+    if (event.key !== 'lilt.playback-lease' || !intent.current.play) return;
     const lease = readLocal<Lease | null>('lilt.playback-lease', null);
     if (lease?.playing && lease.tabId !== tabId.current) { pause(); notify('已在另一个标签页继续播放'); }
   });
   const leave = useEffectEvent(() => { finish(); pause(); });
+  const reconnect = useEffectEvent(() => { if (intent.current.play && audioRef.current && (audioRef.current.error || audioRef.current.readyState < 3)) { retries.current = 0; retryPlayback(true); } });
+  const visible = useEffectEvent(() => { lastProgress.current = Date.now(); });
   useEffect(() => {
     const tick = setInterval(heartbeat, 2000);
     const historyTick = setInterval(historyHeartbeat, 15000);
     window.addEventListener('storage', onStorage);
     window.addEventListener('pagehide', leave);
-    return () => { clearInterval(tick); clearInterval(historyTick); window.removeEventListener('storage', onStorage); window.removeEventListener('pagehide', leave); };
+    window.addEventListener('online', reconnect);
+    document.addEventListener('visibilitychange', visible);
+    return () => { cancelRecovery(); clearInterval(tick); clearInterval(historyTick); window.removeEventListener('storage', onStorage); window.removeEventListener('pagehide', leave); window.removeEventListener('online', reconnect); document.removeEventListener('visibilitychange', visible); };
   }, []);
   useEffect(() => { persist(); }, [snapshot]);
   useEffect(() => {
@@ -314,7 +395,7 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   }, [track?.title, track?.artist, track?.album, track?.coverUrl]);
 
   return {
-    audioRef, snapshot, track, trackId, queue, position, playing, loading,
+    audioRef, snapshot, track, trackId, queue, position, playing, loading, playRequested, bufferedEnd, failure,
     conflict, setConflict,
     begin, play, pause, seek, next, previous, enqueue, reorder, remove, setVolume,
     toggleShuffle: () => setSnapshot(old => {

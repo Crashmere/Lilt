@@ -1,6 +1,6 @@
 import { startTransition, useDeferredValue, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, BarChart3, Check, ChevronRight, Clock3, Disc3, Download, Heart, House, LibraryBig, ListMusic, LoaderCircle, Menu, MoreHorizontal, Music2, Play, Plus, RefreshCw, Search, Settings2, SlidersHorizontal, Trash2, Upload, UsersRound, WifiOff, X } from 'lucide-react';
-import { ApiError, json, messageOf, request, trackURL, API } from './api';
+import { ApiError, json, messageOf, read, request, trackURL, API } from './api';
 import { AlbumCards, Artwork, Empty, Modal, Pill, PlaylistCards, TrackPlaylists, TrackTable } from './components';
 import { ArtistBrowser } from './artists';
 import { LibraryFilterModal } from './library-filter-modal';
@@ -62,25 +62,33 @@ export default function App() {
   const [toast, setToast] = useState('');
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const searchRef = useRef<HTMLInputElement>(null);
+  const refreshAbort = useRef<AbortController | undefined>(undefined);
+  const hasLibrary = useRef(false);
+  const cacheAllowed = useRef(true);
 
   function notify(text: string) { setToast(text); if (toastTimer.current) clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToast(''), 4500); }
   const player = usePlayer(library.tracks, notify);
 
   async function refresh() {
+    refreshAbort.current?.abort();
+    const abort = new AbortController();
+    refreshAbort.current = abort;
     setLoading(true);
     try {
-      const result = await request<Library>('/library');
+      const result = await read<Library>('/library', abort.signal);
+      if (abort.signal.aborted) return;
+      if (!Array.isArray(result.tracks)) throw new TypeError('音乐库响应不完整，请重试。');
       const next = { ...result, tracks: result.tracks || [], albums: result.albums || [], artists: result.artists || [], playlists: result.playlists || [], tags: result.tags || [] };
+      hasLibrary.current = true;
       startTransition(() => setLibrary(next)); setError(''); setLoaded(true);
       void saveLibrary(next).catch(() => undefined);
     } catch (error) {
-      if (error instanceof ApiError && error.status === 401) { setLibrary(EMPTY_LIBRARY); setError(messageOf(error)); }
+      if (abort.signal.aborted) return;
+      if (error instanceof ApiError && error.status === 401) { cacheAllowed.current = false; hasLibrary.current = false; setLibrary(EMPTY_LIBRARY); setLoaded(false); setError(messageOf(error)); }
       else {
-        const saved = await loadLibrary().catch(() => undefined);
-        if (saved) { setLibrary(saved); setLoaded(true); setError('当前无法连接，已显示此浏览器保存的音乐库。'); }
-        else setError(messageOf(error));
+        setError(hasLibrary.current ? '当前无法连接，已保留音乐库，请重试。' : messageOf(error));
       }
-    } finally { setLoading(false); }
+    } finally { if (!abort.signal.aborted) setLoading(false); }
   }
   const uploader = useUploads(refresh, notify);
   function openUpload() {
@@ -90,12 +98,18 @@ export default function App() {
   }
   function navigate(next: View) { setView(next); location.hash = `${next.kind}${next.id ? `/${encodeURIComponent(next.id)}` : ''}`; setSidebar(false); setQuery(''); setSelectedTag(''); setFiltersOpen(false); }
   useEffect(() => {
+    let active = true;
+    void loadLibrary().then(saved => {
+      if (!active || !cacheAllowed.current || hasLibrary.current || !saved) return;
+      hasLibrary.current = true;
+      setLibrary(saved); setLoaded(true);
+    }).catch(() => undefined);
     void refresh(); void flushHistory();
     const hash = () => { setView(currentView()); setSidebar(false); setFiltersOpen(false); };
     const connected = () => { setOnline(true); void refresh(); void flushHistory(); };
     const disconnected = () => setOnline(false);
     window.addEventListener('hashchange', hash); window.addEventListener('online', connected); window.addEventListener('offline', disconnected);
-    return () => { window.removeEventListener('hashchange', hash); window.removeEventListener('online', connected); window.removeEventListener('offline', disconnected); };
+    return () => { active = false; refreshAbort.current?.abort(); window.removeEventListener('hashchange', hash); window.removeEventListener('online', connected); window.removeEventListener('offline', disconnected); };
   }, []);
   useEffect(() => {
     if (view.kind === 'history' || view.kind === 'stats') {
@@ -174,7 +188,7 @@ export default function App() {
       {!loaded && loading ? <div className="loading-state"><LoaderCircle size={28} className="spin" /><span>正在载入音乐库</span></div> : !loaded ? <Empty title="音乐库暂时无法载入"><button className="button secondary" onClick={() => { void refresh(); }}>重试</button></Empty> : <div className={`page-content ${isArtistView ? 'artist-page' : ''}`} key={isArtistView ? 'artists' : `${view.kind}-${view.id || ''}`}>
       {!isArtistView && !['album', 'playlist'].includes(view.kind) && <div className="page-heading"><div><h1>{view.kind === 'home' ? '音乐' : pageName}</h1>{view.kind === 'library' && <p>{activeFilterCount || deferredQuery ? `${visibleTracks.length} / ${library.tracks.length}` : library.tracks.length} 首 · {longDuration(library.stats.totalDuration)}</p>}{view.kind === 'favorites' && <p>{library.stats.favoriteTracks} 首</p>}</div><div className="heading-actions">{view.kind === 'library' && <button className={`button secondary library-filter-trigger ${activeFilterCount ? 'active' : ''}`} aria-haspopup="dialog" aria-expanded={filtersOpen} onClick={() => setFiltersOpen(true)}><SlidersHorizontal size={16} /><span>筛选</span>{activeFilterCount > 0 && <small>{activeFilterCount}</small>}</button>}{isTrackView && visibleTracks.length > 0 && <button className="button primary" onClick={() => playTracks(visibleTracks)}><Play size={17} fill="currentColor" />播放</button>}{view.kind === 'playlists' && <button className="button primary" onClick={() => setPlaylistEditor({})}><Plus size={17} />新建歌单</button>}{view.kind === 'stats' && <a className="button secondary" href={`${API}/export`}><Download size={16} />导出收藏数据</a>}<button className="icon-button" aria-label="刷新音乐库" onClick={() => { void refresh(); }} disabled={loading}><RefreshCw size={18} className={loading ? 'spin' : ''} /></button></div></div>}
       {view.kind === 'home' && (library.tracks.length === 0 ? <Empty title="还没有音乐"><button className="button primary" onClick={openUpload}><Upload size={17} />上传音乐</button></Empty> : <>
-        {player.track && !player.playing && player.position > 2 && <section className="resume-card"><Artwork url={player.track.coverUrl} /><div><span className="eyebrow">继续上次播放</span><h3>{player.track.title}</h3><p>{player.track.artist} · {duration(player.position)}</p></div><button className="round-play" aria-label="继续上次播放" onClick={() => player.play()}><Play size={22} fill="currentColor" /></button></section>}
+        {player.track && !player.playRequested && player.position > 2 && <section className="resume-card"><Artwork url={player.track.coverUrl} /><div><span className="eyebrow">继续上次播放</span><h3>{player.track.title}</h3><p>{player.track.artist} · {duration(player.position)}</p></div><button className="round-play" aria-label="继续上次播放" onClick={() => player.play()}><Play size={22} fill="currentColor" /></button></section>}
         <section className="home-section"><div className="section-heading"><h2>最近加入</h2><button className="text-button" onClick={() => navigate({ kind: 'albums' })}>全部专辑<ChevronRight size={15} /></button></div>{recentAlbums.length ? <AlbumCards albums={recentAlbums} onOpen={openedAlbum} onPlay={playTracks} /> : table(visibleTracks.slice(0, 6), true)}</section>
         <div className="discovery-grid"><button className="discovery-card favorites-discovery" disabled={!library.stats.favoriteTracks} onClick={() => playTracks(library.tracks.filter(item => item.favorite))}><Heart size={31} strokeWidth={1.3} /><div><h3>收藏常听</h3><p>{library.stats.favoriteTracks} 首收藏</p></div><Play size={19} fill="currentColor" /></button><button className="discovery-card" disabled={!unplayed.length} onClick={() => playTracks(unplayed)}><Disc3 size={31} strokeWidth={1.3} /><div><h3>尚未播放</h3><p>{unplayed.length} 首待听</p></div><Play size={19} fill="currentColor" /></button><button className="discovery-card" disabled={!unheard.length} onClick={() => playTracks(unheard)}><Clock3 size={31} strokeWidth={1.3} /><div><h3>久未重听</h3><p>超过 30 天未听 · {unheard.length} 首</p></div><Play size={19} fill="currentColor" /></button></div>
         <section className="home-section"><div className="section-heading"><h2>最近曲目</h2><button className="text-button" onClick={() => navigate({ kind: 'library' })}>音乐库<ChevronRight size={15} /></button></div>{table([...library.tracks].sort((a, b) => new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime()).slice(0, 8), true)}</section>

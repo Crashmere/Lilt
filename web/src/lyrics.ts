@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ApiError, messageOf, request } from './api';
+import { messageOf, read } from './api';
 import type { Track } from './types';
 
 type LyricsContent = { trackId: string; updatedAt: string; text: string };
@@ -29,32 +29,22 @@ export function useLyrics(track: Track | undefined) {
       return;
     }
     const abort = new AbortController();
-    let timer: ReturnType<typeof setTimeout> | undefined;
     setState({ ...content, loading: true, error: '' });
 
-    async function load(attempt: number) {
+    async function load() {
       try {
-        const result = await request<{ lyricsText: string; updatedAt: string }>(`/tracks/${encodeURIComponent(content.trackId)}/lyrics`, {
-          signal: AbortSignal.any([abort.signal, AbortSignal.timeout(90000)]),
-        });
+        const result = await read<{ lyricsText: string; updatedAt: string }>(`/tracks/${encodeURIComponent(content.trackId)}/lyrics`, abort.signal, 90000);
         if (abort.signal.aborted) return;
         if (typeof result.lyricsText !== 'string' || typeof result.updatedAt !== 'string') throw new TypeError('歌词响应不完整，请重试。');
         cached = { trackId: content.trackId, updatedAt: result.updatedAt, text: result.lyricsText };
         setState({ ...content, text: cached.text, loading: false, error: '' });
       } catch (error) {
         if (abort.signal.aborted) return;
-        const transient = error instanceof TypeError
-          || error instanceof DOMException && error.name === 'TimeoutError'
-          || error instanceof ApiError && [408, 429, 500, 502, 503, 504].includes(error.status);
-        if (transient && attempt < 3) {
-          timer = setTimeout(() => { void load(attempt + 1); }, 1000 * 2 ** attempt);
-          return;
-        }
         setState({ ...content, loading: false, error: messageOf(error) });
       }
     }
-    void load(0);
-    return () => { abort.abort(); clearTimeout(timer); };
+    void load();
+    return () => { abort.abort(); };
   }, [trackId, updatedAt, retry]);
 
   const current = state?.trackId === trackId && state?.updatedAt === updatedAt ? state : undefined;

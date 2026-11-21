@@ -23,6 +23,7 @@ export function PlayerBar({ player, panel, onQueue, onLyrics, onMore, collection
   const totalDuration = player.track?.duration || 0;
   const position = player.track ? player.position : 0;
   const progress = totalDuration ? Math.max(0, Math.min(position / totalDuration, 1)) : 0;
+  const buffered = totalDuration ? Math.max(progress, Math.min(player.bufferedEnd / totalDuration, 1)) : 0;
 
   useEffect(() => {
     const outside = (event: PointerEvent) => { if (!optionsRef.current?.contains(event.target as Node)) setVolumeOpen(false); };
@@ -53,17 +54,17 @@ export function PlayerBar({ player, panel, onQueue, onLyrics, onMore, collection
   }
 
   return <footer className={`player-bar ${!player.track ? 'player-empty' : ''}`}>
-    <audio ref={player.audioRef} preload="metadata" />
+    <audio ref={player.audioRef} preload={player.playRequested ? 'auto' : 'metadata'} />
     <div className="transport">
       <button className={`icon-button mode-button shuffle-button ${player.snapshot.shuffle ? 'active' : ''}`} aria-label="随机播放" aria-pressed={player.snapshot.shuffle} onClick={player.toggleShuffle}><PlayerGlyph name="shuffle" /></button>
       <button className="icon-button skip-button previous-button" aria-label="上一首" onClick={player.previous} disabled={!player.track}><PlayerGlyph name="previous" /></button>
-      <button className="icon-button main-play" aria-label={player.playing ? '暂停' : '播放'} aria-busy={player.loading} onClick={() => player.playing ? player.pause() : player.play()} disabled={!player.queue.length}><PlayerGlyph name={player.playing ? 'pause' : 'play'} /></button>
+      <button className="icon-button main-play" aria-label={player.playRequested ? '暂停' : player.failure ? '重试播放' : '播放'} title={player.failure || (player.loading ? '缓冲中' : undefined)} aria-busy={player.loading} onClick={() => player.playRequested ? player.pause() : player.play()} disabled={!player.queue.length}>{player.loading ? <LoaderCircle size={19} className="spin" /> : <PlayerGlyph name={player.playRequested ? 'pause' : 'play'} />}</button>
       <button className="icon-button skip-button next-button" aria-label="下一首" onClick={() => player.next()} disabled={!player.track}><PlayerGlyph name="next" /></button>
       <button className={`icon-button mode-button repeat-button ${player.snapshot.repeat !== 'off' ? 'active' : ''}`} aria-label={`循环：${player.snapshot.repeat === 'off' ? '关闭' : player.snapshot.repeat === 'all' ? '全部' : '单曲'}`} aria-pressed={player.snapshot.repeat !== 'off'} onClick={player.toggleRepeat}><PlayerGlyph name="repeat" />{player.snapshot.repeat === 'one' && <span className="repeat-one-count" aria-hidden="true">1</span>}</button>
     </div>
     <div className="player-center">
       <div className="player-track"><button className="player-cover" onClick={onLyrics} aria-label="查看正在播放" disabled={!player.track}><Artwork url={player.track?.coverUrl} /></button><div><button className="now-title" onClick={onLyrics} disabled={!player.track}>{player.track?.title || '尚未播放'}</button><p>{player.track ? <TrackCredits track={player.track} navigation={collectionNavigation} /> : '选择一首音乐'}</p></div></div>
-      <div className="player-progress" title={`${duration(position)} / ${duration(totalDuration)}`}><div className="player-seek" style={{ '--progress': `${progress * 100}%` } as React.CSSProperties}><input type="range" aria-label="播放进度" aria-valuetext={`${duration(position)} / ${duration(totalDuration)}`} min={0} max={totalDuration || 1} step="0.1" value={progress * totalDuration} disabled={totalDuration <= 0} onChange={event => player.seek(Number(event.target.value))} onPointerDown={startSeek} onPointerMove={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) seekAtPointer(event); }} onPointerUp={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) { seekAtPointer(event); event.currentTarget.releasePointerCapture(event.pointerId); } }} /></div></div>
+      <div className="player-progress" title={`${duration(position)} / ${duration(totalDuration)}`}><div className="player-seek" style={{ '--progress': `${progress * 100}%`, '--buffered': `${buffered * 100}%` } as React.CSSProperties}><input type="range" aria-label="播放进度" aria-valuetext={`${duration(position)} / ${duration(totalDuration)}`} min={0} max={totalDuration || 1} step="0.1" value={progress * totalDuration} disabled={totalDuration <= 0} onChange={event => player.seek(Number(event.target.value))} onPointerDown={startSeek} onPointerMove={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) seekAtPointer(event); }} onPointerUp={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) { seekAtPointer(event); event.currentTarget.releasePointerCapture(event.pointerId); } }} /></div></div>
     </div>
     <div className="player-options" ref={optionsRef}>
       <div className="player-more-actions">

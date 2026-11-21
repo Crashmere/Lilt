@@ -356,16 +356,17 @@ func serveOpenedFile(w http.ResponseWriter, r *http.Request, name string, file *
 }
 
 func (s *server) stream(w http.ResponseWriter, r *http.Request) {
+	quality := r.URL.Query().Get("quality")
+	if quality == "" || quality == "original" {
+		s.original(w, r, false)
+		return
+	}
 	s.store.mu.Lock()
 	t, hash, path, err := s.mediaTrack(r)
 	if err != nil {
 		s.store.mu.Unlock()
 		apiError(w, err)
 		return
-	}
-	quality := r.URL.Query().Get("quality")
-	if quality == "" {
-		quality = "original"
 	}
 	info, err := s.store.playback(r.Context(), t, hash, path, quality)
 	if err != nil {
@@ -387,35 +388,52 @@ func (s *server) stream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Lilt-Channels", strconv.Itoa(info.Channels))
 	w.Header().Set("ETag", strconv.Quote(hash+"-"+quality))
 	w.Header().Set("Cache-Control", "private, max-age=0, must-revalidate")
-	contentType := "audio/mp4"
-	if quality == "original" {
-		contentType = t.MIMEType
-		if contentType == "" {
-			contentType = audioType(t.Format)
-		}
-	}
-	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Type", "audio/mp4")
 	serveOpenedFile(w, r, t.OriginalName, file)
 }
 
 func (s *server) download(w http.ResponseWriter, r *http.Request) {
-	s.store.mu.Lock()
-	t, hash, path, err := s.mediaTrack(r)
-	if err != nil {
-		s.store.mu.Unlock()
-		apiError(w, err)
-		return
+	s.original(w, r, true)
+}
+
+func (s *server) openOriginal(r *http.Request) (Track, string, *os.File, error) {
+	// Publication commits the new path before deleting the old one. An open file
+	// pins its bytes; retry the catalog lookup if an edit won the open/delete race.
+	for attempt := 0; ; attempt++ {
+		t, hash, path, err := s.mediaTrack(r)
+		if err != nil {
+			return t, hash, nil, err
+		}
+		file, err := os.Open(path)
+		if !os.IsNotExist(err) || attempt == 1 {
+			return t, hash, file, err
+		}
 	}
-	file, err := os.Open(path)
-	s.store.mu.Unlock()
+}
+
+func (s *server) original(w http.ResponseWriter, r *http.Request, download bool) {
+	t, hash, file, err := s.openOriginal(r)
 	if err != nil {
 		apiError(w, err)
 		return
 	}
 	defer file.Close()
-	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": t.OriginalName}))
-	w.Header().Set("Content-Type", t.MIMEType)
-	w.Header().Set("ETag", strconv.Quote(hash))
+	if download {
+		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": t.OriginalName}))
+		w.Header().Set("ETag", strconv.Quote(hash))
+	} else {
+		w.Header().Set("X-Lilt-Quality", "original")
+		w.Header().Set("X-Lilt-Bitrate", strconv.FormatInt(t.Bitrate, 10))
+		w.Header().Set("X-Lilt-Format", t.Format)
+		w.Header().Set("X-Lilt-Sample-Rate", strconv.Itoa(t.SampleRate))
+		w.Header().Set("X-Lilt-Channels", strconv.Itoa(t.Channels))
+		w.Header().Set("ETag", strconv.Quote(hash+"-original"))
+	}
+	contentType := t.MIMEType
+	if contentType == "" {
+		contentType = audioType(t.Format)
+	}
+	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Cache-Control", "private, max-age=0, must-revalidate")
 	serveOpenedFile(w, r, t.OriginalName, file)
 }
