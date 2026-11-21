@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, ChevronDown, Download, FastForward, FolderUp, List, ListMusic, LoaderCircle, MessageSquareQuote, MoreHorizontal, Pause, Play, Plus, Repeat, Repeat1, Rewind, Shuffle, UploadCloud, Volume1, Volume2, VolumeX, X } from 'lucide-react';
+import { Check, ChevronDown, Download, FolderUp, ListMusic, LoaderCircle, Pause, Play, Plus, Repeat, Repeat1, Shuffle, UploadCloud, X } from 'lucide-react';
 import { ApiError, json, messageOf, request, trackURL } from './api';
 import { Artwork, Empty, Modal } from './components';
 import type { Player } from './player';
@@ -8,8 +8,8 @@ import type { Uploader } from './upload';
 import { getCached } from './storage';
 import { bytes, date, duration, parseLyrics } from './utils';
 
-function AudioQualityIcon() {
-  return <svg viewBox="0 0 36 28" fill="none" aria-hidden="true"><path d="M2 15C5 1 8 1 11 15s6 14 9 0 6-14 9 0 4 10 5-1M2 9C5-1 8 5 11 19s6 6 9-8 6-6 9 8 4 5 5-3" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" /></svg>;
+function PlayerGlyph({ name }: { name: 'shuffle' | 'previous' | 'play' | 'pause' | 'next' | 'repeat' | 'audio' | 'more' | 'lyrics' | 'queue' | 'volume' }) {
+  return <span className={`player-glyph player-glyph-${name}`} aria-hidden="true" />;
 }
 
 export function PlayerBar({ player, panel, onQueue, onLyrics, onMore }: { player: Player; panel: 'queue' | 'lyrics' | null; onQueue: () => void; onLyrics: () => void; onMore: (track: Track) => void }) {
@@ -21,7 +21,6 @@ export function PlayerBar({ player, panel, onQueue, onLyrics, onMore }: { player
   const progress = totalDuration ? Math.max(0, Math.min(position / totalDuration, 1)) : 0;
   const lossless = /^(flac|alac|pcm_|wavpack|ape)/i.test(player.track?.format || '');
   const audioDescription = [player.actual.cached ? '离线原件' : '原件', player.track?.format.toUpperCase(), player.track?.bitDepth ? `${player.track.bitDepth} bit` : '', player.track?.sampleRate ? `${player.track.sampleRate / 1000} kHz` : '', player.actual.bitrate ? `${Math.round(player.actual.bitrate / 1000)} kbps` : ''].filter(Boolean).join(' · ');
-  const VolumeIcon = player.snapshot.volume === 0 ? VolumeX : player.snapshot.volume < 0.5 ? Volume1 : Volume2;
 
   useEffect(() => {
     const outside = (event: PointerEvent) => { if (!optionsRef.current?.contains(event.target as Node)) setPopover(null); };
@@ -54,11 +53,11 @@ export function PlayerBar({ player, panel, onQueue, onLyrics, onMore }: { player
   return <footer className={`player-bar ${!player.track ? 'player-empty' : ''}`}>
     <audio ref={player.audioRef} preload="metadata" />
     <div className="transport">
-      <button className={`icon-button mode-button ${player.snapshot.shuffle ? 'active' : ''}`} aria-label="随机播放" aria-pressed={player.snapshot.shuffle} onClick={player.toggleShuffle}><Shuffle size={24} /></button>
-      <button className="icon-button skip-button" aria-label="上一首" onClick={player.previous} disabled={!player.track}><Rewind size={33} fill="currentColor" strokeWidth={1} /></button>
-      <button className="icon-button main-play" aria-label={player.playing ? '暂停' : '播放'} onClick={() => player.playing ? player.pause() : player.play()} disabled={!player.queue.length}>{player.loading && !player.playing ? <LoaderCircle size={31} className="spin" /> : player.playing ? <Pause size={34} fill="currentColor" strokeWidth={0} /> : <Play size={34} fill="currentColor" strokeWidth={0} />}</button>
-      <button className="icon-button skip-button" aria-label="下一首" onClick={() => player.next()} disabled={!player.track}><FastForward size={33} fill="currentColor" strokeWidth={1} /></button>
-      <button className={`icon-button mode-button ${player.snapshot.repeat !== 'off' ? 'active' : ''}`} aria-label={`循环：${player.snapshot.repeat === 'off' ? '关闭' : player.snapshot.repeat === 'all' ? '全部' : '单曲'}`} aria-pressed={player.snapshot.repeat !== 'off'} onClick={player.toggleRepeat}>{player.snapshot.repeat === 'one' ? <Repeat1 size={24} /> : <Repeat size={24} />}</button>
+      <button className={`icon-button mode-button ${player.snapshot.shuffle ? 'active' : ''}`} aria-label="随机播放" aria-pressed={player.snapshot.shuffle} onClick={player.toggleShuffle}><PlayerGlyph name="shuffle" /></button>
+      <button className="icon-button skip-button" aria-label="上一首" onClick={player.previous} disabled={!player.track}><PlayerGlyph name="previous" /></button>
+      <button className="icon-button main-play" aria-label={player.playing ? '暂停' : '播放'} aria-busy={player.loading} onClick={() => player.playing ? player.pause() : player.play()} disabled={!player.queue.length}><PlayerGlyph name={player.playing ? 'pause' : 'play'} /></button>
+      <button className="icon-button skip-button" aria-label="下一首" onClick={() => player.next()} disabled={!player.track}><PlayerGlyph name="next" /></button>
+      <button className={`icon-button mode-button repeat-button ${player.snapshot.repeat !== 'off' ? 'active' : ''}`} aria-label={`循环：${player.snapshot.repeat === 'off' ? '关闭' : player.snapshot.repeat === 'all' ? '全部' : '单曲'}`} aria-pressed={player.snapshot.repeat !== 'off'} onClick={player.toggleRepeat}><PlayerGlyph name="repeat" />{player.snapshot.repeat === 'one' && <span className="repeat-one-count" aria-hidden="true">1</span>}</button>
     </div>
     <div className="player-center">
       <div className="player-track"><button className="player-cover" onClick={onLyrics} aria-label="查看正在播放" disabled={!player.track}><Artwork url={player.track?.coverUrl} /></button><div><button className="now-title" onClick={onLyrics} disabled={!player.track}>{player.track?.title || '尚未播放'}</button><p>{player.track ? [player.track.artist || '未知艺术家', player.track.album].filter(Boolean).join(' - ') : '选择一首音乐'}</p></div></div>
@@ -66,16 +65,16 @@ export function PlayerBar({ player, panel, onQueue, onLyrics, onMore }: { player
     </div>
     <div className="player-options" ref={optionsRef}>
       <div className="player-info-actions">
-        <button className="icon-button audio-info-button" aria-label="音频信息" aria-expanded={popover === 'audio'} title={player.track ? audioDescription : '音频信息'} disabled={!player.track} onClick={() => setPopover(old => old === 'audio' ? null : 'audio')}><AudioQualityIcon /></button>
-        <button className="icon-button" aria-label="当前曲目更多操作" disabled={!player.track} onClick={() => { setPopover(null); if (player.track) onMore(player.track); }}><MoreHorizontal size={29} strokeWidth={3} /></button>
+        <button className="icon-button audio-info-button" aria-label="音频信息" aria-expanded={popover === 'audio'} title={player.track ? audioDescription : '音频信息'} disabled={!player.track} onClick={() => setPopover(old => old === 'audio' ? null : 'audio')}><PlayerGlyph name="audio" /></button>
+        <button className="icon-button" aria-label="当前曲目更多操作" disabled={!player.track} onClick={() => { setPopover(null); if (player.track) onMore(player.track); }}><PlayerGlyph name="more" /></button>
       </div>
       <div className="player-view-actions">
-        <button className={`icon-button ${panel === 'lyrics' ? 'active' : ''}`} aria-label="歌词" aria-pressed={panel === 'lyrics'} onClick={() => { setPopover(null); onLyrics(); }}><MessageSquareQuote size={29} /></button>
-        <button className={`icon-button ${panel === 'queue' ? 'active' : ''}`} aria-label="播放队列" aria-pressed={panel === 'queue'} onClick={() => { setPopover(null); onQueue(); }}><List size={31} /></button>
-        <button className="icon-button volume-button" aria-label="调整音量" aria-expanded={popover === 'volume'} onClick={() => setPopover(old => old === 'volume' ? null : 'volume')}><VolumeIcon size={32} fill="currentColor" /></button>
+        <button className={`icon-button ${panel === 'lyrics' ? 'active' : ''}`} aria-label="歌词" aria-pressed={panel === 'lyrics'} onClick={() => { setPopover(null); onLyrics(); }}><PlayerGlyph name="lyrics" /></button>
+        <button className={`icon-button ${panel === 'queue' ? 'active' : ''}`} aria-label="播放队列" aria-pressed={panel === 'queue'} onClick={() => { setPopover(null); onQueue(); }}><PlayerGlyph name="queue" /></button>
+        <button className="icon-button volume-button" aria-label="调整音量" aria-expanded={popover === 'volume'} onClick={() => setPopover(old => old === 'volume' ? null : 'volume')}><PlayerGlyph name="volume" /></button>
       </div>
       {popover === 'audio' && player.track && <div className="player-popover audio-info" role="dialog" aria-label="音频信息"><strong>{lossless ? '无损原件' : '原件'}</strong><p>{audioDescription}</p></div>}
-      {popover === 'volume' && <div className="player-popover volume-control" role="dialog" aria-label="音量设置"><button className="icon-button" aria-label={player.snapshot.volume ? '静音' : '取消静音'} onClick={toggleMute}><VolumeIcon size={21} /></button><input type="range" min={0} max={1} step="0.01" value={player.snapshot.volume} style={{ '--progress': `${player.snapshot.volume * 100}%` } as React.CSSProperties} aria-label="音量" onChange={event => player.setVolume(Number(event.target.value))} /><span>{Math.round(player.snapshot.volume * 100)}%</span></div>}
+      {popover === 'volume' && <div className="player-popover volume-control" role="dialog" aria-label="音量设置"><button className="icon-button" aria-label={player.snapshot.volume ? '静音' : '取消静音'} onClick={toggleMute}><PlayerGlyph name="volume" /></button><input type="range" min={0} max={1} step="0.01" value={player.snapshot.volume} style={{ '--progress': `${player.snapshot.volume * 100}%` } as React.CSSProperties} aria-label="音量" onChange={event => player.setVolume(Number(event.target.value))} /><span>{Math.round(player.snapshot.volume * 100)}%</span></div>}
     </div>
   </footer>;
 }
