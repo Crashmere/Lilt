@@ -18,7 +18,7 @@ Offline storage and background playback depend on the browser and operating syst
 
 ## Local Use
 
-Use the Go version specified in `go.mod`, Node/npm and installed FFmpeg/FFprobe. Build tools run on the maintenance computer, not on `nas`.
+Use Go 1.26.8 as pinned in `.go-version`, Node/npm and installed FFmpeg/FFprobe. Build tools run on the maintenance computer, not on `nas`; `go.mod` records the minimum language version.
 
 ```sh
 npm --prefix web ci --no-audit --no-fund
