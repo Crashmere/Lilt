@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, ChevronDown, Download, FolderUp, ListMusic, LoaderCircle, MoreHorizontal, Pause, Play, Plus, Repeat, Repeat1, Shuffle, UploadCloud, X } from 'lucide-react';
+import { Check, CheckCheck, ChevronDown, CircleAlert, Download, FolderUp, ListMusic, LoaderCircle, MoreHorizontal, Music2, Pause, Play, Plus, Repeat, Repeat1, RotateCw, Shuffle, Trash2, UploadCloud, X } from 'lucide-react';
 import { ApiError, json, messageOf, request, trackURL } from './api';
 import { Artwork, Empty, Modal } from './components';
 import type { Player } from './player';
-import type { Playlist, Rules, Track } from './types';
+import type { Playlist, Rules, Track, Upload } from './types';
 import type { Uploader } from './upload';
+import { droppedFiles } from './drop-files';
+import { formatUploadRate } from './upload-rate';
 import { bytes, duration, parseLyrics } from './utils';
 
 function PlayerGlyph({ name }: { name: 'shuffle' | 'previous' | 'play' | 'pause' | 'next' | 'repeat' | 'more' | 'lyrics' | 'queue' | 'volume' }) {
@@ -107,12 +109,66 @@ export function UploadModal({ uploader, tracks, onClose, onLocate }: { uploader:
   const fileInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
+  const [reading, setReading] = useState(false);
+  const [dropError, setDropError] = useState('');
+  const [discard, setDiscard] = useState<Upload>();
+  const [discardBusy, setDiscardBusy] = useState(false);
+  const resumeTarget = useRef<Upload | undefined>(undefined);
+  const dragDepth = useRef(0);
   useEffect(() => { void uploader.inspect(); }, []);
-  const phases = { waiting: '等待上传', hashing: '校验文件', uploading: '上传中', done: '已完成', duplicate: '库中已有', error: '上传失败', paused: '已暂停' };
-  return <Modal title="上传音乐" wide onClose={onClose}><div className="modal-body upload-body"><div className={`dropzone ${dragging ? 'dragging' : ''}`} onDragOver={event => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={event => { event.preventDefault(); setDragging(false); uploader.add(Array.from(event.dataTransfer.files)); }}><UploadCloud size={35} strokeWidth={1.25} /><h3>拖入音频文件</h3><p>可同时选择同名歌词、封面，或文件夹中的 cover 图片。</p><div><button className="button primary" onClick={() => fileInput.current?.click()}><Plus size={17} />选择文件</button><button className="button secondary" onClick={() => folderInput.current?.click()}><FolderUp size={17} />选择文件夹</button></div><input ref={fileInput} type="file" multiple hidden accept="audio/*,.flac,.opus,.aiff,.aif,.wma,.lrc,.txt,.jpg,.jpeg,.png,.webp" onChange={event => { uploader.add(Array.from(event.target.files || [])); event.target.value = ''; }} /><input ref={folderInput} type="file" multiple hidden {...{ webkitdirectory: '' }} onChange={event => { uploader.add(Array.from(event.target.files || [])); event.target.value = ''; }} /></div>
-    {uploader.items.length > 0 && <><div className="upload-toolbar"><span>{uploader.items.length} 个音频文件</span><button className="text-button" onClick={uploader.clearDone} disabled={uploader.running}>清除已完成</button></div><div className="upload-items">{uploader.items.map(item => <article className={`upload-item ${item.phase}`} key={item.key}><div className="upload-item-top"><strong title={item.path}>{item.file.name}</strong><span>{item.phase === 'duplicate' && item.track?.deletedAt ? '回收站中已有' : phases[item.phase]}</span>{!uploader.running && <button className="icon-button" aria-label={`移除 ${item.file.name}`} onClick={() => uploader.remove(item.key)}><X size={16} /></button>}</div><p>{bytes(item.file.size)}{item.lyrics ? ' · 歌词' : ''}{item.cover ? ' · 封面' : ''}</p>{['hashing', 'uploading', 'paused'].includes(item.phase) && <div className="upload-meter"><i style={{ width: `${item.progress * 100}%` }} /></div>}{item.error && <p className="error-text">{item.error}</p>}{item.phase === 'duplicate' && item.trackId && <button className="text-button" onClick={() => onLocate(item.trackId!)}>查看已有曲目</button>}{!['done', 'duplicate'].includes(item.phase) && <select className="replacement-select" aria-label={`${item.file.name} 导入方式`} value={item.replaceTrackId || ''} disabled={uploader.running} onChange={event => uploader.replace(item.key, event.target.value)}><option value="">作为新曲目</option>{tracks.map(track => <option key={track.id} value={track.id}>替换：{track.title} · {track.artist}{track.version ? ` · ${track.version}` : ''}</option>)}</select>}</article>)}</div></>}
-    {uploader.retained.length > 0 && <section className="retained-uploads"><h3>未完成的上传</h3><p>重新选择同一文件可继续。</p>{uploader.retained.map(upload => <div key={upload.id}><span>{upload.filename}<small>{bytes(upload.offset)} / {bytes(upload.size)}</small></span><button className="text-button" onClick={() => { void uploader.cancelRetained(upload.id); }}>取消</button></div>)}</section>}
-    </div><footer className="modal-footer"><span>{uploader.running ? '收起面板后继续上传' : ''}</span>{uploader.running ? <button className="button secondary" onClick={uploader.pause}><Pause size={16} />暂停</button> : <button className="button primary" disabled={!uploader.items.some(item => !['done', 'duplicate'].includes(item.phase))} onClick={() => { void uploader.start(); }}>开始上传</button>}</footer></Modal>;
+  const phases = { waiting: '等待上传', hashing: '读取与校验', uploading: '上传中', verifying: '校验与入库', applying: '保存歌词与封面', done: '已完成', duplicate: '库中已有', error: '上传失败', paused: '已暂停' };
+  const completed = uploader.items.filter(item => ['done', 'duplicate'].includes(item.phase)).length;
+  const priority = (phase: string) => ['hashing', 'uploading', 'verifying', 'applying'].includes(phase) ? 0 : ['done', 'duplicate'].includes(phase) ? 2 : 1;
+  const items = [...uploader.items].sort((a, b) => priority(a.phase) - priority(b.phase));
+  const pending = uploader.retained.filter(upload => !uploader.items.some(item => item.uploadId === upload.id || item.fingerprint === upload.fingerprint || item.expectedFingerprint === upload.fingerprint));
+  function pick(resume?: Upload) { resumeTarget.current = resume; if (fileInput.current) { fileInput.current.multiple = !resume; fileInput.current.click(); } }
+  async function drop(transfer: DataTransfer) {
+    setReading(true); setDropError('');
+    try { uploader.add(await droppedFiles(transfer)); }
+    catch { setDropError('文件夹读取失败，请使用「选择文件夹」重试。'); }
+    finally { setReading(false); }
+  }
+  async function confirmDiscard() {
+    if (!discard || discardBusy) return;
+    setDiscardBusy(true);
+    try { if (await uploader.cancelRetained(discard.id)) setDiscard(undefined); }
+    finally { setDiscardBusy(false); }
+  }
+  const resumable = uploader.items.some(item => ['paused', 'error'].includes(item.phase));
+  const busy = reading || discardBusy;
+  return <Modal title="上传音乐" wide onClose={() => { if (!busy) onClose(); }}><div className="modal-body upload-body">
+    <div className={`dropzone ${dragging ? 'dragging' : ''}`} onDragEnter={event => { event.preventDefault(); dragDepth.current++; setDragging(true); }} onDragOver={event => { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; }} onDragLeave={() => { if (--dragDepth.current <= 0) { dragDepth.current = 0; setDragging(false); } }} onDrop={event => { event.preventDefault(); dragDepth.current = 0; setDragging(false); if (!busy) void drop(event.dataTransfer); }}>
+      {reading ? <LoaderCircle size={35} className="spinning" /> : <UploadCloud size={35} strokeWidth={1.25} />}<h3>{reading ? '正在读取文件夹' : '拖入音乐或文件夹'}</h3><p>同名歌词、封面和文件夹中的 cover 图片会一起导入。</p>
+      <div><button className="button primary" disabled={busy} onClick={() => pick()}><Music2 size={17} />选择文件</button><button className="button secondary" disabled={busy} onClick={() => folderInput.current?.click()}><FolderUp size={17} />选择文件夹</button></div>
+      <input ref={fileInput} type="file" multiple hidden accept="audio/*,.mp3,.m4a,.aac,.flac,.wav,.ogg,.opus,.aiff,.aif,.wma,.webm,.ape,.wv,.tta,.dsf,.lrc,.txt,.jpg,.jpeg,.png,.webp" onChange={event => { uploader.add(Array.from(event.target.files || []), resumeTarget.current); resumeTarget.current = undefined; event.target.value = ''; }} />
+      <input ref={folderInput} type="file" multiple hidden {...{ webkitdirectory: '' }} onChange={event => { uploader.add(Array.from(event.target.files || [])); event.target.value = ''; }} />
+    </div>
+    {dropError && <p className="error-text" role="alert">{dropError}</p>}
+    {uploader.inspectError && <div className="upload-notice" role="alert"><span>{uploader.inspectError}</span><button className="text-button" onClick={() => { void uploader.inspect(); }}>重新加载</button></div>}
+    {items.length > 0 && <>
+      <div className="upload-summary"><div><span>本次上传</span><strong>{completed}<small> / {items.length}</small></strong></div><div className="upload-speed"><span>当前发送速率</span><strong>{formatUploadRate(items.reduce((sum, item) => sum + item.bytesPerSecond, 0))}</strong></div></div>
+      <div className="upload-toolbar"><span>{items.filter(item => item.phase === 'error').length ? `${items.filter(item => item.phase === 'error').length} 项待重试` : `${items.length - completed} 项未完成`}</span><div>{resumable && uploader.running && <button className="text-button" disabled={busy} onClick={() => uploader.start()}>继续 / 重试全部</button>}<button className="text-button" onClick={uploader.clearDone} disabled={!completed || busy}>清除已完成</button></div></div>
+      <div className="upload-items">{items.map(item => {
+        const done = ['done', 'duplicate'].includes(item.phase);
+        const active = ['hashing', 'uploading', 'verifying', 'applying'].includes(item.phase);
+        const status = item.retrying ? '连接中断，正在重试' : item.awaitingAck ? '等待服务器确认' : item.phase === 'duplicate' && item.track?.deletedAt ? '回收站中已有' : phases[item.phase];
+        return <article className={`upload-item ${item.phase}`} key={item.key}>
+          <div className="upload-state-icon">{item.phase === 'done' ? <Check size={19} /> : item.phase === 'duplicate' ? <CheckCheck size={19} /> : item.phase === 'error' ? <CircleAlert size={19} /> : active ? <LoaderCircle size={19} className="spinning" /> : item.phase === 'paused' ? <Pause size={18} /> : <Music2 size={19} />}</div>
+          <div className="upload-description"><div className="upload-item-top"><strong title={item.path}>{item.file.name}</strong><span>{status}</span></div>
+            {item.path !== item.file.name && <p className="upload-path" title={item.path}>{item.path}</p>}
+            <div className="upload-meta"><span>{bytes(item.file.size)}</span>{item.lyrics && <span>歌词</span>}{item.cover && <span>封面</span>}{!done && <span>{Math.min(99, Math.floor(item.progress * 100))}%</span>}</div>
+            {!done && <><div className={`upload-meter ${['verifying', 'applying'].includes(item.phase) ? 'processing' : ''}`} role="progressbar" aria-label={`${item.file.name} 上传进度`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.floor(item.progress * 100)}><i style={{ width: `${item.progress * 100}%` }} /></div>{item.uploadId && <p className="upload-confirmed">服务器已确认 {bytes(item.uploadedBytes)} / {bytes(item.file.size)}</p>}</>}
+            {item.error && <p className="error-text" role="alert">{item.error}</p>}
+            {item.trackId && <button className="text-button upload-locate" onClick={() => onLocate(item.trackId!)}>{item.track?.deletedAt ? '查看回收站曲目' : item.phase === 'duplicate' ? '查看已有曲目' : '查看曲目'}</button>}
+            {!done && !item.trackId && <select className="replacement-select" aria-label={`${item.file.name} 导入方式`} value={item.replaceTrackId || ''} disabled={uploader.running || busy} onChange={event => uploader.replace(item.key, event.target.value)}><option value="">作为新曲目</option>{tracks.map(track => <option key={track.id} value={track.id}>替换：{track.title} · {track.artist}{track.version ? ` · ${track.version}` : ''}</option>)}</select>}
+          </div>
+          <div className="upload-row-actions">{!done && (['paused', 'error'].includes(item.phase) ? <button className="icon-button" disabled={busy} aria-label={`${item.phase === 'error' ? '重试' : '继续'} ${item.file.name}`} title={item.phase === 'error' ? '仅重试此文件' : '仅继续此文件'} onClick={() => uploader.start(item.key)}>{item.phase === 'error' ? <RotateCw size={16} /> : <Play size={16} />}</button> : <button className="icon-button" disabled={busy} aria-label={`暂停 ${item.file.name}`} onClick={() => uploader.pause(item.key)}><Pause size={16} /></button>)}<button className="icon-button" disabled={busy} aria-label={`移出列表 ${item.file.name}`} title={done ? '只移出列表，不删除音乐' : '移出队列，保留已确认的分片'} onClick={() => { uploader.remove(item.key); void uploader.inspect(); }}><X size={16} /></button></div>
+        </article>;
+      })}</div>
+    </>}
+    {pending.length > 0 && <section className="retained-uploads"><h3>未完成的上传 <small>{pending.length}</small></h3><p>选择相同原文件续传，已确认的分片无需重传。</p>{pending.map(upload => <div className="retained-upload" key={upload.id}><span title={upload.filename}>{upload.filename}<small>{bytes(upload.offset)} / {bytes(upload.size)}</small></span><div><button className="text-button" disabled={busy} onClick={() => pick(upload)}>选择原文件续传</button><button className="icon-button danger" disabled={busy} aria-label={`丢弃 ${upload.filename} 的未完成上传`} onClick={() => setDiscard(upload)}><Trash2 size={16} /></button></div></div>)}</section>}
+    {discard && <div className="upload-discard" role="alert"><h3>丢弃未完成上传？</h3><p>「{discard.filename}」已接收的 {bytes(discard.offset)} 分片将被清理，已入库音乐不受影响。</p><div><button className="button secondary" disabled={discardBusy} onClick={() => setDiscard(undefined)}>保留上传</button><button className="button danger" disabled={discardBusy} onClick={() => { void confirmDiscard(); }}>{discardBusy ? '正在丢弃' : '确认丢弃'}</button></div></div>}
+    </div><footer className="modal-footer"><span>{uploader.running ? '收起面板后继续上传' : resumable ? '暂停的上传和失败项可继续' : '分段上传 · 完整校验后入库'}</span>{uploader.running ? <button className="button secondary" disabled={busy} onClick={() => uploader.pause()}><Pause size={16} />暂停全部</button> : <button className="button primary" disabled={busy || !items.some(item => !['done', 'duplicate'].includes(item.phase))} onClick={() => uploader.start()}>{resumable ? <Play size={16} /> : <UploadCloud size={16} />}{resumable ? '继续 / 重试全部' : '开始上传'}</button>}</footer></Modal>;
 }
 
 export function TrackEditor({ track, onClose, onSaved }: { track: Track; onClose: () => void; onSaved: (track: Track) => Promise<void> }) {
