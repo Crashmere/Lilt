@@ -729,5 +729,8 @@ func (s *server) static(w http.ResponseWriter, r *http.Request) {
 	} else {
 		w.Header().Set("Cache-Control", "public, max-age=86400")
 	}
+	if name == "manifest.webmanifest" {
+		w.Header().Set("Content-Type", "application/manifest+json; charset=utf-8")
+	}
 	http.ServeContent(w, r, name, info.ModTime(), reader)
 }
