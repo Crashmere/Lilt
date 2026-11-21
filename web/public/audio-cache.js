@@ -29,7 +29,7 @@ function audioAllowed(entry) {
   const states = [...audioClients.values()].filter(state => Date.now() - state.at <= 15000);
   const playing = states.some(state => state.playing);
   for (const state of states) {
-    if (state.current === entry.url && (state.playing || !playing) || state.next === entry.url && state.prefetch && state.playing) return true;
+    if (state.current === entry.url && (state.playing || !playing && state.fill) || state.next === entry.url && state.prefetch && state.playing) return true;
   }
   return false;
 }
@@ -52,7 +52,7 @@ function audioState(event) {
     return;
   }
   if (data?.type !== 'lilt-audio-state' || !event.source?.id) return;
-  audioClients.set(event.source.id, { current: audioURL(data.current), next: audioURL(data.next), prefetch: !!data.prefetch, playing: !!data.playing, at: Date.now() });
+  audioClients.set(event.source.id, { current: audioURL(data.current), next: audioURL(data.next), prefetch: !!data.prefetch, playing: !!data.playing, fill: !!data.fill, at: Date.now() });
   for (const [id, state] of audioClients) if (Date.now() - state.at > 15000) audioClients.delete(id);
   for (const [url, entry] of audioEntries) {
     if (entry.loading) { if (!audioWanted(entry)) entry.abort.abort(); continue; }
@@ -195,6 +195,9 @@ async function audioLoad(request, url, abort) {
       return { entry: { url, size: blob.size, received: blob.size, complete: true, headers: check.headers, blob, waiters: new Set() } };
     }
     await caches.open(AUDIO_CACHE).then(cache => cache.delete(url)).catch(() => undefined);
+  }
+  if (![...audioClients.values()].some(state => state.current === url && state.fill || state.next === url && state.prefetch)) {
+    return { response: await fetch(request) };
   }
   const timer = setTimeout(() => abort.abort(new Error('Audio headers timed out')), 45000);
   let response;
