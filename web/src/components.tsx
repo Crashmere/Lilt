@@ -1,5 +1,5 @@
 import { useState, type CSSProperties, type ReactNode } from 'react';
-import { ArrowDown, ArrowUp, Check, Disc3, GripVertical, Heart, LoaderCircle, MoreHorizontal, Music2, Play, Plus, Settings2, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Check, Disc3, GripVertical, Heart, LoaderCircle, MoreHorizontal, Music2, Pencil, Play, Plus, Settings2, X } from 'lucide-react';
 import type { Player } from './player';
 import type { PlaylistMemberships } from './playlist-memberships';
 import type { FilterColumn } from './library-filters';
@@ -49,7 +49,7 @@ export function TrackPlaylists({ playlists = [], onOpen }: { playlists?: Playlis
 }
 
 type TrackTableProps = {
-  tracks: Track[]; player: Player; favorite: (track: Track) => void; actions: (track: Track) => void;
+  tracks: Track[]; player: Player; favorite: (track: Track) => void; edit: (track: Track) => void; actions: (track: Track) => void;
   playlistMemberships: PlaylistMemberships; showPlaylists: (track: Track) => void;
   addToPlaylist: (ids: string[]) => void;
   bulkEdit: (tracks: Track[]) => void;
@@ -57,7 +57,7 @@ type TrackTableProps = {
   filterColumns?: FilterColumn[];
   compact?: boolean; albumTracks?: boolean; onReorder?: Reorder; empty?: string;
 };
-export function TrackTable({ tracks, player, favorite, actions, playlistMemberships, showPlaylists, addToPlaylist, bulkEdit, collectionNavigation, filterColumns = [], compact = false, albumTracks = false, onReorder, empty = '没有曲目' }: TrackTableProps) {
+export function TrackTable({ tracks, player, favorite, edit, actions, playlistMemberships, showPlaylists, addToPlaylist, bulkEdit, collectionNavigation, filterColumns = [], compact = false, albumTracks = false, onReorder, empty = '没有曲目' }: TrackTableProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [selecting, setSelecting] = useState(false);
   const reorder = useReorder(tracks, onReorder);
@@ -78,7 +78,7 @@ export function TrackTable({ tracks, player, favorite, actions, playlistMembersh
         return <span className="filter-column-value" key={column.key} data-filter={column.key} title={value}>{value}</span>;
       })}
       <span className="time-cell">{duration(track.duration)}</span>
-      <div className="track-actions">{onReorder && <><button className="icon-button reorder-button" aria-label={`上移 ${track.title}`} disabled={index === 0 || reorder.saving !== null} onClick={() => reorder.move(index, index - 1)}><ArrowUp size={14} /></button><button className="icon-button reorder-button" aria-label={`下移 ${track.title}`} disabled={index === tracks.length - 1 || reorder.saving !== null} onClick={() => reorder.move(index, index + 1)}><ArrowDown size={14} /></button></>}<button className={`icon-button ${track.favorite ? 'accent' : ''}`} aria-label={track.favorite ? `取消收藏 ${track.title}` : `收藏 ${track.title}`} onClick={() => favorite(track)}><Heart size={17} fill={track.favorite ? 'currentColor' : 'none'} /></button><button className="icon-button" aria-label={`${track.title} 更多操作`} onClick={() => actions(track)}><MoreHorizontal size={19} /></button></div>
+      <div className="track-actions">{onReorder && <><button className="icon-button reorder-button" aria-label={`上移 ${track.title}`} disabled={index === 0 || reorder.saving !== null} onClick={() => reorder.move(index, index - 1)}><ArrowUp size={14} /></button><button className="icon-button reorder-button" aria-label={`下移 ${track.title}`} disabled={index === tracks.length - 1 || reorder.saving !== null} onClick={() => reorder.move(index, index + 1)}><ArrowDown size={14} /></button></>}<button className={`icon-button ${track.favorite ? 'accent' : ''}`} aria-label={track.favorite ? `取消收藏 ${track.title}` : `收藏 ${track.title}`} onClick={() => favorite(track)}><Heart size={17} fill={track.favorite ? 'currentColor' : 'none'} /></button><button className="icon-button" aria-label={`编辑 ${track.title}`} title="编辑曲目" aria-haspopup="dialog" onClick={() => edit(track)}><Pencil size={16} /></button><button className="icon-button" aria-label={`${track.title} 更多操作`} onClick={() => actions(track)}><MoreHorizontal size={19} /></button></div>
     </div>)}
   </>;
   return <div ref={reorder.root} {...reorder.listProps} className={`track-list ${compact ? 'compact' : ''} ${albumTracks ? 'album-tracks' : ''} ${selecting ? 'selecting' : ''} ${filterColumns.length ? 'filtering' : ''} ${reorder.listProps.className}`} style={filterColumns.length ? { '--filter-column-count': filterColumns.length } as CSSProperties : undefined}>
