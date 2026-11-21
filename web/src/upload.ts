@@ -9,7 +9,7 @@ export type UploadPlaylist = Pick<Playlist, 'id' | 'name'>;
 export type UploadItem = {
   key: string; file: File; path: string; phase: Phase; progress: number; uploadedBytes: number; bytesPerSecond: number;
   fingerprint?: string; expectedFingerprint?: string; uploadId?: string; track?: Track; trackId?: string; error?: string;
-  replaceTrackId?: string; lyrics?: File; cover?: File; lyricsApplied?: boolean; coverApplied?: boolean; duplicate?: boolean; retrying?: boolean; awaitingAck?: boolean;
+  lyrics?: File; cover?: File; lyricsApplied?: boolean; coverApplied?: boolean; duplicate?: boolean; retrying?: boolean; awaitingAck?: boolean;
   playlist?: UploadPlaylist; playlistApplied?: boolean;
 };
 const CHUNK_SIZE = 32 * 1024 * 1024;
@@ -160,7 +160,7 @@ export function useUploads(refresh: () => Promise<void>, notify: (text: string) 
     }
     if (item.expectedFingerprint && item.expectedFingerprint !== item.fingerprint) throw new Error('所选文件与待续传音频不同，请移出此项后选择正确的原文件。');
     const prepare = async () => {
-      const { upload } = await json<{ upload: Upload }>('/uploads', 'POST', { filename: item.file.name, relativePath: item.path, size: item.file.size, fingerprint: item.fingerprint, replaceTrackId: item.replaceTrackId });
+      const { upload } = await json<{ upload: Upload }>('/uploads', 'POST', { filename: item.file.name, relativePath: item.path, size: item.file.size, fingerprint: item.fingerprint });
       validate(upload, item);
       change({ uploadId: upload.id, uploadedBytes: upload.offset, progress: transferProgress(upload.offset, item.file.size) });
       return upload;
@@ -169,7 +169,7 @@ export function useUploads(refresh: () => Promise<void>, notify: (text: string) 
     if (!item.trackId) {
       if (!item.uploadId || item.uploadedBytes < item.file.size) {
         let upload = await prepare();
-        if (upload.duplicate && !item.replaceTrackId) {
+        if (upload.duplicate) {
           const result = await request<{ track: Track }>(`/tracks/${encodeURIComponent(upload.trackId!)}`, { signal });
           change({ trackId: upload.trackId, track: result.track, duplicate: true });
         } else {
@@ -204,7 +204,7 @@ export function useUploads(refresh: () => Promise<void>, notify: (text: string) 
       if (!item.trackId) {
         signal.throwIfAborted();
         change({ phase: 'verifying', progress: 0.95, awaitingAck: false, retrying: false });
-        const result = await json<{ track: Track; duplicate: boolean }>(`/uploads/${encodeURIComponent(item.uploadId!)}/complete`, 'POST', item.replaceTrackId ? { replaceTrackId: item.replaceTrackId } : {});
+        const result = await json<{ track: Track; duplicate: boolean }>(`/uploads/${encodeURIComponent(item.uploadId!)}/complete`, 'POST', {});
         change({ track: result.track, trackId: result.track.id, duplicate: result.duplicate });
       }
     }
@@ -214,7 +214,7 @@ export function useUploads(refresh: () => Promise<void>, notify: (text: string) 
       await json(`/playlists/${encodeURIComponent(item.playlist.id)}`, 'PUT', { addTrackIds: [item.trackId] });
       change({ playlistApplied: true });
     }
-    if (!item.duplicate || item.replaceTrackId) {
+    if (!item.duplicate) {
       validateSidecars(item);
       signal.throwIfAborted();
       change({ phase: 'applying', progress: 0.98 });
@@ -259,7 +259,6 @@ export function useUploads(refresh: () => Promise<void>, notify: (text: string) 
 
   function start(key?: string): void {
     const selected = queue.current.filter(item => (!key || item.key === key) && !finished(item) && (!active.current || ['paused', 'error', 'waiting'].includes(item.phase)));
-    if (selected.some(item => item.replaceTrackId && !item.trackId) && !window.confirm('替换会更换所选曲目的音频原文件，保留收藏、歌单和听歌记录。继续上传？')) return;
     stopped.current = false;
     selected.forEach(item => { item.phase = 'waiting'; item.error = undefined; });
     publish();
@@ -275,7 +274,6 @@ export function useUploads(refresh: () => Promise<void>, notify: (text: string) 
   }
   return {
     items, retained, inspectError, running, add, start, pause, inspect, cancelRetained,
-    replace: (key: string, id: string) => { const item = queue.current.find(item => item.key === key); if (item && !active.current && !item.trackId) update(item, { replaceTrackId: id || undefined, uploadId: undefined }); },
     remove: (key: string) => { pause(key); queue.current = queue.current.filter(item => item.key !== key); publish(); },
     clearDone: () => { queue.current = queue.current.filter(item => !finished(item)); publish(); },
   };
