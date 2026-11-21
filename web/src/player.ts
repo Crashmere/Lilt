@@ -28,7 +28,6 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
   const [sourceVersion, setSourceVersion] = useState(0);
-  const [actual, setActual] = useState({ bitrate: 0, cached: false });
   const [conflict, setConflict] = useState(false);
   const tabId = useRef(identity());
   const intent = useRef({ play: false, position: snapshot.position || 0 });
@@ -60,7 +59,6 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
     if (session.current.trackId !== nextTrack.id) session.current = { id: identity(), trackId: nextTrack.id, seconds: 0, lastPosition: start };
     intent.current = { play: autoplay, position: start };
     initialSeekPending.current = true;
-    setActual({ bitrate: cached?.bitrate || nextTrack.bitrate, cached: !!cached });
     setLoading(true);
     setSourceVersion(value => value + 1);
     audio.volume = snapshot.volume;
@@ -260,7 +258,6 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
         if (!navigator.onLine) throw new TypeError('offline');
         const response = await fetch(url, { method: 'HEAD', credentials: 'same-origin', signal: abort.signal });
         if (!response.ok) throw new ApiError(response.status, {}, response.status === 401 ? '设备授权已失效，请重新打开服务。' : '音频暂时无法加载。');
-        if (!cancelled && source.current.url === url) setActual({ bitrate: Number(response.headers.get('X-Lilt-Bitrate')) || track.bitrate, cached: false });
       } catch (error) {
         if (abort.signal.aborted) return;
         if (error instanceof ApiError && error.status === 401) { audio.pause(); throw error; }
@@ -272,7 +269,6 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
         if (source.current.objectURL) URL.revokeObjectURL(source.current.objectURL);
         source.current = { ...currentSource, url: objectURL, objectURL };
         initialSeekPending.current = true;
-        setActual({ bitrate: cached.bitrate, cached: true });
         audio.src = objectURL; audio.load();
         if (intent.current.play) void audio.play().catch(() => notify('点击播放以继续。'));
       }
@@ -324,7 +320,7 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   }, [track?.title, track?.artist, track?.album, track?.coverUrl]);
 
   return {
-    audioRef, snapshot, track, trackId, queue, position, playing, loading, actual,
+    audioRef, snapshot, track, trackId, queue, position, playing, loading,
     conflict, setConflict,
     begin, play, pause, seek, next, previous, enqueue, reorder, remove, setVolume, setLabel, continueFrom,
     toggleShuffle: () => setSnapshot(old => {

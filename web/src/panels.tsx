@@ -8,23 +8,21 @@ import type { Uploader } from './upload';
 import { getCached } from './storage';
 import { bytes, date, duration, parseLyrics } from './utils';
 
-function PlayerGlyph({ name }: { name: 'shuffle' | 'previous' | 'play' | 'pause' | 'next' | 'repeat' | 'audio' | 'more' | 'lyrics' | 'queue' | 'volume' }) {
+function PlayerGlyph({ name }: { name: 'shuffle' | 'previous' | 'play' | 'pause' | 'next' | 'repeat' | 'more' | 'lyrics' | 'queue' | 'volume' }) {
   return <span className={`player-glyph player-glyph-${name}`} aria-hidden="true" />;
 }
 
 export function PlayerBar({ player, panel, onQueue, onLyrics, onMore }: { player: Player; panel: 'queue' | 'lyrics' | null; onQueue: () => void; onLyrics: () => void; onMore: (track: Track) => void }) {
-  const [popover, setPopover] = useState<'audio' | 'volume' | null>(null);
+  const [volumeOpen, setVolumeOpen] = useState(false);
   const optionsRef = useRef<HTMLDivElement>(null);
   const unmutedVolume = useRef(player.snapshot.volume || 0.8);
   const totalDuration = player.track?.duration || 0;
   const position = player.track ? player.position : 0;
   const progress = totalDuration ? Math.max(0, Math.min(position / totalDuration, 1)) : 0;
-  const lossless = /^(flac|alac|pcm_|wavpack|ape)/i.test(player.track?.format || '');
-  const audioDescription = [player.actual.cached ? '离线原件' : '原件', player.track?.format.toUpperCase(), player.track?.bitDepth ? `${player.track.bitDepth} bit` : '', player.track?.sampleRate ? `${player.track.sampleRate / 1000} kHz` : '', player.actual.bitrate ? `${Math.round(player.actual.bitrate / 1000)} kbps` : ''].filter(Boolean).join(' · ');
 
   useEffect(() => {
-    const outside = (event: PointerEvent) => { if (!optionsRef.current?.contains(event.target as Node)) setPopover(null); };
-    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') setPopover(null); };
+    const outside = (event: PointerEvent) => { if (!optionsRef.current?.contains(event.target as Node)) setVolumeOpen(false); };
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') setVolumeOpen(false); };
     document.addEventListener('pointerdown', outside);
     document.addEventListener('keydown', escape);
     return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape); };
@@ -64,17 +62,15 @@ export function PlayerBar({ player, panel, onQueue, onLyrics, onMore }: { player
       <div className="player-progress" title={`${duration(position)} / ${duration(totalDuration)}`}><div className="player-seek" style={{ '--progress': `${progress * 100}%` } as React.CSSProperties}><input type="range" aria-label="播放进度" aria-valuetext={`${duration(position)} / ${duration(totalDuration)}`} min={0} max={totalDuration || 1} step="0.1" value={progress * totalDuration} disabled={totalDuration <= 0} onChange={event => player.seek(Number(event.target.value))} onPointerDown={startSeek} onPointerMove={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) seekAtPointer(event); }} onPointerUp={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) { seekAtPointer(event); event.currentTarget.releasePointerCapture(event.pointerId); } }} /></div></div>
     </div>
     <div className="player-options" ref={optionsRef}>
-      <div className="player-info-actions">
-        <button className="icon-button audio-info-button" aria-label="音频信息" aria-expanded={popover === 'audio'} title={player.track ? audioDescription : '音频信息'} disabled={!player.track} onClick={() => setPopover(old => old === 'audio' ? null : 'audio')}><PlayerGlyph name="audio" /></button>
-        <button className="icon-button" aria-label="当前曲目更多操作" disabled={!player.track} onClick={() => { setPopover(null); if (player.track) onMore(player.track); }}><PlayerGlyph name="more" /></button>
+      <div className="player-more-actions">
+        <button className="icon-button" aria-label="当前歌曲更多功能" title="更多功能" disabled={!player.track} onClick={() => { setVolumeOpen(false); if (player.track) onMore(player.track); }}><PlayerGlyph name="more" /></button>
       </div>
       <div className="player-view-actions">
-        <button className={`icon-button ${panel === 'lyrics' ? 'active' : ''}`} aria-label="歌词" aria-pressed={panel === 'lyrics'} onClick={() => { setPopover(null); onLyrics(); }}><PlayerGlyph name="lyrics" /></button>
-        <button className={`icon-button ${panel === 'queue' ? 'active' : ''}`} aria-label="播放队列" aria-pressed={panel === 'queue'} onClick={() => { setPopover(null); onQueue(); }}><PlayerGlyph name="queue" /></button>
-        <button className="icon-button volume-button" aria-label="调整音量" aria-expanded={popover === 'volume'} onClick={() => setPopover(old => old === 'volume' ? null : 'volume')}><PlayerGlyph name="volume" /></button>
+        <button className={`icon-button ${panel === 'lyrics' ? 'active' : ''}`} aria-label="歌词" aria-pressed={panel === 'lyrics'} onClick={() => { setVolumeOpen(false); onLyrics(); }}><PlayerGlyph name="lyrics" /></button>
+        <button className={`icon-button ${panel === 'queue' ? 'active' : ''}`} aria-label="播放队列" aria-pressed={panel === 'queue'} onClick={() => { setVolumeOpen(false); onQueue(); }}><PlayerGlyph name="queue" /></button>
+        <button className="icon-button volume-button" aria-label="调整音量" aria-expanded={volumeOpen} onClick={() => setVolumeOpen(old => !old)}><PlayerGlyph name="volume" /></button>
       </div>
-      {popover === 'audio' && player.track && <div className="player-popover audio-info" role="dialog" aria-label="音频信息"><strong>{lossless ? '无损原件' : '原件'}</strong><p>{audioDescription}</p></div>}
-      {popover === 'volume' && <div className="player-popover volume-control" role="dialog" aria-label="音量设置"><button className="icon-button" aria-label={player.snapshot.volume ? '静音' : '取消静音'} onClick={toggleMute}><PlayerGlyph name="volume" /></button><input type="range" min={0} max={1} step="0.01" value={player.snapshot.volume} style={{ '--progress': `${player.snapshot.volume * 100}%` } as React.CSSProperties} aria-label="音量" onChange={event => player.setVolume(Number(event.target.value))} /><span>{Math.round(player.snapshot.volume * 100)}%</span></div>}
+      {volumeOpen && <div className="player-popover volume-control" role="dialog" aria-label="音量设置"><button className="icon-button" aria-label={player.snapshot.volume ? '静音' : '取消静音'} onClick={toggleMute}><PlayerGlyph name="volume" /></button><input type="range" min={0} max={1} step="0.01" value={player.snapshot.volume} style={{ '--progress': `${player.snapshot.volume * 100}%` } as React.CSSProperties} aria-label="音量" onChange={event => player.setVolume(Number(event.target.value))} /><span>{Math.round(player.snapshot.volume * 100)}%</span></div>}
     </div>
   </footer>;
 }

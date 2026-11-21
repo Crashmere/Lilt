@@ -26,6 +26,8 @@ The first compatible request may wait for encoding. Uploaded files are constrain
 
 The player remains mounted while library views, search results, dialogs and playlists update. Its queue, current track, position, repeat/shuffle preferences and volume are saved without requesting audible playback on page startup. Starting or continuing playback is an explicit user action and remains subject to browser autoplay rules.
 
+The player and library-row ellipsis buttons open one shared song-specific More Features menu. Additional song operations belong in this menu.
+
 Each browser maintains its own device identifier and player snapshot. Library data and playlists are shared through the server; another browser's saved snapshot is offered for explicit continuation rather than automatic takeover. Same-origin tabs coordinate playback locally. This does not create a guaranteed cross-Origin or cross-device remote-control channel.
 
 Listening updates use a session identifier and cumulative actual listening time so retries do not add the same seconds again. Offline pending updates remain browser-local until they can be sent to the server. Saved browser state and offline audio are not part of NAS data recovery until their corresponding server records have synchronized.
