@@ -46,7 +46,7 @@ The same application-owned Nginx source is installed on `nas`, `ali` and `vps`. 
 
 Anonymous GET/HEAD is limited to `/lilt/favicon.svg`, `/lilt/apple-touch-icon.png`, `/lilt/icon-192.png`, `/lilt/icon-512.png` and `/lilt/manifest.webmanifest`. The opaque 180-by-180 Apple icon and manifest icons are generated from retained source by `scripts/icons.sh` on the maintenance Mac and included in the build. `/lilt/sw.js`, application code, business APIs and uploaded media remain authenticated.
 
-Browser queues, progress and saved library metadata remain device/Origin-local. Audio loads from the server without application-managed offline audio caching. Clearing browser storage can remove browser-local state, and background execution depends on the platform. Same-origin tabs coordinate playback locally. Real mobile lock-screen playback, Home Screen installation and first-Origin login are device acceptance, separate from HTTP checks.
+Browser queues, progress, saved library metadata and the bounded complete-audio cache remain device/Origin-local. Cached audio still requires a successful network authorization check; see [browser buffering](ARCHITECTURE.md#browser-continuity-and-storage) for limits, version invalidation and next-track scheduling. Clearing browser storage can remove browser-local state, and background execution depends on the platform. Same-origin tabs coordinate playback locally. Real mobile lock-screen playback, Home Screen installation and first-Origin login are device acceptance, separate from HTTP checks.
 
 ## Initial NAS Installation
 

@@ -125,6 +125,7 @@ func (s *Store) editTrack(ctx context.Context, id string, p TrackPatch, cover io
 	if err != nil {
 		return Track{}, err
 	}
+	t.AudioVersion = hash
 	if err = syncFile(stagedPath); err != nil {
 		return Track{}, err
 	}

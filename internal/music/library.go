@@ -57,6 +57,7 @@ func (s *Store) track(ctx context.Context, id string) (Track, string, string, er
 		return t, "", "", err
 	}
 	t.legacyCredits = fields.Composer == nil
+	t.AudioVersion = fingerprint
 	s.hydrate(&t)
 	err = s.db.QueryRowContext(ctx, "SELECT COALESCE(SUM(h.seconds),0),COALESCE(SUM(COALESCE(m.counted,CASE WHEN h.completed=1 OR h.seconds>=? THEN 1 ELSE 0 END)),0),COALESCE(MAX(CASE WHEN h.seconds>0 OR h.completed=1 THEN h.updated_at END),'') FROM history h LEFT JOIN history_metrics m ON m.session_id=h.session_id WHERE h.track_id=?", min(30.0, t.Duration/2), id).Scan(&t.PlayedSeconds, &t.PlayCount, &t.LastPlayedAt)
 	return t, fingerprint, path, err
@@ -67,14 +68,14 @@ func (s *Store) Tracks(ctx context.Context, trash bool) ([]Track, error) {
 	if trash {
 		condition = "deleted_at IS NOT NULL"
 	}
-	rows, err := s.db.QueryContext(ctx, "SELECT document FROM tracks WHERE "+condition)
+	rows, err := s.db.QueryContext(ctx, "SELECT document,fingerprint FROM tracks WHERE "+condition)
 	if err != nil {
 		return nil, err
 	}
 	all := []Track{}
 	for rows.Next() {
-		var document string
-		if err = rows.Scan(&document); err != nil {
+		var document, fingerprint string
+		if err = rows.Scan(&document, &fingerprint); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -83,6 +84,7 @@ func (s *Store) Tracks(ctx context.Context, trash bool) ([]Track, error) {
 			rows.Close()
 			return nil, err
 		}
+		t.AudioVersion = fingerprint
 		s.hydrate(&t)
 		t.LyricsText = ""
 		t.PlayedSeconds = 0

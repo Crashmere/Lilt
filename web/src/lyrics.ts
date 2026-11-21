@@ -6,6 +6,7 @@ type LyricsContent = { trackId: string; version: string; text: string };
 type LyricsState = LyricsContent & { loading: boolean; error: string };
 
 const cached = new Map<string, LyricsContent>();
+const pending = new Map<string, { promise: Promise<LyricsContent>; abort: AbortController; users: number }>();
 let cachedBytes = 0;
 const versionOf = (track: Track) => track.lyricsVersion || track.updatedAt;
 
@@ -30,6 +31,31 @@ function knownText(track: Track | undefined): string | undefined {
   }
 }
 
+function acquire(track: Track) {
+  const version = versionOf(track);
+  const key = `${track.id}:${version}`;
+  let attempt = pending.get(key);
+  if (!attempt) {
+    const abort = new AbortController();
+    const promise = read<{ lyricsText: string; updatedAt: string; lyricsVersion?: string }>(`/tracks/${encodeURIComponent(track.id)}/lyrics`, abort.signal, 90000).then(result => {
+      if (typeof result.lyricsText !== 'string' || typeof result.updatedAt !== 'string') throw new TypeError('歌词响应不完整，请重试。');
+      const content = { trackId: track.id, version: track.lyricsVersion ? result.lyricsVersion || result.updatedAt : result.updatedAt, text: result.lyricsText };
+      remember(content);
+      return content;
+    }).finally(() => { if (pending.get(key)?.abort === abort) pending.delete(key); });
+    attempt = { promise, abort, users: 0 };
+    pending.set(key, attempt);
+  }
+  const owned = attempt;
+  owned.users++;
+  return {
+    promise: owned.promise,
+    release: () => {
+      if (--owned.users === 0 && pending.get(key) === owned) { pending.delete(key); owned.abort.abort(); }
+    },
+  };
+}
+
 export function useLyrics(track: Track | undefined) {
   const [state, setState] = useState<LyricsState>();
   const [retry, setRetry] = useState(0);
@@ -44,23 +70,22 @@ export function useLyrics(track: Track | undefined) {
       setState({ ...content, loading: false, error: '' });
       return;
     }
-    const abort = new AbortController();
+    const attempt = acquire(track);
+    let canceled = false;
     setState({ ...content, loading: true, error: '' });
 
     async function load() {
       try {
-        const result = await read<{ lyricsText: string; updatedAt: string; lyricsVersion?: string }>(`/tracks/${encodeURIComponent(content.trackId)}/lyrics`, abort.signal, 90000);
-        if (abort.signal.aborted) return;
-        if (typeof result.lyricsText !== 'string' || typeof result.updatedAt !== 'string') throw new TypeError('歌词响应不完整，请重试。');
-        remember({ trackId: content.trackId, version: track!.lyricsVersion ? result.lyricsVersion || result.updatedAt : result.updatedAt, text: result.lyricsText });
-        setState({ ...content, text: result.lyricsText, loading: false, error: '' });
+        const result = await attempt.promise;
+        if (canceled) return;
+        setState({ ...content, text: result.text, loading: false, error: '' });
       } catch (error) {
-        if (abort.signal.aborted) return;
+        if (canceled) return;
         setState({ ...content, loading: false, error: messageOf(error) });
       }
     }
     void load();
-    return () => { abort.abort(); };
+    return () => { canceled = true; attempt.release(); };
   }, [trackId, version, retry]);
 
   const current = state?.trackId === trackId && state?.version === version ? state : undefined;

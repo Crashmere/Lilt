@@ -3,9 +3,16 @@ import { isTransient, trackURL } from './api';
 import { recordHistory } from './storage';
 import type { PlayerState, Track } from './types';
 import { identity, readLocal, writeLocal } from './utils';
+import { useLyrics } from './lyrics';
 
 type Session = { id: string; trackId: string; seconds: number; lastPosition: number };
 type Lease = { tabId: string; updatedAt: number; playing: boolean };
+const PREFETCH_START = 20;
+const PREFETCH_STOP = 12;
+
+function streamURL(track: Track, buffering: boolean): string {
+  return trackURL(track.id, `stream?quality=original${buffering && track.audioVersion ? `&v=${track.audioVersion}&buffer=1` : ''}`);
+}
 
 function shuffledIds(ids: string[]): string[] {
   const result = [...ids];
@@ -20,6 +27,12 @@ function initialState(): PlayerState {
 
 export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   const audioRef = useRef<HTMLAudioElement>(null);
+  const primaryAudio = useRef<HTMLAudioElement>(null);
+  const secondaryAudio = useRef<HTMLAudioElement>(null);
+  const audioRefs = [primaryAudio, secondaryAudio] as const;
+  const warm = useRef<{ trackId: string; url: string; audio: HTMLAudioElement } | undefined>(undefined);
+  const cacheReady = useRef(false);
+  const prefetching = useRef(false);
   const [snapshot, setSnapshot] = useState(initialState);
   const [position, setPosition] = useState(snapshot.position || 0);
   const [playing, setPlaying] = useState(false);
@@ -42,6 +55,39 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   const trackId = snapshot.queueIds[snapshot.queueIndex] || '';
   const track = tracks.find(item => item.id === trackId);
   const queue = snapshot.queueIds.map(id => tracks.find(item => item.id === id)).filter((item): item is Track => !!item);
+  const nextId = snapshot.repeat === 'one' ? '' : snapshot.queueIds[snapshot.queueIndex + 1] || (snapshot.repeat === 'all' && !snapshot.shuffle ? snapshot.queueIds[0] : '');
+  const nextTrack = tracks.find(item => item.id === nextId && item.id !== trackId);
+  const lyrics = useLyrics(track);
+  useLyrics(nextTrack);
+
+  function clearWarm(): void {
+    const prepared = warm.current;
+    warm.current = undefined; prefetching.current = false;
+    if (prepared) { prepared.audio.removeAttribute('src'); prepared.audio.load(); }
+  }
+
+  const updatePrefetch = useEffectEvent(() => {
+    const audio = audioRef.current;
+    const worker = navigator.serviceWorker?.controller;
+    if (!audio || !worker || !cacheReady.current) return;
+    if (warm.current && (!nextTrack || warm.current.url !== streamURL(nextTrack, true))) clearWarm();
+    let end = audio.currentTime;
+    for (let i = 0; i < audio.buffered.length; i++) {
+      if (audio.buffered.start(i) <= audio.currentTime + 0.1 && audio.buffered.end(i) >= audio.currentTime) end = audio.buffered.end(i);
+    }
+    const complete = Number.isFinite(audio.duration) && end >= audio.duration - 0.25;
+    const ahead = end - audio.currentTime;
+    if (!intent.current.play || audio.seeking || audio.readyState < 3 || !complete && ahead < PREFETCH_STOP) prefetching.current = false;
+    else if (complete || ahead >= PREFETCH_START) prefetching.current = true;
+    if (prefetching.current && !warm.current && nextTrack?.audioVersion && nextTrack.size <= 128 * 1024 * 1024) {
+      const standby = audio === primaryAudio.current ? secondaryAudio.current : primaryAudio.current;
+      if (standby) warm.current = { trackId: nextTrack.id, url: streamURL(nextTrack, true), audio: standby };
+    }
+    worker.postMessage({ type: 'lilt-audio-state', current: source.current.url, next: warm.current?.url || '', prefetch: prefetching.current, playing: intent.current.play });
+    if (warm.current && !warm.current.audio.getAttribute('src')) {
+      warm.current.audio.preload = 'auto'; warm.current.audio.src = warm.current.url; warm.current.audio.load();
+    }
+  });
 
   function playbackError(): string {
     if (!navigator.onLine) return '当前无法连接，请联网后重试播放。';
@@ -71,21 +117,30 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   }
 
   function prepareSource(nextTrack: Track, start: number, autoplay: boolean, recovering = false): void {
-    const audio = audioRef.current;
+    let audio = audioRef.current;
     if (!audio) return;
-    const url = trackURL(nextTrack.id, 'stream?quality=original');
+    const url = streamURL(nextTrack, autoplay);
+    if (recovering) navigator.serviceWorker?.controller?.postMessage({ type: 'lilt-audio-reset', url });
+    const prepared = autoplay && start === 0 && warm.current?.url === url && !warm.current.audio.error ? warm.current : undefined;
+    if (prepared) {
+      const previous = audio;
+      audio = prepared.audio; audioRef.current = audio;
+      warm.current = undefined; prefetching.current = false;
+      previous.pause(); previous.removeAttribute('src'); previous.load();
+    } else clearWarm();
     cancelRecovery(!recovering);
     source.current = { trackId: nextTrack.id, url };
     if (session.current.trackId !== nextTrack.id) session.current = { id: identity(), trackId: nextTrack.id, seconds: 0, lastPosition: start };
     intent.current = { play: autoplay, position: start };
     setPlayRequested(autoplay); setFailure(''); setBufferedEnd(0);
-    initialSeekPending.current = true;
+    initialSeekPending.current = !prepared;
+    if (prepared) { if (audio.currentTime !== 0) audio.currentTime = 0; session.current.lastPosition = 0; }
     lastProgress.current = Date.now(); recoveryPosition.current = start;
     setLoading(true);
     audio.volume = snapshot.volume;
     audio.preload = autoplay ? 'auto' : 'metadata';
-    audio.src = url;
-    audio.load();
+    navigator.serviceWorker?.controller?.postMessage({ type: 'lilt-audio-state', current: url, next: '', prefetch: false, playing: autoplay });
+    if (!prepared) { audio.src = url; audio.load(); }
     if (autoplay) tryPlay();
   }
 
@@ -153,7 +208,7 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
     if (!trackId || !audioRef.current?.src) { if (tracks.length) begin(tracks.map(item => item.id), 0, 0, true, takeover); return; }
     if (!claim(takeover)) return;
     cancelRecovery(); setFailure(''); setPlayRequested(true);
-    if (audioRef.current.error || failure) {
+    if (audioRef.current.error || failure || track?.audioVersion && !source.current.url.includes('buffer=1')) {
       if (track) prepareSource(track, initialSeekPending.current ? intent.current.position : audioRef.current.currentTime, true);
       return;
     }
@@ -162,7 +217,7 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
     audioRef.current.preload = 'auto'; lastProgress.current = Date.now();
     setLoading(audioRef.current.readyState < 3); tryPlay();
   }
-  function pause(): void { intent.current.play = false; setPlayRequested(false); setLoading(false); cancelRecovery(); audioRef.current?.pause(); releaseLease(); persist(); }
+  function pause(): void { intent.current.play = false; setPlayRequested(false); setLoading(false); cancelRecovery(); audioRef.current?.pause(); releaseLease(); persist(); updatePrefetch(); }
   function seek(value: number): void {
     const audio = audioRef.current;
     if (!audio) return;
@@ -248,9 +303,10 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
       if (audio.buffered.start(i) <= audio.currentTime + 0.1 && audio.buffered.end(i) >= audio.currentTime) end = audio.buffered.end(i);
     }
     setBufferedEnd(end);
+    updatePrefetch();
   });
-  const onWaiting = useEffectEvent(() => { if (intent.current.play) setLoading(true); });
-  const onPlaying = useEffectEvent(() => { lastProgress.current = Date.now(); setLoading(false); setFailure(''); });
+  const onWaiting = useEffectEvent(() => { if (intent.current.play) setLoading(true); updatePrefetch(); });
+  const onPlaying = useEffectEvent(() => { lastProgress.current = Date.now(); setLoading(false); setFailure(''); onProgress(); });
   const onTime = useEffectEvent(() => {
     const audio = audioRef.current;
     if (!audio || initialSeekPending.current) return;
@@ -303,19 +359,29 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   });
 
   useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
+    audioRef.current = primaryAudio.current;
     const handlers = { loadedmetadata: onCanPlay, canplay: onCanPlay, seeked: onCanPlay, progress: onProgress, playing: onPlaying, waiting: onWaiting, seeking: onWaiting, timeupdate: onTime, play: onPlay, pause: onPause, ended: onEnded, error: onError };
-    for (const [event, handler] of Object.entries(handlers)) audio.addEventListener(event, handler);
-    return () => { for (const [event, handler] of Object.entries(handlers)) audio.removeEventListener(event, handler); };
+    const cleanups: (() => void)[] = [];
+    for (const ref of audioRefs) {
+      const audio = ref.current;
+      if (!audio) continue;
+      for (const [event, handler] of Object.entries(handlers)) {
+        const activeHandler = () => { if (audio === audioRef.current) handler(); };
+        audio.addEventListener(event, activeHandler);
+        cleanups.push(() => audio.removeEventListener(event, activeHandler));
+      }
+    }
+    return () => { for (const cleanup of cleanups) cleanup(); clearWarm(); };
   }, []);
 
   useEffect(() => {
     const audio = audioRef.current;
-    if (!audio || !trackId || !track) { pause(); if (audio) { audio.removeAttribute('src'); audio.load(); } source.current.trackId = ''; setBufferedEnd(0); return; }
+    if (!audio || !trackId || !track) { pause(); clearWarm(); if (audio) { audio.removeAttribute('src'); audio.load(); } source.current = { trackId: '', url: '' }; setBufferedEnd(0); updatePrefetch(); return; }
     if (source.current.trackId !== trackId) prepareSource(track, intent.current.position, intent.current.play);
     return () => { cancelRecovery(); };
   }, [trackId, !!track]);
+
+  useEffect(() => { updatePrefetch(); }, [nextId, nextTrack?.audioVersion, snapshot.repeat, snapshot.shuffle]);
 
   const mediaPlay = useEffectEvent(() => play());
   const mediaPause = useEffectEvent(() => pause());
@@ -364,6 +430,7 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   }, []);
 
   const heartbeat = useEffectEvent(() => {
+    updatePrefetch();
     const lease = readLocal<Lease | null>('lilt.playback-lease', null);
     if (intent.current.play && lease?.tabId === tabId.current) writeLocal('lilt.playback-lease', { ...lease, updatedAt: Date.now() });
     if (!lease?.playing || lease.tabId === tabId.current) persist();
@@ -380,13 +447,18 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   const reconnect = useEffectEvent(() => { if (intent.current.play && audioRef.current && (audioRef.current.error || audioRef.current.readyState < 3)) { retries.current = 0; retryPlayback(true); } });
   const visible = useEffectEvent(() => { lastProgress.current = Date.now(); });
   useEffect(() => {
+    const workerReady = (event: MessageEvent) => { if (event.data?.type === 'lilt-audio-ready') { cacheReady.current = true; updatePrefetch(); } };
+    const ping = () => navigator.serviceWorker?.controller?.postMessage({ type: 'lilt-audio-ping' });
+    navigator.serviceWorker?.addEventListener('message', workerReady);
+    navigator.serviceWorker?.addEventListener('controllerchange', ping);
+    ping();
     const tick = setInterval(heartbeat, 2000);
     const historyTick = setInterval(historyHeartbeat, 15000);
     window.addEventListener('storage', onStorage);
     window.addEventListener('pagehide', leave);
     window.addEventListener('online', reconnect);
     document.addEventListener('visibilitychange', visible);
-    return () => { cancelRecovery(); clearInterval(tick); clearInterval(historyTick); window.removeEventListener('storage', onStorage); window.removeEventListener('pagehide', leave); window.removeEventListener('online', reconnect); document.removeEventListener('visibilitychange', visible); };
+    return () => { cancelRecovery(); clearInterval(tick); clearInterval(historyTick); window.removeEventListener('storage', onStorage); window.removeEventListener('pagehide', leave); window.removeEventListener('online', reconnect); document.removeEventListener('visibilitychange', visible); navigator.serviceWorker?.removeEventListener('message', workerReady); navigator.serviceWorker?.removeEventListener('controllerchange', ping); };
   }, []);
   useEffect(() => { persist(); }, [snapshot]);
   useEffect(() => {
@@ -395,7 +467,7 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   }, [track?.title, track?.artist, track?.album, track?.coverUrl]);
 
   return {
-    audioRef, snapshot, track, trackId, queue, position, playing, loading, playRequested, bufferedEnd, failure,
+    audioRef, audioRefs, lyrics, snapshot, track, trackId, queue, position, playing, loading, playRequested, bufferedEnd, failure,
     conflict, setConflict,
     begin, play, pause, seek, next, previous, enqueue, reorder, remove, setVolume,
     toggleShuffle: () => setSnapshot(old => {

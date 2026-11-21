@@ -1,8 +1,10 @@
+importScripts('/lilt/audio-cache.js');
+
 const ROOT = '/lilt/';
 const PREFIX = 'lilt-shell-v2-';
 const META = 'lilt-shell-meta-v2';
 const READY = `${ROOT}__shell-ready__`;
-const safeAsset = url => url.origin === self.location.origin && (url.pathname.startsWith('/lilt/assets/') || /^\/lilt\/fonts\/[a-z-]+\.ttf$/.test(url.pathname) || ['/lilt/favicon.svg', '/lilt/apple-touch-icon.png', '/lilt/icon-192.png', '/lilt/icon-512.png', '/lilt/manifest.webmanifest'].includes(url.pathname));
+const safeAsset = url => url.origin === self.location.origin && (url.pathname.startsWith('/lilt/assets/') || /^\/lilt\/fonts\/[a-z-]+\.ttf$/.test(url.pathname) || ['/lilt/audio-cache.js', '/lilt/favicon.svg', '/lilt/apple-touch-icon.png', '/lilt/icon-192.png', '/lilt/icon-512.png', '/lilt/manifest.webmanifest'].includes(url.pathname));
 let updating;
 const sameETag = (actual, expected) => actual?.replace(/^W\//, '') === expected;
 

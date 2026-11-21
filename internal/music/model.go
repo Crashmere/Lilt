@@ -44,6 +44,7 @@ type Track struct {
 	HasLyrics     bool     `json:"hasLyrics"`
 	LyricsText    string   `json:"lyricsText,omitempty"`
 	LyricsVersion string   `json:"lyricsVersion,omitempty"`
+	AudioVersion  string   `json:"audioVersion,omitempty"`
 	PlayCount     int64    `json:"playCount"`
 	PlayedSeconds float64  `json:"playedSeconds"`
 	LastPlayedAt  string   `json:"lastPlayedAt"`

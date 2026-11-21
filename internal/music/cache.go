@@ -101,7 +101,7 @@ func (s *server) prepareAssets() error {
 		s.assetETags[name] = etag
 		if name == "index.html" {
 			assets = append(assets, shellAsset{URL: s.cfg.Prefix, ETag: etag})
-		} else if strings.HasPrefix(name, "assets/") || strings.HasPrefix(name, "fonts/") && path.Ext(name) == ".ttf" || name == "favicon.svg" || name == "apple-touch-icon.png" || name == "icon-192.png" || name == "icon-512.png" || name == "manifest.webmanifest" {
+		} else if strings.HasPrefix(name, "assets/") || strings.HasPrefix(name, "fonts/") && path.Ext(name) == ".ttf" || name == "audio-cache.js" || name == "favicon.svg" || name == "apple-touch-icon.png" || name == "icon-192.png" || name == "icon-512.png" || name == "manifest.webmanifest" {
 			assets = append(assets, shellAsset{URL: s.cfg.Prefix + name, ETag: etag})
 		}
 		return nil
