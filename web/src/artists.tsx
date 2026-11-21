@@ -1,5 +1,5 @@
-import { ListMusic, MoreHorizontal, Play, RefreshCw } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { ChevronRight, ListMusic, MoreHorizontal, Play, RefreshCw } from 'lucide-react';
+import { useEffect, useId, useState, type ReactNode } from 'react';
 import { Artwork, Empty, Pill } from './components';
 import type { Album, Artist, Library, Track } from './types';
 import { longDuration, matches } from './utils';
@@ -18,21 +18,37 @@ export function ArtistBrowser({ library, artistId, query, tag, loading, onSelect
     const track = trackIndex.get(id);
     return track && matches(track, query);
   }));
-  const artist = artistId ? library.artists.find(item => item.id === artistId) : artists[0];
+  const regularArtists = artists.filter(item => item.trackCount !== 1);
+  const singleArtists = artists.filter(item => item.trackCount === 1);
+  const artist = artistId ? library.artists.find(item => item.id === artistId) : (query ? artists[0] : regularArtists[0]);
+  const [singleArtistsExpanded, setSingleArtistsExpanded] = useState(() => !!artistId && artist?.trackCount === 1);
+  const singleArtistsId = useId();
+  useEffect(() => {
+    if (artistId && artist?.trackCount === 1) setSingleArtistsExpanded(true);
+  }, [artistId, artist?.trackCount]);
   const artistIds = new Set(artist?.trackIds);
   const groups = library.albums
     .map(album => ({ album, tracks: album.trackIds.map(id => trackIndex.get(id)).filter((track): track is Track => !!track && artistIds.has(track.id) && matches(track, query) && (!tag || track.tags?.includes(tag))) }))
     .filter(group => group.tracks.length)
     .sort((a, b) => b.album.year - a.album.year || a.album.title.localeCompare(b.album.title, 'zh-CN') || a.album.id.localeCompare(b.album.id));
   const tracks = groups.flatMap(group => group.tracks);
+  const renderArtist = (item: Artist) => <button key={item.id} className={`artist-entry ${artist?.id === item.id ? 'active' : ''}`} aria-current={artist?.id === item.id ? 'true' : undefined} onClick={() => onSelect(item)}>
+    <Artwork url={item.coverUrl} className="round" /><span><strong>{item.name}</strong><small>{item.albumCount} 张专辑 · {item.trackCount} 首</small></span>
+  </button>;
 
   return <div className="artist-browser">
     <aside className="artist-directory" aria-label="艺术家列表">
       <header><h2>艺术家</h2><span>{artists.length} 位</span></header>
       <div className="artist-directory-scroll">
-        {artists.map(item => <button key={item.id} className={`artist-entry ${artist?.id === item.id ? 'active' : ''}`} aria-current={artist?.id === item.id ? 'true' : undefined} onClick={() => onSelect(item)}>
-          <Artwork url={item.coverUrl} className="round" /><span><strong>{item.name}</strong><small>{item.albumCount} 张专辑 · {item.trackCount} 首</small></span>
-        </button>)}
+        {query ? artists.map(renderArtist) : <>
+          {regularArtists.map(renderArtist)}
+          {singleArtists.length > 0 && <>
+            <button className="artist-single-toggle" aria-expanded={singleArtistsExpanded} aria-controls={singleArtistsId} onClick={() => setSingleArtistsExpanded(!singleArtistsExpanded)}>
+              <ChevronRight size={16} /><span>仅 1 首歌</span><small>{singleArtists.length} 位</small>
+            </button>
+            <div className="artist-single-list" id={singleArtistsId} hidden={!singleArtistsExpanded}>{singleArtists.map(renderArtist)}</div>
+          </>}
+        </>}
         {!artists.length && <Empty title={query ? '没有匹配的艺术家' : '还没有艺术家'} text={query ? '试试其他关键词' : '上传音乐后即可查看'} />}
       </div>
     </aside>

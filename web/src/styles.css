@@ -276,6 +276,12 @@
 .artist-entry strong{display:block;font-size:13px;font-weight:600;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .artist-entry small{display:block;font-size:10px;color:var(--muted);margin-top:5px;white-space:nowrap}
 .artist-entry.active small{color:#f4ded0}
+.artist-single-toggle{display:flex;align-items:center;gap:8px;width:100%;margin-top:8px;padding:14px 10px;border-top:1px solid var(--line);text-align:left;font-size:12px}
+.artist-single-toggle:hover{background:#e8e5db}
+.artist-single-toggle>svg{flex:none;transition:transform .15s}
+.artist-single-toggle[aria-expanded="true"]>svg{transform:rotate(90deg)}
+.artist-single-toggle>span{flex:1;white-space:nowrap}
+.artist-single-toggle>small{font-size:10px;color:var(--muted);white-space:nowrap}
 .artist-directory .empty-state{padding:35px 8px}
 .artist-directory .empty-state h3{font-size:12px}
 .artist-directory .empty-state p{font-size:11px}
@@ -340,6 +346,8 @@
   .artist-directory>header{padding:14px 22px 0;border:0}
   .artist-directory-scroll{display:flex;overflow-x:auto;overflow-y:hidden;gap:5px;padding:10px 14px}
   .artist-entry{flex:none;width:155px;padding:9px 10px}
+  .artist-single-toggle{flex:none;width:155px;margin:0;border:0;border-radius:8px;padding:9px 10px}
+  .artist-single-list:not([hidden]){display:flex;flex:none;gap:5px}
   .artist-directory .empty-state{padding:10px;align-items:flex-start;text-align:left;gap:3px}
   .artist-directory .empty-symbol{display:none}
   .artist-discography{flex:1;min-height:0;padding:24px 22px 35px}
