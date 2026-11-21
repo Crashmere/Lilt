@@ -236,7 +236,7 @@ export function TrackEditor({ track, onClose, onSaved }: { track: Track; onClose
     <div className="modal-body editor-body"><fieldset className="editor-fields" disabled={disabled}>
       <div className="editor-cover"><Artwork url={removeCover ? undefined : preview || track.coverUrl} /><div><strong>{track.originalName}</strong><p>{track.format?.toUpperCase()} · {bytes(track.size)} · {duration(track.duration)}</p><p>{[track.sampleRate ? `${(track.sampleRate / 1000).toFixed(1)} kHz` : '', track.bitDepth ? `${track.bitDepth} bit` : '', track.bitrate ? `${Math.round(track.bitrate / 1000)} kbps` : '', track.channels ? `${track.channels} 声道` : ''].filter(Boolean).join(' · ')}</p>
         <div className="editor-cover-actions"><button type="button" className="button secondary" onClick={() => coverInput.current?.click()}>更换封面</button>{(cover || track.coverUrl) && <button type="button" className="text-button" onClick={() => { if (removeCover) setRemoveCover(false); else { setCover(undefined); setRemoveCover(true); } }}>{removeCover ? '恢复封面' : '移除封面'}</button>}{cover && <button type="button" className="text-button" onClick={() => setCover(undefined)}>撤销更换</button>}</div>
-        {cover && <span className="file-selected">{cover.name}</span>}<input hidden type="file" ref={coverInput} accept="image/png,image/jpeg,image/gif,image/webp" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (!file) return; if (file.size > 16 * 1024 ** 2) { setError('封面不能超过 16 MiB'); return; } setCover(file); setRemoveCover(false); setError(''); }} />
+        {cover && <span className="file-selected">{cover.name}</span>}<input hidden type="file" ref={coverInput} accept="image/png,image/jpeg,image/gif,image/webp" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (!file) return; setCover(file); setRemoveCover(false); setError(''); }} />
       </div></div>
       <div className="form-grid">{([['title', '曲名'], ['artist', '艺术家'], ['album', '专辑'], ['albumArtist', '专辑艺术家'], ['version', '版本'], ['genre', '风格']] as const).map(([key, label]) => <label className="field" key={key}>{label}<input value={data[key]} required={key === 'title'} maxLength={4096} onChange={event => setData(old => ({ ...old, [key]: event.target.value }))} /></label>)}
         {([['year', '年份', 9999], ['trackNumber', '曲序', 99999], ['discNumber', '碟号', 9999]] as const).map(([key, label, maximum]) => <label className="field" key={key}>{label}<input type="number" min={0} max={maximum} step={1} value={data[key]} onChange={event => setData(old => ({ ...old, [key]: event.target.value }))} /></label>)}
@@ -301,13 +301,12 @@ export function BulkCoverEditor({ album, tracks, onClose, onRefresh, onSaved }: 
         const file = event.target.files?.[0]; event.target.value = '';
         if (!file || running.current) return;
         if (!file.size) { setError('请选择有效封面图片'); return; }
-        if (file.size > 16 * 1024 ** 2) { setError('封面不能超过 16 MiB'); return; }
         setCover(file); completed.current.clear(); setProgress(0); setError('');
       }} />
       {(busy || progress > 0) && <div className="bulk-progress"><div className="upload-meter" role="progressbar" aria-label="封面上传进度" aria-valuemin={0} aria-valuemax={tracks.length} aria-valuenow={progress}><i style={{ width: `${progress / tracks.length * 100}%` }} /></div><span>已完成 {progress}/{tracks.length} 首</span></div>}
       {error && <p className="error-text" role="alert">{error}</p>}
     </div>
-    <footer className="modal-footer"><span>{progress && error ? '已完成的封面保留，继续上传未完成曲目' : 'PNG / JPEG / GIF / WebP · 最大 16 MiB'}</span><div className="editor-footer-actions"><button type="button" className="button secondary" disabled={busy} onClick={close}>取消</button><button type="submit" className="button primary" disabled={busy || !cover || !tracks.length}>{busy ? '上传中…' : progress && error ? '继续上传' : '上传并替换'}</button></div></footer>
+    <footer className="modal-footer"><span>{progress && error ? '已完成的封面保留，继续上传未完成曲目' : 'PNG / JPEG / GIF / WebP'}</span><div className="editor-footer-actions"><button type="button" className="button secondary" disabled={busy} onClick={close}>取消</button><button type="submit" className="button primary" disabled={busy || !cover || !tracks.length}>{busy ? '上传中…' : progress && error ? '继续上传' : '上传并替换'}</button></div></footer>
   </form></Modal>;
 }
 

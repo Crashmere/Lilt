@@ -38,7 +38,7 @@ File-hash recognition uses the additive `track_fingerprints` table in the same c
 
 ## Uploads, Media and Browser Access
 
-Raw upload chunks contain at most 32 MiB; the application's absolute upload-body deadline is 600 seconds. Exact upload-session and track-cover paths have a 33 MiB Nginx request limit, disabled request buffering and 660-second body/upstream idle timeouts. Accepted cover files remain subject to the application's 16 MiB and decoded-image limits. Ordinary application requests retain a 2 MiB proxy limit.
+Raw upload chunks contain at most 32 MiB; exact upload-session paths have a 33 MiB Nginx request limit. Exact track-cover paths have no configured request-size ceiling. Both paths disable request buffering and retain a 600-second application body deadline and 660-second Nginx body/upstream idle timeouts. Covers stream into request-scoped temporary files rather than an upload-sized memory buffer; production's existing `PrivateTmp` isolates these files, and normal completion or failure removes them. Image validation retains the 25-million-pixel limit and produces JPEG artwork bounded to 1600 pixels per side. Multipart metadata remains limited to 2 MiB. Ordinary application requests retain a 2 MiB proxy limit.
 
 Audio stream and original-download responses disable Nginx response buffering and support Range/HEAD. Standard/compact files are separate nominal 192/96 kbit/s AAC/M4A derivatives with at most two channels and 48 kHz output. The first compatible request may encode before returning media. Preserve originals and stored derivatives during ordinary releases; no automatic file purge is installed.
 

@@ -431,13 +431,13 @@ func (s *server) replaceCover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer controller.SetReadDeadline(time.Time{})
-	r.Body = http.MaxBytesReader(w, r.Body, 20<<20)
 	multipart, err := r.MultipartReader()
 	if err != nil {
 		apiError(w, fmt.Errorf("请上传封面文件：%w", ErrInvalid))
 		return
 	}
-	var data []byte
+	var file *os.File
+	var size int64
 	var patch TrackPatch
 	hasMetadata := false
 	for {
@@ -470,27 +470,35 @@ func (s *server) replaceCover(w http.ResponseWriter, r *http.Request) {
 			}
 			continue
 		}
-		if part.FormName() != "file" || data != nil {
+		if part.FormName() != "file" || file != nil {
 			part.Close()
 			apiError(w, fmt.Errorf("封面上传字段无效：%w", ErrInvalid))
 			return
 		}
-		data, err = io.ReadAll(io.LimitReader(part, (16<<20)+1))
+		file, err = os.CreateTemp("", "lilt-cover-upload-*")
+		if err != nil {
+			part.Close()
+			apiError(w, err)
+			return
+		}
+		defer os.Remove(file.Name())
+		defer file.Close()
+		size, err = io.Copy(file, part)
 		part.Close()
 		if err != nil {
 			apiError(w, err)
 			return
 		}
-		if len(data) > 16<<20 {
-			writeError(w, http.StatusRequestEntityTooLarge, "封面不能超过 16 MiB")
-			return
-		}
 	}
-	if len(data) == 0 {
+	if file == nil || size == 0 {
 		apiError(w, fmt.Errorf("缺少封面文件：%w", ErrInvalid))
 		return
 	}
-	track, err := s.store.editTrack(r.Context(), r.PathValue("id"), patch, bytes.NewReader(data))
+	if _, err = file.Seek(0, io.SeekStart); err != nil {
+		apiError(w, err)
+		return
+	}
+	track, err := s.store.editTrack(r.Context(), r.PathValue("id"), patch, file)
 	if err != nil {
 		apiError(w, err)
 		return

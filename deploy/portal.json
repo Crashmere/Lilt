@@ -107,7 +107,7 @@
     {"method": "GET", "path": "/lilt/api/tracks/{id}/download", "description": "以原文件名下载当前音频，包含已保存的标签、歌词和封面"},
     {"method": "HEAD", "path": "/lilt/api/tracks/{id}/download", "description": "读取原件下载响应头"},
     {"method": "GET", "path": "/lilt/api/tracks/{id}/cover", "description": "读取安全静态封面"},
-    {"method": "POST", "path": "/lilt/api/tracks/{id}/cover", "description": "一次提交曲目信息与最多 16 MiB 封面，校验后写入音频并生成展示 JPEG"},
+    {"method": "POST", "path": "/lilt/api/tracks/{id}/cover", "description": "一次提交曲目信息与封面，不设文件大小上限，校验图片格式和像素后写入音频并生成展示 JPEG"},
     {"method": "GET", "path": "/lilt/api/albums/{id}", "description": "按碟号和曲目序号读取专辑歌曲"},
     {"method": "GET", "path": "/lilt/api/artists/{id}", "description": "读取歌手与关联歌曲、专辑"},
     {"method": "GET", "path": "/lilt/api/export", "description": "导出曲库元数据、歌单与听歌历史 JSON，不是备份恢复入口"},

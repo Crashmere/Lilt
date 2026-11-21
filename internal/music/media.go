@@ -327,21 +327,38 @@ func (s *Store) extractCover(ctx context.Context, path, trackID string, index in
 }
 
 func (s *Store) prepareCover(reader io.Reader) (string, error) {
-	data, err := io.ReadAll(io.LimitReader(reader, (16<<20)+1))
+	// Inspect dimensions before decoding, without buffering the entire upload in memory.
+	source, seekable := reader.(io.ReadSeeker)
+	if !seekable {
+		temp, err := os.CreateTemp("", "lilt-cover-input-*")
+		if err != nil {
+			return "", err
+		}
+		defer os.Remove(temp.Name())
+		defer temp.Close()
+		if _, err = io.Copy(temp, reader); err != nil {
+			return "", err
+		}
+		if _, err = temp.Seek(0, io.SeekStart); err != nil {
+			return "", err
+		}
+		source = temp
+	}
+	start, err := source.Seek(0, io.SeekCurrent)
 	if err != nil {
 		return "", err
 	}
-	if len(data) > 16<<20 {
-		return "", fmt.Errorf("封面不能超过 16 MiB：%w", ErrInvalid)
-	}
-	config, format, err := image.DecodeConfig(bytes.NewReader(data))
+	config, format, err := image.DecodeConfig(source)
 	if err != nil || (format != "jpeg" && format != "png" && format != "gif" && format != "webp") {
 		return "", fmt.Errorf("请上传 JPEG、PNG、GIF 或 WebP 封面：%w", ErrInvalid)
 	}
 	if config.Width < 1 || config.Height < 1 || int64(config.Width)*int64(config.Height) > 25_000_000 {
 		return "", fmt.Errorf("封面尺寸过大：%w", ErrInvalid)
 	}
-	img, _, err := image.Decode(bytes.NewReader(data))
+	if _, err = source.Seek(start, io.SeekStart); err != nil {
+		return "", err
+	}
+	img, _, err := image.Decode(source)
 	if err != nil {
 		return "", fmt.Errorf("无法读取封面：%w", ErrInvalid)
 	}

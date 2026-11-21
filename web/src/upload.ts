@@ -19,7 +19,6 @@ const transferProgress = (bytes: number, size: number) => 0.05 + 0.9 * bytes / s
 
 function validateSidecars(item: UploadItem): void {
   if (item.lyrics && item.lyrics.size > 1024 ** 2) throw new Error('歌词不能超过 1 MiB，请移出此项后重新选择。');
-  if (item.cover && item.cover.size > 16 * 1024 ** 2) throw new Error('封面不能超过 16 MiB，请移出此项后重新选择。');
 }
 
 function hashFile(file: File, signal: AbortSignal, progress: (value: number) => void): Promise<string> {
