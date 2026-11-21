@@ -268,7 +268,7 @@ func (s *Store) finishMetadataWrite() error {
 			}
 			// An interrupted write can recover its display derivative from the embedded cover.
 			_, index, e := probeTrack(context.Background(), destination, w.Track.OriginalName, "")
-			if e != nil || !s.extractCover(context.Background(), destination, w.Track.ID, index) {
+			if e != nil || s.extractCover(context.Background(), destination, w.Track.ID, index) != nil {
 				return fmt.Errorf("cannot recover written artwork")
 			}
 		}

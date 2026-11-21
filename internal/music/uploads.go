@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -405,8 +406,12 @@ func (s *Store) CompleteUpload(ctx context.Context, id, replaceID string) (Track
 	if err != nil {
 		return Track{}, false, err
 	}
-	if t.CoverURL == "" && s.extractCover(ctx, filepath.Join(s.dir, relative), t.ID, coverIndex) {
-		t.CoverURL = s.prefix + "api/tracks/" + t.ID + "/cover"
+	if t.CoverURL == "" && coverIndex >= 0 {
+		if err := s.extractCover(ctx, filepath.Join(s.dir, relative), t.ID, coverIndex); err != nil {
+			log.Printf("embedded cover extraction failed for %s: %v", t.ID, err)
+		} else {
+			t.CoverURL = s.prefix + "api/tracks/" + t.ID + "/cover"
+		}
 	}
 	document, err := json.Marshal(t)
 	if err != nil {

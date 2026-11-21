@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -39,13 +40,14 @@ func main() {
 
 func run() error {
 	if len(os.Args) < 2 {
-		return fmt.Errorf("usage: lilt serve [--addr ADDRESS] [--data DIRECTORY] [--prefix /lilt/] | lilt check --data DIRECTORY")
+		return fmt.Errorf("usage: lilt serve [--addr ADDRESS] [--data DIRECTORY] [--prefix /lilt/] | lilt check --data DIRECTORY | lilt repair-cover --data DIRECTORY --track ID (stop the server first)")
 	}
 	command := os.Args[1]
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	data := flags.String("data", env("LILT_DATA_DIR", "./data"), "Application-owned data directory")
 	addr := flags.String("addr", env("LILT_ADDR", "127.0.0.1:18089"), "HTTP listen address")
 	prefix := flags.String("prefix", env("LILT_PREFIX", "/lilt/"), "Application URL prefix")
+	track := flags.String("track", "", "Track ID for offline display-cover repair")
 	if err := flags.Parse(os.Args[2:]); err != nil {
 		return err
 	}
@@ -62,8 +64,16 @@ func run() error {
 		result["version"] = version
 		return json.NewEncoder(os.Stdout).Encode(result)
 	}
-	if command != "serve" {
+	if command != "serve" && command != "repair-cover" {
 		return fmt.Errorf("unknown command: %s", command)
+	}
+	if command == "repair-cover" && *track == "" {
+		return fmt.Errorf("repair-cover requires --track ID; stop the server before repair")
+	}
+	if command == "repair-cover" {
+		if _, err := os.Stat(filepath.Join(*data, "lilt.sqlite")); err != nil {
+			return fmt.Errorf("existing catalog required: %w", err)
+		}
 	}
 	for _, name := range []string{"ffprobe", "ffmpeg", "vips"} {
 		if _, err := exec.LookPath(name); err != nil {
@@ -79,6 +89,15 @@ func run() error {
 		return err
 	}
 	defer store.Close()
+	if command == "repair-cover" {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		track, err := store.RepairCover(ctx, *track)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(os.Stdout).Encode(map[string]any{"status": "ok", "trackId": track.ID, "coverUrl": track.CoverURL})
+	}
 	assets, err := fs.Sub(web.Files, "dist")
 	if err != nil {
 		return err

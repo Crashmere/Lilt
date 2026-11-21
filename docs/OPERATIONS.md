@@ -20,7 +20,7 @@ The runtime identity is `lilt`; local publication uses the restricted `lilt-depl
 | `/opt/lilt/releases/` | Uploaded programs, previous programs, hashes, acceptance and rollback records |
 | `/opt/lilt/docs/` | Controlled maintenance documentation and provenance |
 
-Production reuses NAS's installed FFmpeg, FFprobe and libvips CLI (`vips`). Go, Node/npm and icon-generation tools are maintenance-computer build dependencies only. The service performs bounded CPU audio encoding and single-threaded libvips cover normalization; it does not select Aura/Curio's NVIDIA image runtime. The CPU cover path retains codec-aware shrink/sequential loading, orientation and color handling without introducing the NVIDIA/Python worker into Lilt's 512 MiB unit. `lilt.service` permits writes to Lilt's private data directory and allows 128 tasks. It creates no backup, purge or retention timer.
+Production reuses NAS's installed FFmpeg, FFprobe and libvips CLI (`vips`). Go, Node/npm and icon-generation tools are maintenance-computer build dependencies only. The service performs bounded CPU audio encoding and single-threaded libvips cover normalization for both uploaded and embedded artwork; it does not select Aura/Curio's NVIDIA image runtime. FFmpeg copies compressed embedded images into temporary files rather than decoding them. The CPU cover path retains codec-aware shrink/sequential loading, orientation and color handling without introducing the NVIDIA/Python worker into Lilt's 512 MiB unit. `lilt.service` permits writes to Lilt's private data directory and allows 128 tasks. It creates no backup, purge or retention timer.
 
 The unit runs:
 
@@ -112,6 +112,14 @@ ssh nas 'curl --fail http://127.0.0.1:18089/healthz'
 ```
 
 `check` validates SQLite quick integrity, schema and referenced originals' existence/sizes; it does not rehash every file. Use the shared read-only viewing tunnel for production browser inspection. Write checks use isolated synthetic data.
+
+For a missing display cover whose current audio still contains embedded artwork, stop only Lilt under the shared maintenance and Lilt deployment locks, then run as the `lilt` user:
+
+```sh
+/opt/lilt/bin/lilt repair-cover --data /opt/lilt/data --prefix /lilt/ --track <track-id>
+```
+
+Restart Lilt before releasing the locks, including when repair fails. This offline command requires an existing catalog and repairs only the selected track. It preserves an existing nonempty display cover; otherwise it validates and atomically publishes the derivative before updating only the cover URL and track timestamp. Audio bytes, fingerprints, other metadata, favorites, playlists and history remain unchanged. Audio without embedded artwork returns an error without a catalog update. An interrupted derivative-only publication can be retried with the same command.
 
 For quantified-ID route validation failures on `nas`, `ali` or `vps`, see the shared [Nginx regex quantifier quoting issue](https://github.com/Crashmere/agent-config/blob/main/skills/server-operations/references/common-issues.md#nginx-location-regex-quantifiers-require-quoting).
 

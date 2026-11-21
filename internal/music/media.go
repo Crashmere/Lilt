@@ -134,6 +134,15 @@ func readCredits(t *Track, tags map[string]string) {
 	}
 }
 
+func embeddedCoverIndex(result probeResult) int {
+	for _, stream := range result.Streams {
+		if stream.CodecType == "video" && stream.Disposition.AttachedPic == 1 && stream.Width > 0 && stream.Height > 0 {
+			return stream.Index
+		}
+	}
+	return -1
+}
+
 func probeTrack(ctx context.Context, path, filename, relativePath string) (Track, int, error) {
 	result, err := probe(ctx, path)
 	if err != nil {
@@ -141,7 +150,7 @@ func probeTrack(ctx context.Context, path, filename, relativePath string) (Track
 		return Track{}, -1, fmt.Errorf("无法读取音频，请确认文件格式和内容有效：%w", ErrInvalid)
 	}
 	var audio *probeStream
-	cover := -1
+	cover := embeddedCoverIndex(result)
 	for i := range result.Streams {
 		stream := &result.Streams[i]
 		if stream.CodecType == "audio" && audio == nil {
@@ -150,9 +159,6 @@ func probeTrack(ctx context.Context, path, filename, relativePath string) (Track
 		if stream.CodecType == "video" {
 			if stream.Disposition.AttachedPic != 1 {
 				return Track{}, -1, fmt.Errorf("请上传音频文件，而不是视频：%w", ErrInvalid)
-			}
-			if cover < 0 && stream.Width > 0 && stream.Height > 0 && int64(stream.Width)*int64(stream.Height) <= 25_000_000 {
-				cover = stream.Index
 			}
 		}
 	}
@@ -295,40 +301,39 @@ func tidy(value string, limit int) string {
 	return value
 }
 
-func (s *Store) extractCover(ctx context.Context, path, trackID string, index int) bool {
+func (s *Store) extractCover(ctx context.Context, path, trackID string, index int) error {
 	if index < 0 {
-		return false
+		return fmt.Errorf("音频中没有可提取的封面：%w", ErrInvalid)
 	}
-	dir := filepath.Join(s.dir, "covers", trackID)
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return false
-	}
-	temp, err := os.CreateTemp(dir, ".embedded-*.jpg")
+	source, err := os.CreateTemp("", "lilt-embedded-cover-*")
 	if err != nil {
-		return false
+		return err
 	}
-	name := temp.Name()
-	temp.Close()
+	defer os.Remove(source.Name())
+	defer source.Close()
+	// Copy compressed artwork; libvips handles image decoding and resizing.
+	extractCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	_, err = runMedia(extractCtx, "ffmpeg", "-nostdin", "-v", "error", "-y", "-threads", "1", "-protocol_whitelist", "file,pipe", "-format_whitelist", allowedFormats, "-i", path, "-map", fmt.Sprintf("0:%d", index), "-frames:v", "1", "-c:v", "copy", "-f", "image2", "-update", "1", source.Name())
+	cancel()
+	if err != nil {
+		return err
+	}
+	name, err := s.normalizeCover(ctx, source.Name())
+	if err != nil {
+		return err
+	}
 	defer os.Remove(name)
-	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
-	defer cancel()
-	_, err = runMedia(ctx, "ffmpeg", "-nostdin", "-v", "error", "-y", "-threads", "1", "-filter_threads", "1", "-protocol_whitelist", "file,pipe", "-format_whitelist", allowedFormats, "-i", path, "-map", fmt.Sprintf("0:%d", index), "-frames:v", "1", "-vf", "scale=1600:1600:force_original_aspect_ratio=decrease", "-threads", "1", "-c:v", "mjpeg", "-f", "image2", name)
-	if err != nil {
-		return false
+	dir := filepath.Join(s.dir, "covers", trackID)
+	if err = os.MkdirAll(dir, 0700); err != nil {
+		return err
 	}
-	f, err := os.Open(name)
-	if err != nil {
-		return false
-	}
-	err = f.Sync()
-	f.Close()
-	if err != nil {
-		return false
+	if err = syncDir(filepath.Dir(dir)); err != nil {
+		return err
 	}
 	if err = os.Rename(name, filepath.Join(dir, "cover.jpg")); err != nil {
-		return false
+		return err
 	}
-	return syncDir(dir) == nil
+	return syncDir(dir)
 }
 
 func (s *Store) prepareCover(ctx context.Context, reader io.Reader) (string, error) {
@@ -363,6 +368,10 @@ func (s *Store) prepareCover(ctx context.Context, reader io.Reader) (string, err
 	if config.Width < 1 || config.Height < 1 {
 		return "", fmt.Errorf("封面尺寸无效：%w", ErrInvalid)
 	}
+	return s.normalizeCover(ctx, source.Name())
+}
+
+func (s *Store) normalizeCover(ctx context.Context, source string) (string, error) {
 	dir := filepath.Join(s.dir, "covers")
 	temp, err := os.CreateTemp(dir, ".cover-*.jpg")
 	if err != nil {
@@ -380,7 +389,7 @@ func (s *Store) prepareCover(ctx context.Context, reader io.Reader) (string, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
-	_, err = runMedia(ctx, "vips", "--vips-concurrency=1", "--vips-cache-max=0", "--vips-cache-max-memory=16777216", "--vips-disc-threshold=16777216", "thumbnail", source.Name(), name+"[Q=90,strip]", "1600", "--height=1600", "--size=down", "--fail-on=error")
+	_, err = runMedia(ctx, "vips", "--vips-concurrency=1", "--vips-cache-max=0", "--vips-cache-max-memory=16777216", "--vips-disc-threshold=16777216", "thumbnail", source, name+"[Q=90,strip]", "1600", "--height=1600", "--size=down", "--fail-on=error")
 	if err != nil {
 		log.Printf("cover normalization failed: %v", err)
 		return "", fmt.Errorf("无法处理封面，请确认图片完整后重试：%w", ErrInvalid)

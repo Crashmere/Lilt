@@ -33,6 +33,8 @@ Artist groups split both `Track.artist` and `Track.albumArtist` on ASCII `/`, tr
 - `GET /api/artists/{id}` returns `{ artist, tracks, albums }`.
 - `GET /api/export` downloads catalog metadata, playlists and listening history as JSON; it is a portability export, not a backup/restore service.
 
+Import extracts attached artwork without an input-pixel ceiling and uses the same bounded libvips normalization as cover uploads. Its display derivative does not rewrite the uploaded audio or embedded picture.
+
 Cover URLs include an independent `v` derived from the display file's nanosecond modification time and size. Optional `size=160|480` selects a non-upscaled JPEG thumbnail for small rows or larger artwork; omitting it retains the display image. Thumbnails use the installed single-threaded libvips runtime and a 16 MiB process-memory cache without adding persistent files or catalog records. GET/HEAD responses carry a version-and-size ETag. A matching `v` permits one day of private HTTP caching; missing or outdated versions require revalidation. Favorites and metadata edits that preserve the display file preserve its URL.
 
 ## Application Shell
