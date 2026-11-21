@@ -340,7 +340,7 @@ func audioMetadata(result probeResult, t Track) map[string]string {
 	tags := probeTags(result)
 	for key := range tags {
 		switch key {
-		case "title", "artist", "performer", "album", "album_artist", "albumartist", "album artist", "genre", "composer", "lyricist", "text", "writer", "comment", "description", "copyright", "isrc", "tsrc", "bpm", "tbpm", "date", "year", "originaldate", "track", "tracknumber", "track_number", "disc", "discnumber", "disc_number", "version", "subtitle", "lyrics", "unsyncedlyrics", "unsynchronised_lyrics", "lilt_tags", "lilt_aliases", "metadata_block_picture", "cover art (front)":
+		case "title", "artist", "performer", "album", "album_artist", "albumartist", "album artist", "genre", "composer", "lyricist", "text", "writer", "comment", "description", "copyright", "isrc", "tsrc", "bpm", "tbpm", "date", "year", "originaldate", "track", "tracknumber", "track_number", "disc", "discnumber", "disc_number", "version", "subtitle", "lyrics", "syncedlyrics", "unsyncedlyrics", "unsynchronised_lyrics", "lilt_tags", "lilt_aliases", "metadata_block_picture", "cover art (front)":
 			delete(tags, key)
 		}
 		if strings.HasPrefix(key, "lyrics-") {

@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -123,6 +124,35 @@ func metadataValue(tags map[string]string, keys ...string) string {
 		}
 	}
 	return ""
+}
+
+var lyricTimestamp = regexp.MustCompile(`\[\d+:\d{2}(?:\.\d+)?\]`)
+
+func lyricMetadata(tags map[string]string) string {
+	keys := []string{"lyrics", "syncedlyrics", "unsyncedlyrics", "unsynchronised_lyrics"}
+	var languages []string
+	for key := range tags {
+		if strings.HasPrefix(key, "lyrics-") {
+			languages = append(languages, key)
+		}
+	}
+	sort.Strings(languages)
+	keys = append(keys, languages...)
+	var plain string
+	for _, key := range keys {
+		value := tags[key]
+		if strings.TrimSpace(value) == "" || len(value) > 1<<20 || !utf8.ValidString(value) || strings.ContainsRune(value, '\x00') {
+			continue
+		}
+		// Timed lyrics take precedence over plain alternatives in the same file.
+		if lyricTimestamp.MatchString(value) {
+			return value
+		}
+		if plain == "" {
+			plain = value
+		}
+	}
+	return plain
 }
 
 func readCredits(t *Track, tags map[string]string) {
@@ -255,14 +285,7 @@ func probeTrack(ctx context.Context, path, filename, relativePath string) (Track
 	if t.AlbumArtist == "" {
 		t.AlbumArtist = t.Artist
 	}
-	for key, value := range tags {
-		if key == "lyrics" || strings.HasPrefix(key, "lyrics-") || key == "unsyncedlyrics" || key == "unsynchronised_lyrics" {
-			if len(value) <= 1<<20 && utf8.ValidString(value) && !strings.ContainsRune(value, '\x00') {
-				t.LyricsText = value
-			}
-			break
-		}
-	}
+	t.LyricsText = lyricMetadata(tags)
 	for key, target := range map[string]*[]string{"lilt_tags": &t.Tags, "lilt_aliases": &t.Aliases} {
 		var values []string
 		if json.Unmarshal([]byte(tags[key]), &values) == nil {
