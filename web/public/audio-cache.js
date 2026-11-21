@@ -337,7 +337,12 @@ self.addEventListener('message', event => {
 
 self.addEventListener('fetch', event => {
   const url = event.request.method === 'GET' && audioURL(event.request.url);
-  if (url) { event.respondWith(audioFetch(event, url)); return; }
+  if (url) {
+    // Chrome rejects mixing native response URLs with constructed range responses.
+    event.respondWith(audioFetch(event, url).then(response => response.url
+      ? new Response(response.body, { status: response.status, statusText: response.statusText, headers: response.headers }) : response));
+    return;
+  }
   const path = new URL(event.request.url).pathname;
   if (event.request.method !== 'GET' || !/^\/lilt\/api\/(library$|tracks\/[^/]+\/(cover|lyrics)$)/.test(path)) return;
   audioForeground++; audioPageUntil = Date.now() + 1000;
