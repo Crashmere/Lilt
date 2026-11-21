@@ -66,6 +66,7 @@ func NewHandler(store *Store, cfg ServerConfig) (http.Handler, error) {
 	mux.HandleFunc("GET "+base+"/library", s.library)
 	mux.HandleFunc("GET "+base+"/tracks", s.tracks)
 	mux.HandleFunc("GET "+base+"/tracks/{id}", s.getTrack)
+	mux.HandleFunc("GET "+base+"/tracks/{id}/lyrics", s.lyrics)
 	mux.HandleFunc("PATCH "+base+"/tracks/{id}", s.updateTrack)
 	mux.HandleFunc("DELETE "+base+"/tracks/{id}", s.deleteTrack)
 	mux.HandleFunc("POST "+base+"/tracks/{id}/restore", s.restoreTrack)
@@ -286,6 +287,16 @@ func (s *server) getTrack(w http.ResponseWriter, r *http.Request) {
 	}
 	s.store.hydrate(&track)
 	writeJSON(w, http.StatusOK, map[string]any{"track": track})
+}
+
+func (s *server) lyrics(w http.ResponseWriter, r *http.Request) {
+	// Lyrics live in the catalog; uploads and legacy audio-tag reads need not block them.
+	track, _, _, err := s.store.track(r.Context(), r.PathValue("id"))
+	if err != nil {
+		apiError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"lyricsText": track.LyricsText, "updatedAt": track.UpdatedAt})
 }
 
 func (s *server) updateTrack(w http.ResponseWriter, r *http.Request) {

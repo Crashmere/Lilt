@@ -34,11 +34,12 @@ export function useLyrics(track: Track | undefined) {
 
     async function load(attempt: number) {
       try {
-        const result = await request<{ track: Track }>(`/tracks/${encodeURIComponent(content.trackId)}`, {
+        const result = await request<{ lyricsText: string; updatedAt: string }>(`/tracks/${encodeURIComponent(content.trackId)}/lyrics`, {
           signal: AbortSignal.any([abort.signal, AbortSignal.timeout(90000)]),
         });
         if (abort.signal.aborted) return;
-        cached = { trackId: result.track.id, updatedAt: result.track.updatedAt, text: result.track.lyricsText || '' };
+        if (typeof result.lyricsText !== 'string' || typeof result.updatedAt !== 'string') throw new TypeError('歌词响应不完整，请重试。');
+        cached = { trackId: content.trackId, updatedAt: result.updatedAt, text: result.lyricsText };
         setState({ ...content, text: cached.text, loading: false, error: '' });
       } catch (error) {
         if (abort.signal.aborted) return;
