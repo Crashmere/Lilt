@@ -4,6 +4,7 @@ import type { Player } from './player';
 import type { PlaylistMemberships } from './playlist-memberships';
 import type { FilterColumn } from './library-filters';
 import type { Album, Playlist, Track } from './types';
+import { AlbumLink, TrackCredits, type CollectionNavigation } from './track-links';
 import { duration } from './utils';
 
 export function Artwork({ url, title, className = '' }: { url?: string; title?: string; className?: string }) {
@@ -51,10 +52,11 @@ type TrackTableProps = {
   playlistMemberships: PlaylistMemberships; showPlaylists: (track: Track) => void;
   addToPlaylist: (ids: string[]) => void;
   bulkEdit: (tracks: Track[]) => void;
+  collectionNavigation: CollectionNavigation;
   filterColumns?: FilterColumn[];
   compact?: boolean; albumTracks?: boolean; onReorder?: (from: number, to: number) => void; empty?: string;
 };
-export function TrackTable({ tracks, player, favorite, actions, playlistMemberships, showPlaylists, addToPlaylist, bulkEdit, filterColumns = [], compact = false, albumTracks = false, onReorder, empty = '没有曲目' }: TrackTableProps) {
+export function TrackTable({ tracks, player, favorite, actions, playlistMemberships, showPlaylists, addToPlaylist, bulkEdit, collectionNavigation, filterColumns = [], compact = false, albumTracks = false, onReorder, empty = '没有曲目' }: TrackTableProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [selecting, setSelecting] = useState(false);
   const dragged = useRef(-1);
@@ -67,8 +69,8 @@ export function TrackTable({ tracks, player, favorite, actions, playlistMembersh
     {tracks.map((track, index) => <div key={`${track.id}-${index}`} className={`track-row ${player.trackId === track.id ? 'current' : ''} ${selected.has(track.id) ? 'selected' : ''}`} draggable={!!onReorder} onDragStart={() => { dragged.current = index; }} onDragOver={event => { if (onReorder) event.preventDefault(); }} onDrop={event => { event.preventDefault(); if (onReorder && dragged.current >= 0 && dragged.current !== index) onReorder(dragged.current, index); dragged.current = -1; }}>
       <label className="check-cell"><input type="checkbox" checked={selected.has(track.id)} aria-label={`选择 ${track.title}`} onChange={() => select(track.id)} /></label>
       <button className="number-cell row-play" onClick={() => player.begin(ids, index)} aria-label={`播放 ${track.title}`}>{player.trackId === track.id && player.playing ? <span className="playing-bars"><i /><i /><i /></span> : <><span>{onReorder ? <GripVertical size={16} /> : albumTracks ? track.trackNumber || index + 1 : index + 1}</span><Play size={15} fill="currentColor" /></>}</button>
-      <div className="track-name">{!albumTracks && <Artwork url={track.coverUrl} />}<div><button onClick={() => player.begin(ids, index)}>{track.title || track.originalName}</button><p>{track.artist || '未知艺术家'}{track.version && <span className="version">{track.version}</span>}</p></div></div>
-      {!albumTracks && <div className="album-cell"><span>{track.album || '未归入专辑'}</span>{track.tags?.length > 0 && <small>{track.tags.slice(0, 2).join(' · ')}</small>}</div>}
+      <div className="track-name">{!albumTracks && <Artwork url={track.coverUrl} />}<div><button onClick={() => player.begin(ids, index)}>{track.title || track.originalName}</button><p><TrackCredits track={track} navigation={collectionNavigation} albumClassName={albumTracks ? undefined : 'inline-album'} />{track.version && <span className="version">{track.version}</span>}</p></div></div>
+      {!albumTracks && <div className="album-cell"><span><AlbumLink track={track} navigation={collectionNavigation} /></span>{track.tags?.length > 0 && <small>{track.tags.slice(0, 2).join(' · ')}</small>}</div>}
       <div className="playlist-cell" aria-label="歌单"><TrackPlaylists playlists={playlistMemberships.get(track.id)} onOpen={() => showPlaylists(track)} /></div>
       {filterColumns.map(column => {
         const value = column.value(track, playlistMemberships.get(track.id)?.length || 0);

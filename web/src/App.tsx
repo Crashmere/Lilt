@@ -8,6 +8,7 @@ import { activeFilterColumns, EMPTY_FILTERS, matchesFilters, type LibraryFilters
 import { BulkEditor, LyricsPanel, PlayerBar, PlaylistEditor, QueuePanel, TrackEditor, UploadModal } from './panels';
 import { usePlayer } from './player';
 import { indexPlaylistMemberships } from './playlist-memberships';
+import { TrackCredits, type CollectionNavigation } from './track-links';
 import { flushHistory, loadLibrary, saveLibrary } from './storage';
 import type { Album, Artist, HistoryEntry, Library, Playlist, Track, View } from './types';
 import { useUploads, type UploadPlaylist } from './upload';
@@ -131,6 +132,11 @@ export default function App() {
   const album = library.albums.find(item => item.id === view.id);
   const playlist = library.playlists.find(item => item.id === view.id);
   const playlistMemberships = indexPlaylistMemberships(library.playlists);
+  const collectionNavigation: CollectionNavigation = {
+    artistIds: new Map(library.artists.map(artist => [artist.name, artist.id])),
+    albumIds: new Map(library.albums.flatMap(album => album.trackIds.map(id => [id, album.id] as const))),
+    open: next => { setPanel(null); navigate(next); },
+  };
   const trashMemberships = indexPlaylistMemberships(trashPlaylists);
   const joinedPlaylists = playlistTrack ? (playlistTrack.deletedAt ? trashMemberships : playlistMemberships).get(playlistTrack.id) || [] : [];
   const albumActionTracks = (albumActions?.trackIds || []).map(id => library.tracks.find(track => track.id === id)).filter((track): track is Track => !!track);
@@ -141,7 +147,7 @@ export default function App() {
   if (!['album', 'playlist'].includes(view.kind)) visibleTracks = [...visibleTracks].sort((a, b) => sort === 'title' ? a.title.localeCompare(b.title, 'zh-CN') : sort === 'artist' ? a.artist.localeCompare(b.artist, 'zh-CN') : sort === 'album' ? a.album.localeCompare(b.album, 'zh-CN') : sort === 'played' ? b.playCount - a.playCount : sort === 'duration' ? b.duration - a.duration : new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime());
   const table = (tracks: Track[], compact = false, onReorder?: (from: number, to: number) => void, albumTracks = false) => {
     if (!tracks.length && view.kind === 'library' && activeFilterCount) return <Empty title="没有匹配的曲目"><button className="button secondary" onClick={() => setFiltersOpen(true)}><SlidersHorizontal size={16} />调整筛选</button></Empty>;
-    return <TrackTable key={`${view.kind}-${view.id || ''}`} tracks={tracks} player={player} favorite={track => { void favorite(track); }} actions={setTrackActions} playlistMemberships={playlistMemberships} showPlaylists={setPlaylistTrack} addToPlaylist={setAddPlaylistIds} bulkEdit={setBulkEditing} filterColumns={view.kind === 'library' ? libraryFilterColumns : undefined} compact={compact} albumTracks={albumTracks} onReorder={onReorder} empty={deferredQuery || tag ? '没有匹配的曲目' : '没有曲目'} />;
+    return <TrackTable key={`${view.kind}-${view.id || ''}`} tracks={tracks} player={player} favorite={track => { void favorite(track); }} actions={setTrackActions} playlistMemberships={playlistMemberships} showPlaylists={setPlaylistTrack} addToPlaylist={setAddPlaylistIds} bulkEdit={setBulkEditing} collectionNavigation={collectionNavigation} filterColumns={view.kind === 'library' ? libraryFilterColumns : undefined} compact={compact} albumTracks={albumTracks} onReorder={onReorder} empty={deferredQuery || tag ? '没有匹配的曲目' : '没有曲目'} />;
   };
   const openedAlbum = (item: Album) => navigate({ kind: 'album', id: item.id });
   const openedArtist = (item: Artist) => navigate({ kind: 'artist', id: item.id });
@@ -184,7 +190,7 @@ export default function App() {
           const track = library.tracks.find(item => item.id === entry.trackId);
           return <article key={entry.id}>
             <Artwork url={track?.coverUrl} />
-            <button onClick={() => { if (track) player.begin([track.id]); }} disabled={!track}><strong>{track?.title || '曲目已移入回收站'}</strong><span>{track?.artist || ''}</span></button>
+            <div className="history-track"><button onClick={() => { if (track) player.begin([track.id]); }} disabled={!track}><strong>{track?.title || '曲目已移入回收站'}</strong></button>{track && <p><TrackCredits track={track} navigation={collectionNavigation} /></p>}</div>
             <div className="playlist-cell" aria-label="歌单"><TrackPlaylists playlists={playlistMemberships.get(entry.trackId)} onOpen={() => { if (track) setPlaylistTrack(track); }} /></div>
             <span>{longDuration(entry.seconds)}</span><time>{new Date(entry.playedAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</time>
             <span className="history-completed">{entry.completed && <Check size={16} className="muted" />}</span>
@@ -202,8 +208,8 @@ export default function App() {
       </div> : <Empty title="回收站为空" />)}
       </div>}
     </main>
-    <PlayerBar player={player} panel={panel} onQueue={() => showPanel('queue')} onLyrics={() => showPanel('lyrics')} onMore={setTrackActions} />
-    {panel === 'queue' && <QueuePanel player={player} playlistMemberships={playlistMemberships} showPlaylists={setPlaylistTrack} onClose={() => setPanel(null)} onSave={ids => setPlaylistEditor({ ids })} onMore={setTrackActions} />}
+    <PlayerBar player={player} panel={panel} onQueue={() => showPanel('queue')} onLyrics={() => showPanel('lyrics')} onMore={setTrackActions} collectionNavigation={collectionNavigation} />
+    {panel === 'queue' && <QueuePanel player={player} playlistMemberships={playlistMemberships} showPlaylists={setPlaylistTrack} onClose={() => setPanel(null)} onSave={ids => setPlaylistEditor({ ids })} onMore={setTrackActions} collectionNavigation={collectionNavigation} />}
     {panel === 'lyrics' && <LyricsPanel player={player} onClose={() => setPanel(null)} onEdit={track => { void openEditor(track); }} />}
     {filtersOpen && view.kind === 'library' && <LibraryFilterModal value={libraryFilters} tracks={library.tracks} playlistMemberships={playlistMemberships} query={query} onClose={() => setFiltersOpen(false)} onApply={setLibraryFilters} />}
     {uploadOpen && <UploadModal uploader={uploader} playlist={uploadPlaylist} onClose={() => setUploadOpen(false)} onLocate={id => { void locateUpload(id); }} />}

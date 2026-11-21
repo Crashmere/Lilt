@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Check, CheckCheck, ChevronDown, CircleAlert, Download, FolderUp, ImagePlus, ListMusic, LoaderCircle, MoreHorizontal, Music2, Pause, Play, Plus, Repeat, Repeat1, RotateCw, Shuffle, Trash2, UploadCloud, X } from 'lucide-react';
 import { ApiError, json, messageOf, request, trackURL } from './api';
 import { Artwork, Empty, Modal, TrackPlaylists } from './components';
+import { TrackCredits, type CollectionNavigation } from './track-links';
 import type { Player } from './player';
 import type { PlaylistMemberships } from './playlist-memberships';
 import type { Playlist, Rules, Track, Upload } from './types';
@@ -15,7 +16,7 @@ function PlayerGlyph({ name }: { name: 'shuffle' | 'previous' | 'play' | 'pause'
   return <span className={`player-glyph player-glyph-${name}`} aria-hidden="true" />;
 }
 
-export function PlayerBar({ player, panel, onQueue, onLyrics, onMore }: { player: Player; panel: 'queue' | 'lyrics' | null; onQueue: () => void; onLyrics: () => void; onMore: (track: Track) => void }) {
+export function PlayerBar({ player, panel, onQueue, onLyrics, onMore, collectionNavigation }: { player: Player; panel: 'queue' | 'lyrics' | null; onQueue: () => void; onLyrics: () => void; onMore: (track: Track) => void; collectionNavigation: CollectionNavigation }) {
   const [volumeOpen, setVolumeOpen] = useState(false);
   const optionsRef = useRef<HTMLDivElement>(null);
   const unmutedVolume = useRef(player.snapshot.volume || 0.8);
@@ -61,7 +62,7 @@ export function PlayerBar({ player, panel, onQueue, onLyrics, onMore }: { player
       <button className={`icon-button mode-button repeat-button ${player.snapshot.repeat !== 'off' ? 'active' : ''}`} aria-label={`循环：${player.snapshot.repeat === 'off' ? '关闭' : player.snapshot.repeat === 'all' ? '全部' : '单曲'}`} aria-pressed={player.snapshot.repeat !== 'off'} onClick={player.toggleRepeat}><PlayerGlyph name="repeat" />{player.snapshot.repeat === 'one' && <span className="repeat-one-count" aria-hidden="true">1</span>}</button>
     </div>
     <div className="player-center">
-      <div className="player-track"><button className="player-cover" onClick={onLyrics} aria-label="查看正在播放" disabled={!player.track}><Artwork url={player.track?.coverUrl} /></button><div><button className="now-title" onClick={onLyrics} disabled={!player.track}>{player.track?.title || '尚未播放'}</button><p>{player.track ? [player.track.artist || '未知艺术家', player.track.album].filter(Boolean).join(' - ') : '选择一首音乐'}</p></div></div>
+      <div className="player-track"><button className="player-cover" onClick={onLyrics} aria-label="查看正在播放" disabled={!player.track}><Artwork url={player.track?.coverUrl} /></button><div><button className="now-title" onClick={onLyrics} disabled={!player.track}>{player.track?.title || '尚未播放'}</button><p>{player.track ? <TrackCredits track={player.track} navigation={collectionNavigation} /> : '选择一首音乐'}</p></div></div>
       <div className="player-progress" title={`${duration(position)} / ${duration(totalDuration)}`}><div className="player-seek" style={{ '--progress': `${progress * 100}%` } as React.CSSProperties}><input type="range" aria-label="播放进度" aria-valuetext={`${duration(position)} / ${duration(totalDuration)}`} min={0} max={totalDuration || 1} step="0.1" value={progress * totalDuration} disabled={totalDuration <= 0} onChange={event => player.seek(Number(event.target.value))} onPointerDown={startSeek} onPointerMove={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) seekAtPointer(event); }} onPointerUp={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) { seekAtPointer(event); event.currentTarget.releasePointerCapture(event.pointerId); } }} /></div></div>
     </div>
     <div className="player-options" ref={optionsRef}>
@@ -78,7 +79,7 @@ export function PlayerBar({ player, panel, onQueue, onLyrics, onMore }: { player
   </footer>;
 }
 
-export function QueuePanel({ player, playlistMemberships, showPlaylists, onClose, onSave, onMore }: { player: Player; playlistMemberships: PlaylistMemberships; showPlaylists: (track: Track) => void; onClose: () => void; onSave: (ids: string[]) => void; onMore: (track: Track) => void }) {
+export function QueuePanel({ player, playlistMemberships, showPlaylists, onClose, onSave, onMore, collectionNavigation }: { player: Player; playlistMemberships: PlaylistMemberships; showPlaylists: (track: Track) => void; onClose: () => void; onSave: (ids: string[]) => void; onMore: (track: Track) => void; collectionNavigation: CollectionNavigation }) {
   const dragged = useRef(-1);
   return <aside className="side-panel" aria-label="播放队列">
     <header><div><h2>播放队列 <small>{player.queue.length}</small></h2></div><button className="icon-button" aria-label="关闭队列" onClick={onClose}><X size={22} /></button></header>
@@ -86,7 +87,7 @@ export function QueuePanel({ player, playlistMemberships, showPlaylists, onClose
     <div className="queue-modes"><button className={`pill ${player.snapshot.shuffle ? 'active' : ''}`} aria-pressed={player.snapshot.shuffle} onClick={player.toggleShuffle}><Shuffle size={13} />随机</button><button className={`pill ${player.snapshot.repeat !== 'off' ? 'active' : ''}`} onClick={player.toggleRepeat}>{player.snapshot.repeat === 'one' ? <Repeat1 size={13} /> : <Repeat size={13} />}{player.snapshot.repeat === 'one' ? '单曲循环' : player.snapshot.repeat === 'all' ? '全部循环' : '循环关闭'}</button></div>
     <div className="queue-items">{player.queue.length ? player.queue.map((track, index) => <div className={`queue-row ${player.snapshot.queueIndex === index ? 'current' : ''}`} key={`${track.id}-${index}`} draggable onDragStart={() => { dragged.current = index; }} onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); if (dragged.current >= 0 && dragged.current !== index) player.reorder(dragged.current, index); dragged.current = -1; }}>
       <span className="queue-number">{index + 1}</span><Artwork url={track.coverUrl} />
-      <div className="queue-track"><button className="queue-name" onClick={() => player.begin(player.snapshot.queueIds, index)}><strong>{track.title}</strong><span>{track.artist}</span></button></div>
+      <div className="queue-track"><button className="queue-name" onClick={() => player.begin(player.snapshot.queueIds, index)}><strong>{track.title}</strong></button><p className="queue-credits"><TrackCredits track={track} navigation={collectionNavigation} /></p></div>
       <div className="playlist-cell" aria-label="歌单"><TrackPlaylists playlists={playlistMemberships.get(track.id)} onOpen={() => showPlaylists(track)} /></div>
       <div className="queue-row-actions"><button className="icon-button" aria-label={`${track.title} 更多操作`} onClick={() => onMore(track)}><MoreHorizontal size={16} /></button><button className="icon-button" aria-label="上移" disabled={index === 0} onClick={() => player.reorder(index, index - 1)}>↑</button><button className="icon-button" aria-label="下移" disabled={index === player.queue.length - 1} onClick={() => player.reorder(index, index + 1)}>↓</button><button className="icon-button" aria-label={`从队列移除 ${track.title}`} onClick={() => player.remove(index)}><X size={15} /></button></div>
     </div>) : <Empty title="队列为空" />}</div>
