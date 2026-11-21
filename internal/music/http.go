@@ -254,7 +254,22 @@ func (s *server) tracks(w http.ResponseWriter, r *http.Request) {
 		apiError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"tracks": FilterTracks(tracks, r.URL.Query())})
+	result := map[string]any{"tracks": FilterTracks(tracks, r.URL.Query())}
+	if trash {
+		playlists, err := s.store.Playlists(r.Context(), tracks)
+		if err != nil {
+			apiError(w, err)
+			return
+		}
+		manual := []Playlist{}
+		for _, playlist := range playlists {
+			if playlist.Kind == "manual" {
+				manual = append(manual, playlist)
+			}
+		}
+		result["playlists"] = manual
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *server) getTrack(w http.ResponseWriter, r *http.Request) {

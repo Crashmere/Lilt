@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, CheckCheck, ChevronDown, CircleAlert, Download, FolderUp, ListMusic, LoaderCircle, MoreHorizontal, Music2, Pause, Play, Plus, Repeat, Repeat1, RotateCw, Shuffle, Trash2, UploadCloud, X } from 'lucide-react';
 import { ApiError, json, messageOf, request, trackURL } from './api';
-import { Artwork, Empty, Modal } from './components';
+import { Artwork, Empty, Modal, TrackPlaylists } from './components';
 import type { Player } from './player';
+import type { PlaylistMemberships } from './playlist-memberships';
 import type { Playlist, Rules, Track, Upload } from './types';
 import type { Uploader } from './upload';
 import { droppedFiles } from './drop-files';
@@ -76,9 +77,19 @@ export function PlayerBar({ player, panel, onQueue, onLyrics, onMore }: { player
   </footer>;
 }
 
-export function QueuePanel({ player, onClose, onSave, onMore }: { player: Player; onClose: () => void; onSave: (ids: string[]) => void; onMore: (track: Track) => void }) {
+export function QueuePanel({ player, playlistMemberships, showPlaylists, onClose, onSave, onMore }: { player: Player; playlistMemberships: PlaylistMemberships; showPlaylists: (track: Track) => void; onClose: () => void; onSave: (ids: string[]) => void; onMore: (track: Track) => void }) {
   const dragged = useRef(-1);
-  return <aside className="side-panel" aria-label="播放队列"><header><div><h2>播放队列 <small>{player.queue.length}</small></h2></div><button className="icon-button" aria-label="关闭队列" onClick={onClose}><X size={22} /></button></header><div className="panel-toolbar"><button className="text-button" onClick={() => onSave(player.snapshot.queueIds)} disabled={!player.queue.length}><Plus size={16} />存为歌单</button><button className="text-button" onClick={player.clear} disabled={!player.queue.length}>清空</button></div><div className="queue-modes"><button className={`pill ${player.snapshot.shuffle ? 'active' : ''}`} aria-pressed={player.snapshot.shuffle} onClick={player.toggleShuffle}><Shuffle size={13} />随机</button><button className={`pill ${player.snapshot.repeat !== 'off' ? 'active' : ''}`} onClick={player.toggleRepeat}>{player.snapshot.repeat === 'one' ? <Repeat1 size={13} /> : <Repeat size={13} />}{player.snapshot.repeat === 'one' ? '单曲循环' : player.snapshot.repeat === 'all' ? '全部循环' : '循环关闭'}</button></div><div className="queue-items">{player.queue.length ? player.queue.map((track, index) => <div className={`queue-row ${player.snapshot.queueIndex === index ? 'current' : ''}`} key={`${track.id}-${index}`} draggable onDragStart={() => { dragged.current = index; }} onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); if (dragged.current >= 0 && dragged.current !== index) player.reorder(dragged.current, index); dragged.current = -1; }}><span className="queue-number">{index + 1}</span><Artwork url={track.coverUrl} /><button className="queue-name" onClick={() => player.begin(player.snapshot.queueIds, index)}><strong>{track.title}</strong><span>{track.artist}</span></button><div className="queue-row-actions"><button className="icon-button" aria-label={`${track.title} 更多操作`} onClick={() => onMore(track)}><MoreHorizontal size={16} /></button><button className="icon-button" aria-label="上移" disabled={index === 0} onClick={() => player.reorder(index, index - 1)}>↑</button><button className="icon-button" aria-label="下移" disabled={index === player.queue.length - 1} onClick={() => player.reorder(index, index + 1)}>↓</button><button className="icon-button" aria-label={`从队列移除 ${track.title}`} onClick={() => player.remove(index)}><X size={15} /></button></div></div>) : <Empty title="队列为空" />}</div></aside>;
+  return <aside className="side-panel" aria-label="播放队列">
+    <header><div><h2>播放队列 <small>{player.queue.length}</small></h2></div><button className="icon-button" aria-label="关闭队列" onClick={onClose}><X size={22} /></button></header>
+    <div className="panel-toolbar"><button className="text-button" onClick={() => onSave(player.snapshot.queueIds)} disabled={!player.queue.length}><Plus size={16} />存为歌单</button><button className="text-button" onClick={player.clear} disabled={!player.queue.length}>清空</button></div>
+    <div className="queue-modes"><button className={`pill ${player.snapshot.shuffle ? 'active' : ''}`} aria-pressed={player.snapshot.shuffle} onClick={player.toggleShuffle}><Shuffle size={13} />随机</button><button className={`pill ${player.snapshot.repeat !== 'off' ? 'active' : ''}`} onClick={player.toggleRepeat}>{player.snapshot.repeat === 'one' ? <Repeat1 size={13} /> : <Repeat size={13} />}{player.snapshot.repeat === 'one' ? '单曲循环' : player.snapshot.repeat === 'all' ? '全部循环' : '循环关闭'}</button></div>
+    <div className="queue-items">{player.queue.length ? player.queue.map((track, index) => <div className={`queue-row ${player.snapshot.queueIndex === index ? 'current' : ''}`} key={`${track.id}-${index}`} draggable onDragStart={() => { dragged.current = index; }} onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); if (dragged.current >= 0 && dragged.current !== index) player.reorder(dragged.current, index); dragged.current = -1; }}>
+      <span className="queue-number">{index + 1}</span><Artwork url={track.coverUrl} />
+      <div className="queue-track"><button className="queue-name" onClick={() => player.begin(player.snapshot.queueIds, index)}><strong>{track.title}</strong><span>{track.artist}</span></button></div>
+      <div className="playlist-cell" aria-label="歌单"><TrackPlaylists playlists={playlistMemberships.get(track.id)} onOpen={() => showPlaylists(track)} /></div>
+      <div className="queue-row-actions"><button className="icon-button" aria-label={`${track.title} 更多操作`} onClick={() => onMore(track)}><MoreHorizontal size={16} /></button><button className="icon-button" aria-label="上移" disabled={index === 0} onClick={() => player.reorder(index, index - 1)}>↑</button><button className="icon-button" aria-label="下移" disabled={index === player.queue.length - 1} onClick={() => player.reorder(index, index + 1)}>↓</button><button className="icon-button" aria-label={`从队列移除 ${track.title}`} onClick={() => player.remove(index)}><X size={15} /></button></div>
+    </div>) : <Empty title="队列为空" />}</div>
+  </aside>;
 }
 
 export function LyricsPanel({ player, onClose, onEdit }: { player: Player; onClose: () => void; onEdit: (track: Track) => void }) {
