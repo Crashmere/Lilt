@@ -249,6 +249,38 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   const mediaSeek = useEffectEvent((details: MediaSessionActionDetails) => seek(details.seekTime ?? position));
   const mediaBack = useEffectEvent((details: MediaSessionActionDetails) => seek(position - (details.seekOffset || 10)));
   const mediaForward = useEffectEvent((details: MediaSessionActionDetails) => seek(position + (details.seekOffset || 10)));
+  const onPlaybackKey = useEffectEvent((event: KeyboardEvent) => {
+    if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.ctrlKey || event.metaKey || event.altKey) return;
+    const target = event.target;
+    if (target instanceof HTMLElement && (target.isContentEditable || target.closest('input:not([type="range"]), textarea, select, [role="textbox"]'))) return;
+    if (event.shiftKey && event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+
+    switch (event.key) {
+      case ' ':
+        if (!queue.length) return;
+        event.preventDefault();
+        if (!event.repeat) { if (playing || intent.current.play) pause(); else play(); }
+        break;
+      case 'ArrowLeft':
+      case 'ArrowRight':
+        if (!track) return;
+        event.preventDefault();
+        if (event.shiftKey) {
+          if (!event.repeat) { if (event.key === 'ArrowLeft') previous(); else next(); }
+        } else seek((audioRef.current?.currentTime ?? position) + (event.key === 'ArrowLeft' ? -5 : 5));
+        break;
+      case 'ArrowUp':
+      case 'ArrowDown':
+        event.preventDefault();
+        setVolume(Math.max(0, Math.min(1, snapshot.volume + (event.key === 'ArrowUp' ? 0.05 : -0.05))));
+        break;
+    }
+  });
+  useEffect(() => {
+    // Capture before focused buttons and ranges perform their native key actions.
+    document.addEventListener('keydown', onPlaybackKey, true);
+    return () => document.removeEventListener('keydown', onPlaybackKey, true);
+  }, []);
   useEffect(() => {
     if (!('mediaSession' in navigator)) return;
     const handlers: Partial<Record<MediaSessionAction, MediaSessionActionHandler>> = { play: mediaPlay, pause: mediaPause, previoustrack: mediaPrevious, nexttrack: mediaNext, seekto: mediaSeek, seekbackward: mediaBack, seekforward: mediaForward };

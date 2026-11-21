@@ -36,6 +36,8 @@ The first compatible request may wait for encoding. Uploaded files are constrain
 
 The player remains mounted while library views, search results, dialogs and playlists update. Its queue, current track, position, repeat/shuffle preferences and volume are saved without requesting audible playback on page startup. Starting or continuing playback is an explicit user action and remains subject to browser autoplay rules.
 
+Playback shortcuts apply throughout the active Lilt page, including dialogs and focused player controls: Space toggles playback, Left/Right seek by five seconds, Up/Down change volume by five percentage points, and Shift+Left/Right invoke previous/next track. Text inputs, textareas, selects, editable content, IME composition and Ctrl/Command/Alt combinations retain their normal behavior. Holding Space or a track-switch shortcut triggers only once; seeking and volume changes repeat while held. System-wide media controls use Media Session support rather than page keyboard events.
+
 The player and library-row ellipsis buttons open one shared song-specific More Features menu. Additional song operations belong in this menu.
 
 Each browser keeps its player snapshot locally. Library data, playlists and listening history are shared through the server; queues and playback progress remain browser-local. Same-origin tabs coordinate playback locally. Legacy server snapshots remain in the catalog, without active read/write endpoints.
