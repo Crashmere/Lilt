@@ -311,41 +311,108 @@ export function BulkCoverEditor({ album, tracks, onClose, onRefresh, onSaved }: 
 }
 
 const bulkFields = [['artist', '艺术家'], ['album', '专辑'], ['albumArtist', '专辑艺术家'], ['genre', '风格'], ['year', '年份']] as const;
-type BulkField = typeof bulkFields[number][0] | 'tags';
+type BulkField = typeof bulkFields[number][0];
+type BulkMode = 'keep' | 'set' | 'clear';
 export function BulkEditor({ tracks, onClose, onRefresh, onSaved }: { tracks: Track[]; onClose: () => void; onRefresh: () => Promise<void>; onSaved: () => void }) {
-  const [enabled, setEnabled] = useState<Set<BulkField>>(new Set());
+  const [modes, setModes] = useState<Record<BulkField, BulkMode>>({ artist: 'keep', album: 'keep', albumArtist: 'keep', genre: 'keep', year: 'keep' });
   const [values, setValues] = useState<Record<BulkField, string>>(() => {
-    const common = (key: typeof bulkFields[number][0]) => tracks.every(track => track[key] === tracks[0][key]) ? String(tracks[0][key] || '') : '';
-    return { artist: common('artist'), album: common('album'), albumArtist: common('albumArtist'), genre: common('genre'), year: common('year'), tags: '' };
+    const common = (key: BulkField) => tracks.every(track => track[key] === tracks[0]?.[key]) ? String(tracks[0]?.[key] || '') : '';
+    return { artist: common('artist'), album: common('album'), albumArtist: common('albumArtist'), genre: common('genre'), year: common('year') };
   });
-  const [tagMode, setTagMode] = useState<'append' | 'replace'>('append');
+  const [tagMode, setTagMode] = useState<'keep' | 'append' | 'replace' | 'clear'>('keep');
+  const [tagsText, setTagsText] = useState('');
+  const [selectionOpen, setSelectionOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState('');
-  function toggle(key: BulkField) { setEnabled(old => { const next = new Set(old); if (next.has(key)) next.delete(key); else next.add(key); return next; }); }
+  const completed = useRef(new Set<string>());
+  const running = useRef(false);
+  const changed = bulkFields.filter(([key]) => modes[key] !== 'keep').length + (tagMode !== 'keep' ? 1 : 0);
+  const locked = busy || progress > 0;
+  const tags = [...new Set(tagsText.split(/[,，\n]/).map(value => value.trim()).filter(Boolean))];
+
+  useEffect(() => {
+    if (!busy) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [busy]);
+
+  function close() {
+    if (!running.current && (!changed || progress === tracks.length || window.confirm(progress ? `已保存 ${progress} 首曲目。退出后，其余曲目将不再修改。` : '放弃未保存的修改？'))) onClose();
+  }
+  function currentValue(key: BulkField) {
+    const distinct = [...new Set(tracks.map(track => String(track[key] || '')))];
+    return distinct.length > 1 ? `多个值 · ${distinct.length} 种` : distinct[0] || '未填写';
+  }
+  const currentTags = [...new Set(tracks.flatMap(track => track.tags || []))];
+
   async function save() {
+    if (running.current || !changed || !tracks.length) return;
     const year = Number(values.year || 0);
-    if (enabled.has('year') && (!Number.isInteger(year) || year < 0 || year > 9999)) { setError('请输入有效年份。'); return; }
-    setBusy(true); setProgress(0); setError('');
-    let completed = 0;
+    if (modes.year === 'set' && (!Number.isInteger(year) || year < 1 || year > 9999)) { setError('年份应为 1 至 9999 的整数；移除年份请选择「清空」。'); return; }
+    for (const [key, label] of bulkFields) {
+      if (modes[key] === 'set' && !values[key].trim()) { setError(`请输入${label}，或选择「清空」。`); return; }
+    }
+    if ((tagMode === 'append' || tagMode === 'replace') && !tags.length) { setError('请输入标签，或选择「清空标签」。'); return; }
+    running.current = true; setBusy(true); setError('');
+    let current: Track | undefined;
     try {
       for (const track of tracks) {
+        if (completed.current.has(track.id)) continue;
+        current = track;
         const patch: Record<string, unknown> = {};
-        for (const [key] of bulkFields) if (enabled.has(key)) patch[key] = key === 'year' ? year : values[key].trim();
-        if (enabled.has('tags')) {
-          const tags = values.tags.split(/[,，\n]/).map(value => value.trim()).filter(Boolean);
-          patch.tags = tagMode === 'append' ? [...new Set([...(track.tags || []), ...tags])] : [...new Set(tags)];
+        for (const [key] of bulkFields) {
+          if (modes[key] === 'set') patch[key] = key === 'year' ? year : values[key].trim();
+          else if (modes[key] === 'clear') patch[key] = key === 'year' ? 0 : '';
         }
+        if (tagMode !== 'keep') patch.tags = tagMode === 'clear' ? [] : tagMode === 'append' ? [...new Set([...(track.tags || []), ...tags])] : tags;
         await json(`/tracks/${encodeURIComponent(track.id)}`, 'PATCH', patch);
-        setProgress(++completed);
+        completed.current.add(track.id); setProgress(completed.current.size);
       }
-      await onRefresh(); onSaved(); onClose();
     } catch (error) {
-      setError(`已保存 ${completed}/${tracks.length} 首。${messageOf(error)}`);
-      if (completed) await onRefresh();
-    } finally { setBusy(false); }
+      setError(`${current ? `「${current.title}」保存失败。` : ''}${messageOf(error)}`);
+    } finally {
+      try { if (completed.current.size) await onRefresh(); }
+      finally { running.current = false; setBusy(false); }
+    }
+    if (completed.current.size === tracks.length) { onSaved(); onClose(); }
   }
-  return <Modal title={`批量编辑 · ${tracks.length} 首`} wide onClose={() => { if (!busy) onClose(); }}><form onSubmit={event => { event.preventDefault(); void save(); }}><div className="modal-body"><div className="form-grid bulk-fields">{bulkFields.map(([key, label]) => <div className="field" key={key}><label className="check-label"><input type="checkbox" checked={enabled.has(key)} disabled={busy} onChange={() => toggle(key)} />{label}</label><input aria-label={`批量编辑${label}`} type={key === 'year' ? 'number' : 'text'} min={key === 'year' ? 0 : undefined} max={key === 'year' ? 9999 : undefined} value={values[key]} disabled={!enabled.has(key) || busy} onChange={event => setValues(old => ({ ...old, [key]: event.target.value }))} /></div>)}<div className="field full"><div className="field-title"><label className="check-label"><input type="checkbox" checked={enabled.has('tags')} disabled={busy} onChange={() => toggle('tags')} />标签</label><select aria-label="批量标签操作" value={tagMode} disabled={!enabled.has('tags') || busy} onChange={event => setTagMode(event.target.value as 'append' | 'replace')}><option value="append">追加</option><option value="replace">替换全部</option></select></div><input aria-label="批量编辑标签" value={values.tags} disabled={!enabled.has('tags') || busy} onChange={event => setValues(old => ({ ...old, tags: event.target.value }))} placeholder="用逗号分隔" /></div></div>{error && <p className="error-text">{error}</p>}{busy && <div className="bulk-progress"><div className="upload-meter"><i style={{ width: `${progress / tracks.length * 100}%` }} /></div><span>正在保存 {progress}/{tracks.length} 首</span></div>}</div><footer className="modal-footer"><span>{enabled.size ? `更新 ${enabled.size} 项信息` : '选择要更新的字段'}</span><button className="button primary" type="submit" disabled={busy || !enabled.size}>{busy ? '保存中…' : error ? '重试' : '保存'}</button></footer></form></Modal>;
+  return <Modal title="批量编辑" className="bulk-editor-modal" onClose={close}><form onSubmit={event => { event.preventDefault(); void save(); }}>
+    <div className="bulk-editor-body">
+      <aside className={`bulk-selection ${selectionOpen ? 'expanded' : ''}`} aria-label="所选曲目">
+        <header><h3>所选曲目</h3><span>{tracks.length} 首</span><button className="icon-button" type="button" aria-label={selectionOpen ? '收起所选曲目' : '展开所选曲目'} aria-expanded={selectionOpen} aria-controls="bulk-track-list" onClick={() => setSelectionOpen(old => !old)}><ChevronDown size={17} /></button></header>
+        <ol className="bulk-track-list" id="bulk-track-list">{tracks.map((track, index) => <li key={track.id}>
+          <span className="bulk-track-number">{completed.current.has(track.id) ? <Check size={13} aria-label="已保存" /> : index + 1}</span><Artwork url={track.coverUrl} />
+          <div><strong title={track.title}>{track.title || track.originalName}</strong><span title={track.artist}>{track.artist || '未知艺术家'}{track.version && ` · ${track.version}`}</span></div>
+        </li>)}</ol>
+      </aside>
+      <div className="bulk-edit-fields">
+        <header className="bulk-edit-intro"><h3>修改信息</h3><p>未修改的字段保留原值</p></header>
+        <fieldset disabled={locked}>
+          {bulkFields.map(([key, label]) => <div className="bulk-field" data-mode={modes[key]} key={key}>
+            <div className="bulk-field-heading"><div><label htmlFor={`bulk-${key}`}>{label}</label><p title={[...new Set(tracks.map(track => String(track[key] || '未填写')))].join('、')}>{currentValue(key)}</p></div>
+              <select aria-label={`${label}修改方式`} value={modes[key]} onChange={event => { setModes(old => ({ ...old, [key]: event.target.value as BulkMode })); setError(''); }}><option value="keep">保持原值</option><option value="set">修改为</option><option value="clear">{key === 'artist' || key === 'album' || key === 'albumArtist' ? '重置' : '清空'}</option></select>
+            </div>
+            {modes[key] === 'set' && <input id={`bulk-${key}`} aria-label={`批量编辑${label}`} type={key === 'year' ? 'number' : 'text'} min={key === 'year' ? 1 : undefined} max={key === 'year' ? 9999 : undefined} maxLength={4096} step={key === 'year' ? 1 : undefined} required value={values[key]} placeholder={`输入新的${label}`} onChange={event => setValues(old => ({ ...old, [key]: event.target.value }))} />}
+            {modes[key] === 'clear' && <p className="bulk-clear-note">{key === 'artist' ? '艺术家将设为「未知歌手」' : key === 'album' ? '专辑将设为「未归属专辑」' : key === 'albumArtist' ? '专辑艺术家将使用各曲目的艺术家' : `${label}将从所选曲目中移除`}</p>}
+          </div>)}
+          <div className="bulk-field bulk-tag-field" data-mode={tagMode}>
+            <div className="bulk-field-heading"><div><label htmlFor="bulk-tags">标签</label><p title={currentTags.join('、')}>{currentTags.length ? currentTags.join('、') : '无标签'}</p></div>
+              <select aria-label="批量标签操作" value={tagMode} onChange={event => { setTagMode(event.target.value as typeof tagMode); setError(''); }}><option value="keep">保持原值</option><option value="append">追加标签</option><option value="replace">替换全部</option><option value="clear">清空标签</option></select>
+            </div>
+            {(tagMode === 'append' || tagMode === 'replace') && <><input id="bulk-tags" aria-label="批量编辑标签" required value={tagsText} placeholder="输入标签，用逗号分隔" onChange={event => setTagsText(event.target.value)} /><p className="bulk-tag-note">{tagMode === 'append' ? '保留每首曲目的原有标签' : '所选曲目仅保留这些标签'}</p>{tags.length > 0 && <div className="bulk-tag-preview" aria-label="待保存标签">{tags.map(tag => <span key={tag}>{tag}</span>)}</div>}</>}
+            {tagMode === 'clear' && <p className="bulk-clear-note">所选曲目的全部标签将被移除</p>}
+          </div>
+        </fieldset>
+      </div>
+    </div>
+    <footer className="modal-footer bulk-editor-footer">
+      {error && <div className="bulk-save-error" role="alert"><CircleAlert size={17} /><div><p>{error}</p>{progress > 0 && <span>已保存的修改保留，继续保存其余曲目</span>}</div></div>}
+      <div className="bulk-save-summary" role="status">{busy || progress > 0 ? <><span>{busy ? '正在保存' : '已保存'} <strong>{progress} / {tracks.length}</strong> 首</span><div className="upload-meter" role="progressbar" aria-label="批量保存进度" aria-valuemin={0} aria-valuemax={tracks.length} aria-valuenow={progress}><i style={{ width: `${progress / tracks.length * 100}%` }} /></div></> : <span>{changed ? <><strong>{changed} 项修改</strong> · {tracks.length} 首曲目</> : '选择需要修改的字段'}</span>}</div>
+      <div className="bulk-footer-actions"><button className="button secondary" type="button" disabled={busy} onClick={close}>{progress > 0 ? '关闭' : '取消'}</button><button className="button primary" type="submit" disabled={busy || !changed || !tracks.length}>{busy ? '保存中…' : progress > 0 ? '继续保存' : '保存并写回'}</button></div>
+    </footer>
+  </form></Modal>;
 }
 
 export function PlaylistEditor({ playlist, initialIds = [], onClose, onSaved }: { playlist?: Playlist; initialIds?: string[]; onClose: () => void; onSaved: (playlist: Playlist) => Promise<void> }) {
