@@ -9,6 +9,7 @@ import type { Playlist, Rules, Track, Upload } from './types';
 import type { Uploader, UploadPlaylist } from './upload';
 import { droppedFiles } from './drop-files';
 import { formatUploadRate } from './upload-rate';
+import { useLyrics } from './lyrics';
 import { bytes, duration, parseLyrics } from './utils';
 import { useReorder } from './reorder';
 
@@ -54,8 +55,7 @@ export function PlayerBar({ player, panel, onQueue, onLyrics, onMore, collection
   }
 
   return <footer className={`player-bar ${!player.track ? 'player-empty' : ''}`}>
-    <audio ref={player.audioRefs[0]} preload="metadata" />
-    <audio ref={player.audioRefs[1]} preload="metadata" />
+    <audio ref={player.audioRef} preload={player.playRequested ? 'auto' : 'metadata'} />
     <div className="transport">
       <button className={`icon-button mode-button shuffle-button ${player.snapshot.shuffle ? 'active' : ''}`} aria-label="随机播放" aria-pressed={player.snapshot.shuffle} onClick={player.toggleShuffle}><PlayerGlyph name="shuffle" /></button>
       <button className="icon-button skip-button previous-button" aria-label="上一首" onClick={player.previous} disabled={!player.track}><PlayerGlyph name="previous" /></button>
@@ -97,7 +97,7 @@ export function QueuePanel({ player, playlistMemberships, showPlaylists, onClose
 }
 
 export function LyricsPanel({ player, onClose, onEdit, onAdjust }: { player: Player; onClose: () => void; onEdit: (track: Track) => void; onAdjust: (track: Track, seconds: number) => Promise<void> }) {
-  const { text, loading, error, reload } = player.lyrics;
+  const { text, loading, error, reload } = useLyrics(player.track);
   const [savingId, setSavingId] = useState('');
   const [saveError, setSaveError] = useState<{ trackId: string; message: string }>();
   const saving = useRef(false);
