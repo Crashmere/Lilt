@@ -4,7 +4,7 @@ import { ApiError, json, messageOf, request, trackURL } from './api';
 import { Artwork, Empty, Modal, TrackPlaylists } from './components';
 import type { Player } from './player';
 import type { PlaylistMemberships } from './playlist-memberships';
-import type { Playlist, Rules, Track, Upload } from './types';
+import type { Album, Playlist, Rules, Track, Upload } from './types';
 import type { Uploader } from './upload';
 import { droppedFiles } from './drop-files';
 import { formatUploadRate } from './upload-rate';
@@ -248,6 +248,66 @@ export function TrackEditor({ track, onClose, onSaved }: { track: Track; onClose
       </div>
     </fieldset>{error && <p className="error-text" role="alert">{error}</p>}</div>
     <footer className="modal-footer"><a className="text-button" href={trackURL(track.id, 'download')}><Download size={16} />下载音频</a><div className="editor-footer-actions"><button className="button secondary" type="button" disabled={disabled} onClick={close}>取消</button><button className="button primary" type="submit" disabled={disabled}>{busy ? '写回中…' : '保存并写回'}</button></div></footer>
+  </form></Modal>;
+}
+
+export function BulkCoverEditor({ album, tracks, onClose, onRefresh, onSaved }: { album: Album; tracks: Track[]; onClose: () => void; onRefresh: () => Promise<void>; onSaved: () => void }) {
+  const [cover, setCover] = useState<File>();
+  const [preview, setPreview] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [error, setError] = useState('');
+  const input = useRef<HTMLInputElement>(null);
+  const completed = useRef(new Set<string>());
+  const running = useRef(false);
+  useEffect(() => {
+    if (!cover) { setPreview(''); return; }
+    const url = URL.createObjectURL(cover); setPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [cover]);
+  useEffect(() => {
+    if (!busy) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [busy]);
+  async function save() {
+    if (!cover || running.current) return;
+    running.current = true; setBusy(true); setError('');
+    let current: Track | undefined;
+    try {
+      for (const track of tracks) {
+        if (completed.current.has(track.id)) continue;
+        current = track;
+        const path = `/tracks/${encodeURIComponent(track.id)}`;
+        const latest = (await request<{ track: Track }>(path)).track;
+        if (latest.deletedAt) throw new Error('曲目已移入回收站，请关闭后重新打开专辑。');
+        const form = new FormData(); form.append('file', cover); form.append('metadata', JSON.stringify({ expectedUpdatedAt: latest.updatedAt }));
+        await request<{ track: Track }>(`${path}/cover`, { method: 'POST', body: form });
+        completed.current.add(track.id); setProgress(completed.current.size);
+      }
+    } catch (error) { setError(`${current ? `「${current.title}」上传失败。` : ''}${messageOf(error)}`); }
+    finally {
+      try { if (completed.current.size) await onRefresh(); }
+      finally { running.current = false; setBusy(false); }
+    }
+    if (completed.current.size === tracks.length) { onSaved(); onClose(); }
+  }
+  const close = () => { if (!running.current) onClose(); };
+  return <Modal title="批量上传封面" onClose={close}><form onSubmit={event => { event.preventDefault(); void save(); }}>
+    <div className="modal-body">
+      <div className="editor-cover"><Artwork url={preview || album.coverUrl} /><div><strong>{album.title}</strong><p>将替换专辑内 {tracks.length} 首曲目的封面</p><button type="button" className="button secondary" disabled={busy} onClick={() => input.current?.click()}>{cover ? '更换图片' : '选择图片'}</button>{cover && <span className="file-selected">{cover.name}</span>}</div></div>
+      <input hidden type="file" ref={input} accept="image/png,image/jpeg,image/gif,image/webp" onChange={event => {
+        const file = event.target.files?.[0]; event.target.value = '';
+        if (!file || running.current) return;
+        if (!file.size) { setError('请选择有效封面图片'); return; }
+        if (file.size > 16 * 1024 ** 2) { setError('封面不能超过 16 MiB'); return; }
+        setCover(file); completed.current.clear(); setProgress(0); setError('');
+      }} />
+      {(busy || progress > 0) && <div className="bulk-progress"><div className="upload-meter" role="progressbar" aria-label="封面上传进度" aria-valuemin={0} aria-valuemax={tracks.length} aria-valuenow={progress}><i style={{ width: `${progress / tracks.length * 100}%` }} /></div><span>已完成 {progress}/{tracks.length} 首</span></div>}
+      {error && <p className="error-text" role="alert">{error}</p>}
+    </div>
+    <footer className="modal-footer"><span>{progress && error ? '已完成的封面保留，继续上传未完成曲目' : 'PNG / JPEG / GIF / WebP · 最大 16 MiB'}</span><div className="editor-footer-actions"><button type="button" className="button secondary" disabled={busy} onClick={close}>取消</button><button type="submit" className="button primary" disabled={busy || !cover || !tracks.length}>{busy ? '上传中…' : progress && error ? '继续上传' : '上传并替换'}</button></div></footer>
   </form></Modal>;
 }
 
