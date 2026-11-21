@@ -1,9 +1,9 @@
 import { startTransition, useDeferredValue, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, BarChart3, Check, ChevronRight, Clock3, Disc3, Download, Heart, ImagePlus, House, LibraryBig, ListMusic, LoaderCircle, Menu, MoreHorizontal, Music2, Play, Plus, RefreshCw, Search, Settings2, Trash2, Upload, UsersRound, WifiOff, X } from 'lucide-react';
+import { ArrowLeft, BarChart3, Check, ChevronRight, Clock3, Disc3, Download, Heart, House, LibraryBig, ListMusic, LoaderCircle, Menu, MoreHorizontal, Music2, Play, Plus, RefreshCw, Search, Settings2, Trash2, Upload, UsersRound, WifiOff, X } from 'lucide-react';
 import { ApiError, json, messageOf, request, trackURL, API } from './api';
 import { AlbumCards, Artwork, Empty, Modal, Pill, PlaylistCards, TrackPlaylists, TrackTable } from './components';
 import { ArtistBrowser } from './artists';
-import { BulkCoverEditor, BulkEditor, LyricsPanel, PlayerBar, PlaylistEditor, QueuePanel, TrackEditor, UploadModal } from './panels';
+import { BulkEditor, LyricsPanel, PlayerBar, PlaylistEditor, QueuePanel, TrackEditor, UploadModal } from './panels';
 import { usePlayer } from './player';
 import { indexPlaylistMemberships } from './playlist-memberships';
 import { flushHistory, loadLibrary, saveLibrary } from './storage';
@@ -43,7 +43,6 @@ export default function App() {
   const [bulkEditing, setBulkEditing] = useState<Track[]>();
   const [trackActions, setTrackActions] = useState<Track>();
   const [albumActions, setAlbumActions] = useState<Album>();
-  const [coverEditing, setCoverEditing] = useState<{ album: Album; tracks: Track[] }>();
   const [playlistEditor, setPlaylistEditor] = useState<{ playlist?: Playlist; ids?: string[] }>();
   const [addPlaylistIds, setAddPlaylistIds] = useState<string[]>();
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -195,14 +194,12 @@ export default function App() {
     {uploadOpen && <UploadModal uploader={uploader} playlist={uploadPlaylist} onClose={() => setUploadOpen(false)} onLocate={id => { void locateUpload(id); }} />}
     {editing && <TrackEditor key={editing.id} track={editing} onClose={() => setEditing(undefined)} onSaved={async track => { setLibrary(old => ({ ...old, tracks: old.tracks.map(item => item.id === track.id ? track : item) })); await refresh(); notify('已写回音频文件'); }} />}
     {bulkEditing && <BulkEditor tracks={bulkEditing} onClose={() => setBulkEditing(undefined)} onRefresh={refresh} onSaved={() => notify(`已更新 ${bulkEditing.length} 首曲目`)} />}
-    {coverEditing && <BulkCoverEditor album={coverEditing.album} tracks={coverEditing.tracks} onClose={() => setCoverEditing(undefined)} onRefresh={refresh} onSaved={() => notify(`已更新 ${coverEditing.tracks.length} 首曲目的封面`)} />}
     {playlistEditor && <PlaylistEditor playlist={playlistEditor.playlist} initialIds={playlistEditor.ids} onClose={() => setPlaylistEditor(undefined)} onSaved={async playlist => { await refresh(); navigate({ kind: 'playlist', id: playlist.id }); notify('歌单已保存'); }} />}
     {albumActions && <Modal title={`${albumActions.title} · 专辑操作`} onClose={() => setAlbumActions(undefined)}><div className="modal-body track-action-menu">
       <button disabled={!albumActionTracks.length} onClick={() => { player.enqueue(albumActionTracks.map(track => track.id), true); setAlbumActions(undefined); }}><Play size={18} />接下来播放</button>
       <button disabled={!albumActionTracks.length} onClick={() => { player.enqueue(albumActionTracks.map(track => track.id)); setAlbumActions(undefined); }}><ListMusic size={18} />加入播放队列</button>
       <button disabled={!albumActionTracks.length} onClick={() => { setAddPlaylistIds(albumActionTracks.map(track => track.id)); setAlbumActions(undefined); }}><Plus size={18} />加入歌单</button>
-      <button disabled={!albumActionTracks.length} onClick={() => { setBulkEditing(albumActionTracks); setAlbumActions(undefined); }}><Settings2 size={18} />编辑专辑曲目</button>
-      <button disabled={!albumActionTracks.length} onClick={() => { setCoverEditing({ album: albumActions, tracks: albumActionTracks }); setAlbumActions(undefined); }}><ImagePlus size={18} />批量上传封面</button>
+      <button disabled={!albumActionTracks.length} onClick={() => { setBulkEditing(albumActionTracks); setAlbumActions(undefined); }}><Settings2 size={18} />批量编辑</button>
       <button onClick={() => { openedAlbum(albumActions); setAlbumActions(undefined); }}><Disc3 size={18} />查看专辑</button>
     </div></Modal>}
     {playlistTrack && <Modal title="所属歌单" onClose={() => setPlaylistTrack(undefined)}><div className="modal-body joined-playlists">

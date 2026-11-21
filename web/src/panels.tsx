@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, CheckCheck, ChevronDown, CircleAlert, Download, FolderUp, ListMusic, LoaderCircle, MoreHorizontal, Music2, Pause, Play, Plus, Repeat, Repeat1, RotateCw, Shuffle, Trash2, UploadCloud, X } from 'lucide-react';
+import { Check, CheckCheck, ChevronDown, CircleAlert, Download, FolderUp, ImagePlus, ListMusic, LoaderCircle, MoreHorizontal, Music2, Pause, Play, Plus, Repeat, Repeat1, RotateCw, Shuffle, Trash2, UploadCloud, X } from 'lucide-react';
 import { ApiError, json, messageOf, request, trackURL } from './api';
 import { Artwork, Empty, Modal, TrackPlaylists } from './components';
 import type { Player } from './player';
 import type { PlaylistMemberships } from './playlist-memberships';
-import type { Album, Playlist, Rules, Track, Upload } from './types';
+import type { Playlist, Rules, Track, Upload } from './types';
 import type { Uploader, UploadPlaylist } from './upload';
 import { droppedFiles } from './drop-files';
 import { formatUploadRate } from './upload-rate';
@@ -261,6 +261,10 @@ export function BulkCoverEditor({ album, tracks, onClose, onRefresh, onSaved }: 
   const running = useRef(false);
   useEffect(() => {
     if (!cover) { setPreview(''); return; }
+  const [coverMode, setCoverMode] = useState<BulkMode>('keep');
+  const [cover, setCover] = useState<File>();
+  const [coverPreview, setCoverPreview] = useState('');
+  const coverInput = useRef<HTMLInputElement>(null);
     const url = URL.createObjectURL(cover); setPreview(url);
     return () => URL.revokeObjectURL(url);
   }, [cover]);
@@ -270,6 +274,13 @@ export function BulkCoverEditor({ album, tracks, onClose, onRefresh, onSaved }: 
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
   }, [busy]);
+  const covers = tracks.filter(track => track.coverUrl).length;
+
+  useEffect(() => {
+    if (!cover) { setCoverPreview(''); return; }
+    const url = URL.createObjectURL(cover); setCoverPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [cover]);
   async function save() {
     if (!cover || running.current) return;
     running.current = true; setBusy(true); setError('');
@@ -289,6 +300,7 @@ export function BulkCoverEditor({ album, tracks, onClose, onRefresh, onSaved }: 
     finally {
       try { if (completed.current.size) await onRefresh(); }
       finally { running.current = false; setBusy(false); }
+    if (coverMode === 'set' && !cover) { setError('请选择封面图片，或选择「保持原封面」。'); return; }
     }
     if (completed.current.size === tracks.length) { onSaved(); onClose(); }
   }
@@ -326,7 +338,7 @@ export function BulkEditor({ tracks, onClose, onRefresh, onSaved }: { tracks: Tr
   const [error, setError] = useState('');
   const completed = useRef(new Set<string>());
   const running = useRef(false);
-  const changed = bulkFields.filter(([key]) => modes[key] !== 'keep').length + (tagMode !== 'keep' ? 1 : 0);
+  const changed = bulkFields.filter(([key]) => modes[key] !== 'keep').length + (tagMode !== 'keep' ? 1 : 0) + (coverMode !== 'keep' ? 1 : 0);
   const locked = busy || progress > 0;
   const tags = [...new Set(tagsText.split(/[,，\n]/).map(value => value.trim()).filter(Boolean))];
 
@@ -337,6 +349,19 @@ export function BulkEditor({ tracks, onClose, onRefresh, onSaved }: { tracks: Tr
     return () => window.removeEventListener('beforeunload', warn);
   }, [busy]);
 
+          <div className="bulk-field bulk-cover-field" data-mode={coverMode}>
+            <div className="bulk-field-heading"><div><span className="bulk-field-label">封面</span><p>{covers ? `${covers} / ${tracks.length} 首有封面` : '无封面'}</p></div>
+              <select aria-label="封面修改方式" value={coverMode} onChange={event => { setCoverMode(event.target.value as BulkMode); setError(''); }}><option value="keep">保持原封面</option><option value="set">更换封面</option><option value="clear">移除封面</option></select>
+            </div>
+            {coverMode === 'set' && <div className="bulk-cover-editor"><Artwork url={coverPreview} /><div><button type="button" className="button secondary" onClick={() => coverInput.current?.click()}><ImagePlus size={15} />{cover ? '更换图片' : '选择图片'}</button>{cover && <p className="bulk-cover-filename">{cover.name}</p>}<p className="bulk-cover-note">{cover ? `将替换所选 ${tracks.length} 首曲目的封面` : 'PNG / JPEG / GIF / WebP'}</p></div></div>}
+            <input hidden type="file" ref={coverInput} aria-label="选择批量封面图片" accept="image/png,image/jpeg,image/gif,image/webp" onChange={event => {
+              const file = event.target.files?.[0]; event.target.value = '';
+              if (!file || locked) return;
+              if (!file.size) { setError('请选择有效封面图片'); return; }
+              setCover(file); setError('');
+            }} />
+            {coverMode === 'clear' && <p className="bulk-clear-note">所选曲目的封面将被移除</p>}
+          </div>
   function close() {
     if (!running.current && (!changed || progress === tracks.length || window.confirm(progress ? `已保存 ${progress} 首曲目。退出后，其余曲目将不再修改。` : '放弃未保存的修改？'))) onClose();
   }
@@ -360,13 +385,20 @@ export function BulkEditor({ tracks, onClose, onRefresh, onSaved }: { tracks: Tr
       for (const track of tracks) {
         if (completed.current.has(track.id)) continue;
         current = track;
-        const patch: Record<string, unknown> = {};
+        const path = `/tracks/${encodeURIComponent(track.id)}`;
+        const latest = (await request<{ track: Track }>(path)).track;
+        if (latest.deletedAt) throw new Error('曲目已移入回收站，请关闭后重新选择。');
+        const patch: Record<string, unknown> = { expectedUpdatedAt: latest.updatedAt };
         for (const [key] of bulkFields) {
           if (modes[key] === 'set') patch[key] = key === 'year' ? year : values[key].trim();
           else if (modes[key] === 'clear') patch[key] = key === 'year' ? 0 : '';
         }
-        if (tagMode !== 'keep') patch.tags = tagMode === 'clear' ? [] : tagMode === 'append' ? [...new Set([...(track.tags || []), ...tags])] : tags;
-        await json(`/tracks/${encodeURIComponent(track.id)}`, 'PATCH', patch);
+        if (tagMode !== 'keep') patch.tags = tagMode === 'clear' ? [] : tagMode === 'append' ? [...new Set([...(latest.tags || []), ...tags])] : tags;
+        if (coverMode === 'clear') patch.removeCover = true;
+        if (coverMode === 'set' && cover) {
+          const form = new FormData(); form.append('file', cover); form.append('metadata', JSON.stringify(patch));
+          await request<{ track: Track }>(`${path}/cover`, { method: 'POST', body: form });
+        } else await json(path, 'PATCH', patch);
         completed.current.add(track.id); setProgress(completed.current.size);
       }
     } catch (error) {
@@ -409,7 +441,7 @@ export function BulkEditor({ tracks, onClose, onRefresh, onSaved }: { tracks: Tr
     <footer className="modal-footer bulk-editor-footer">
       {error && <div className="bulk-save-error" role="alert"><CircleAlert size={17} /><div><p>{error}</p>{progress > 0 && <span>已保存的修改保留，继续保存其余曲目</span>}</div></div>}
       <div className="bulk-save-summary" role="status">{busy || progress > 0 ? <><span>{busy ? '正在保存' : '已保存'} <strong>{progress} / {tracks.length}</strong> 首</span><div className="upload-meter" role="progressbar" aria-label="批量保存进度" aria-valuemin={0} aria-valuemax={tracks.length} aria-valuenow={progress}><i style={{ width: `${progress / tracks.length * 100}%` }} /></div></> : <span>{changed ? <><strong>{changed} 项修改</strong> · {tracks.length} 首曲目</> : '选择需要修改的字段'}</span>}</div>
-      <div className="bulk-footer-actions"><button className="button secondary" type="button" disabled={busy} onClick={close}>{progress > 0 ? '关闭' : '取消'}</button><button className="button primary" type="submit" disabled={busy || !changed || !tracks.length}>{busy ? '保存中…' : progress > 0 ? '继续保存' : '保存并写回'}</button></div>
+      <div className="bulk-footer-actions"><button className="button secondary" type="button" disabled={busy} onClick={close}>{progress > 0 ? '关闭' : '取消'}</button><button className="button primary" type="submit" disabled={busy || !changed || !tracks.length || (coverMode === 'set' && !cover)}>{busy ? '保存中…' : progress > 0 ? '继续保存' : '保存并写回'}</button></div>
     </footer>
   </form></Modal>;
 }
