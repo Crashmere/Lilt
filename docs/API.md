@@ -4,7 +4,7 @@ All production business routes are under `/lilt/api/` and protected by shared de
 
 ## Data Shapes
 
-`Track`: `id`, `title`, `artist`, `album`, `albumArtist`, `genre`, `year`, `trackNumber`, `discNumber`, `duration`, `size`, `format` (audio codec), `container`, `mimeType` (original container MIME), optional generated `searchText` (normalized names, tags, aliases, full pinyin and initials), `bitrate`, `sampleRate`, `bitDepth`, `channels`, `originalName`, `version`, `tags: string[]`, `aliases: string[]`, `favorite`, `coverUrl`, `hasLyrics`, optional `lyricsText`, `playCount`, `playedSeconds`, `lastPlayedAt`, `addedAt`, `updatedAt`, optional `deletedAt`.
+`Track`: `id`, `title`, `artist`, `album`, `albumArtist`, `genre`, `composer`, `lyricist`, `comment`, `copyright`, `isrc`, `bpm`, `year`, `trackNumber`, `discNumber`, `duration`, `size`, `format` (audio codec), `container`, `mimeType` (current audio container MIME), optional generated `searchText` (normalized names, credits, tags, aliases, full pinyin and initials), `bitrate`, `sampleRate`, `bitDepth`, `channels`, `originalName`, `version`, `tags: string[]`, `aliases: string[]`, `favorite`, `coverUrl`, `hasLyrics`, optional `lyricsText`, `playCount`, `playedSeconds`, `lastPlayedAt`, `addedAt`, `updatedAt`, optional `deletedAt`.
 
 `Album`: `id`, `title`, `artist`, `year`, `coverUrl`, `trackCount`, `duration`, `trackIds: string[]`.
 
@@ -23,11 +23,11 @@ Artist groups split both `Track.artist` and `Track.albumArtist` on ASCII `/`, tr
 - `GET /api/library` returns `{ tracks, albums, artists, playlists, tags, stats }` for non-deleted tracks.
 - `GET /api/tracks` returns `{ tracks }`, with optional `q`, `favorite`, `tag`, `album`, `artist`, `trash` filters.
 - `GET /api/tracks/{id}` returns `{ track }`, including `lyricsText`.
-- `PATCH /api/tracks/{id}` accepts editable metadata, `tags`, `aliases`, `favorite`, `version` and `lyricsText`; returns `{ track }`.
+- `PATCH /api/tracks/{id}` accepts `title`, `artist`, `album`, `albumArtist`, `genre`, `composer`, `lyricist`, `comment`, `copyright`, `isrc`, `bpm`, `year`, `trackNumber`, `discNumber`, `version`, `tags`, `aliases`, `lyricsText`, `removeCover` and `favorite`; returns `{ track }`. Metadata, lyrics and cover changes write back to the current audio without re-encoding its audio stream or creating edit revisions. Empty strings/arrays and numeric zero clear optional fields; title is required, and empty artist/album credits receive the library defaults. Year/disc number range is 0-9999, track number 0-99999, BPM 0-9999 and lyrics at most 1 MiB. `expectedUpdatedAt`, when supplied, must match the latest track timestamp; stale edits return 409. A favorite-only patch updates the catalog without rewriting audio. Files that cannot roundtrip all requested fields return 400 without replacing the current audio.
 - `DELETE /api/tracks/{id}` moves the track to trash. `POST /api/tracks/{id}/restore` restores it.
 - `GET /api/tracks/{id}/stream?quality=original|standard|compact` serves range-capable audio and supports `HEAD`. Compatible playback is generated separately from originals. `X-Lilt-Quality`, `X-Lilt-Format`, `X-Lilt-Bitrate` (bits per second), `X-Lilt-Sample-Rate` and `X-Lilt-Channels` describe the selected playback output rather than the source when encoded. The first compatible `HEAD` or `GET` can trigger generation.
-- `GET /api/tracks/{id}/download` downloads original bytes.
-- `GET /api/tracks/{id}/cover` serves safe cover artwork. `POST` accepts a multipart file field `file` to replace artwork.
+- `GET /api/tracks/{id}/download` downloads the current audio, including saved tags, lyrics and artwork, using its supplied filename.
+- `GET /api/tracks/{id}/cover` serves safe cover artwork. `POST` accepts a multipart file field `file` (at most 16 MiB) and optional JSON text field `metadata` containing the same track patch. Both are validated and written together; `removeCover` cannot accompany a replacement file. The cover becomes an embedded bounded JPEG and a display derivative, without a separate retained upload copy.
 - `GET /api/albums/{id}` returns `{ album, tracks }`.
 - `GET /api/artists/{id}` returns `{ artist, tracks, albums }`.
 - `GET /api/export` downloads catalog metadata, playlists and listening history as JSON; it is a portability export, not a backup/restore service.

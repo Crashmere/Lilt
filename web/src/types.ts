@@ -1,6 +1,7 @@
 export type Track = {
   id: string; title: string; artist: string; album: string; albumArtist: string;
   genre: string; year: number; trackNumber: number; discNumber: number;
+  composer?: string; lyricist?: string; comment?: string; copyright?: string; isrc?: string; bpm?: number;
   duration: number; size: number; format: string; bitrate: number; sampleRate: number;
   bitDepth: number; channels: number; originalName: string; version: string; tags: string[];
   favorite: boolean; coverUrl: string; hasLyrics: boolean; lyricsText?: string; aliases?: string[]; searchText?: string; mimeType?: string; container?: string;

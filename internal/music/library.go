@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
 	"sort"
 	"strings"
@@ -42,6 +43,13 @@ func (s *Store) track(ctx context.Context, id string) (Track, string, string, er
 	if err = json.Unmarshal([]byte(document), &t); err != nil {
 		return t, "", "", err
 	}
+	var fields struct {
+		Composer *string `json:"composer"`
+	}
+	if err = json.Unmarshal([]byte(document), &fields); err != nil {
+		return t, "", "", err
+	}
+	t.legacyCredits = fields.Composer == nil
 	s.hydrate(&t)
 	err = s.db.QueryRowContext(ctx, "SELECT COALESCE(SUM(h.seconds),0),COALESCE(SUM(COALESCE(m.counted,CASE WHEN h.completed=1 OR h.seconds>=? THEN 1 ELSE 0 END)),0),COALESCE(MAX(CASE WHEN h.seconds>0 OR h.completed=1 THEN h.updated_at END),'') FROM history h LEFT JOIN history_metrics m ON m.session_id=h.session_id WHERE h.track_id=?", min(30.0, t.Duration/2), id).Scan(&t.PlayedSeconds, &t.PlayCount, &t.LastPlayedAt)
 	return t, fingerprint, path, err
@@ -264,19 +272,27 @@ func (s *Store) Library(ctx context.Context) (Library, error) {
 }
 
 type TrackPatch struct {
-	Title       *string   `json:"title"`
-	Artist      *string   `json:"artist"`
-	Album       *string   `json:"album"`
-	AlbumArtist *string   `json:"albumArtist"`
-	Genre       *string   `json:"genre"`
-	Year        *int      `json:"year"`
-	TrackNumber *int      `json:"trackNumber"`
-	DiscNumber  *int      `json:"discNumber"`
-	Version     *string   `json:"version"`
-	Tags        *[]string `json:"tags"`
-	Aliases     *[]string `json:"aliases"`
-	Favorite    *bool     `json:"favorite"`
-	LyricsText  *string   `json:"lyricsText"`
+	Title             *string   `json:"title"`
+	Artist            *string   `json:"artist"`
+	Album             *string   `json:"album"`
+	AlbumArtist       *string   `json:"albumArtist"`
+	Genre             *string   `json:"genre"`
+	Composer          *string   `json:"composer"`
+	Lyricist          *string   `json:"lyricist"`
+	Comment           *string   `json:"comment"`
+	Copyright         *string   `json:"copyright"`
+	ISRC              *string   `json:"isrc"`
+	BPM               *float64  `json:"bpm"`
+	Year              *int      `json:"year"`
+	TrackNumber       *int      `json:"trackNumber"`
+	DiscNumber        *int      `json:"discNumber"`
+	Version           *string   `json:"version"`
+	Tags              *[]string `json:"tags"`
+	Aliases           *[]string `json:"aliases"`
+	Favorite          *bool     `json:"favorite"`
+	LyricsText        *string   `json:"lyricsText"`
+	RemoveCover       bool      `json:"removeCover"`
+	ExpectedUpdatedAt *string   `json:"expectedUpdatedAt"`
 }
 
 func cleanList(values []string) ([]string, error) {
@@ -296,25 +312,27 @@ func cleanList(values []string) ([]string, error) {
 }
 
 func (s *Store) UpdateTrack(ctx context.Context, id string, p TrackPatch) (Track, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	t, _, _, err := s.track(ctx, id)
-	if err != nil {
-		return Track{}, err
+	return s.editTrack(ctx, id, p, nil)
+}
+
+func applyTrackPatch(t *Track, p TrackPatch) error {
+	if p.ExpectedUpdatedAt != nil && *p.ExpectedUpdatedAt != t.UpdatedAt {
+		return fmt.Errorf("曲目信息已更新，请重新打开编辑：%w", ErrConflict)
 	}
+	var err error
 	for _, field := range []struct {
 		value  *string
 		target *string
-	}{{p.Title, &t.Title}, {p.Artist, &t.Artist}, {p.Album, &t.Album}, {p.AlbumArtist, &t.AlbumArtist}, {p.Genre, &t.Genre}, {p.Version, &t.Version}} {
+	}{{p.Title, &t.Title}, {p.Artist, &t.Artist}, {p.Album, &t.Album}, {p.AlbumArtist, &t.AlbumArtist}, {p.Genre, &t.Genre}, {p.Version, &t.Version}, {p.Composer, &t.Composer}, {p.Lyricist, &t.Lyricist}, {p.Comment, &t.Comment}, {p.Copyright, &t.Copyright}, {p.ISRC, &t.ISRC}} {
 		if field.value != nil {
 			if len(*field.value) > 4096 {
-				return Track{}, ErrInvalid
+				return ErrInvalid
 			}
 			*field.target = tidy(*field.value, 4096)
 		}
 	}
 	if t.Title == "" {
-		return Track{}, fmt.Errorf("歌曲名称不能为空：%w", ErrInvalid)
+		return fmt.Errorf("歌曲名称不能为空：%w", ErrInvalid)
 	}
 	if t.Artist == "" {
 		t.Artist = "未知歌手"
@@ -332,7 +350,7 @@ func (s *Store) UpdateTrack(ctx context.Context, id string, p TrackPatch) (Track
 	}{{p.Year, &t.Year, 9999}, {p.TrackNumber, &t.TrackNumber, 99999}, {p.DiscNumber, &t.DiscNumber, 9999}} {
 		if field.value != nil {
 			if *field.value < 0 || *field.value > field.maximum {
-				return Track{}, ErrInvalid
+				return ErrInvalid
 			}
 			*field.target = *field.value
 		}
@@ -340,13 +358,19 @@ func (s *Store) UpdateTrack(ctx context.Context, id string, p TrackPatch) (Track
 	if p.Tags != nil {
 		t.Tags, err = cleanList(*p.Tags)
 		if err != nil {
-			return Track{}, err
+			return err
 		}
+	}
+	if p.BPM != nil {
+		if math.IsNaN(*p.BPM) || math.IsInf(*p.BPM, 0) || *p.BPM < 0 || *p.BPM > 9999 {
+			return ErrInvalid
+		}
+		t.BPM = *p.BPM
 	}
 	if p.Aliases != nil {
 		t.Aliases, err = cleanList(*p.Aliases)
 		if err != nil {
-			return Track{}, err
+			return err
 		}
 	}
 	if p.Favorite != nil {
@@ -354,26 +378,20 @@ func (s *Store) UpdateTrack(ctx context.Context, id string, p TrackPatch) (Track
 	}
 	if p.LyricsText != nil {
 		if len(*p.LyricsText) > 1<<20 || strings.ContainsRune(*p.LyricsText, '\x00') {
-			return Track{}, fmt.Errorf("歌词格式或大小无效：%w", ErrInvalid)
+			return fmt.Errorf("歌词格式或大小无效：%w", ErrInvalid)
 		}
 		t.LyricsText = *p.LyricsText
 		t.HasLyrics = strings.TrimSpace(t.LyricsText) != ""
 	}
-	t.UpdatedAt = now()
-	document, err := json.Marshal(t)
-	if err != nil {
-		return Track{}, err
-	}
-	if _, err = s.db.ExecContext(ctx, "UPDATE tracks SET document=? WHERE id=?", string(document), id); err != nil {
-		return Track{}, err
-	}
-	s.hydrate(&t)
-	return t, nil
+	return nil
 }
 
 func (s *Store) DeleteTrack(ctx context.Context, id string, restore bool) (Track, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.finishMetadataWrite(); err != nil {
+		return Track{}, err
+	}
 	t, _, _, err := s.track(ctx, id)
 	if err != nil {
 		return Track{}, err
@@ -386,7 +404,7 @@ func (s *Store) DeleteTrack(ctx context.Context, id string, restore bool) (Track
 		deleted = t.DeletedAt
 	}
 	t.UpdatedAt = now()
-	document, err := json.Marshal(t)
+	document, err := trackDocument(t)
 	if err != nil {
 		return Track{}, err
 	}
@@ -436,7 +454,7 @@ func phonetic(text string) string {
 }
 
 func trackSearchText(t Track) string {
-	fields := []string{t.Title, t.Artist, t.Album, t.AlbumArtist, t.Genre, t.Version, t.OriginalName}
+	fields := []string{t.Title, t.Artist, t.Album, t.AlbumArtist, t.Genre, t.Version, t.Composer, t.Lyricist, t.Comment, t.ISRC, t.OriginalName}
 	fields = append(fields, t.Tags...)
 	fields = append(fields, t.Aliases...)
 	var search strings.Builder

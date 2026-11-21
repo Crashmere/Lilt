@@ -129,6 +129,9 @@ func (s *Store) StartUpload(ctx context.Context, in UploadInput) (Upload, error)
 	in.RelativePath = tidy(in.RelativePath, 4096)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err = s.finishMetadataWrite(); err != nil {
+		return Upload{}, err
+	}
 	if err = s.reconcileUploads(ctx); err != nil {
 		return Upload{}, err
 	}
@@ -310,6 +313,9 @@ func (s *Store) preserveAudio(source, fingerprint string, size int64) (string, e
 func (s *Store) CompleteUpload(ctx context.Context, id, replaceID string) (Track, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.finishMetadataWrite(); err != nil {
+		return Track{}, false, err
+	}
 	u, err := s.upload(ctx, id)
 	if err != nil {
 		return Track{}, false, err
@@ -330,6 +336,9 @@ func (s *Store) CompleteUpload(ctx context.Context, id, replaceID string) (Track
 	}
 	h, size, err := fileFingerprint(source)
 	if err != nil {
+		if u.Status == "complete" && os.IsNotExist(err) {
+			return Track{}, false, fmt.Errorf("已完成上传的文件已更新，请重新选择文件上传：%w", ErrConflict)
+		}
 		return Track{}, false, err
 	}
 	if h != u.Fingerprint || size != u.Size {
@@ -361,6 +370,9 @@ func (s *Store) CompleteUpload(ctx context.Context, id, replaceID string) (Track
 		if err != nil {
 			return Track{}, false, err
 		}
+		if err = s.loadLegacyCredits(ctx, &old, oldRelative); err != nil {
+			return Track{}, false, err
+		}
 		if old.DeletedAt != "" {
 			return Track{}, false, fmt.Errorf("请先恢复歌曲再替换音频：%w", ErrConflict)
 		}
@@ -370,6 +382,7 @@ func (s *Store) CompleteUpload(ctx context.Context, id, replaceID string) (Track
 		t.Album = old.Album
 		t.AlbumArtist = old.AlbumArtist
 		t.Genre = old.Genre
+		t.Composer, t.Lyricist, t.Comment, t.Copyright, t.ISRC, t.BPM = old.Composer, old.Lyricist, old.Comment, old.Copyright, old.ISRC, old.BPM
 		t.Year = old.Year
 		t.TrackNumber = old.TrackNumber
 		t.DiscNumber = old.DiscNumber

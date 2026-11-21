@@ -129,6 +129,14 @@ UPDATE history_metrics SET counted=1 WHERE counted=0 AND EXISTS (
 		return nil, err
 	}
 	s := &Store{db: db, dir: abs, prefix: prefix}
+	if err = s.finishMetadataWrite(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err = s.removeMetadataTemps(); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err = s.reconcileUploads(context.Background()); err != nil {
 		db.Close()
 		return nil, err
@@ -167,6 +175,13 @@ func Check(ctx context.Context, dir string) (map[string]any, error) {
 	}
 	if err = db.QueryRowContext(ctx, "SELECT value FROM settings WHERE key='schemaVersion'").Scan(&version); err != nil || version != "1" {
 		return nil, fmt.Errorf("unsupported catalog schema")
+	}
+	var pending int
+	if err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM settings WHERE key=?", metadataJournalKey).Scan(&pending); err != nil {
+		return nil, err
+	}
+	if pending != 0 {
+		return nil, fmt.Errorf("pending metadata write requires compatible startup recovery")
 	}
 	rows, err := db.QueryContext(ctx, "SELECT original_path, document FROM tracks")
 	if err != nil {

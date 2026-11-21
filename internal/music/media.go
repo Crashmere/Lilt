@@ -3,8 +3,7 @@ package music
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"image"
@@ -96,6 +95,40 @@ func probe(ctx context.Context, path string) (probeResult, error) {
 	return result, err
 }
 
+func probeTags(result probeResult) map[string]string {
+	tags := map[string]string{}
+	for key, value := range result.Format.Tags {
+		tags[strings.ToLower(key)] = value
+	}
+	for _, stream := range result.Streams {
+		if stream.CodecType == "audio" {
+			for key, value := range stream.Tags {
+				tags[strings.ToLower(key)] = value
+			}
+			break
+		}
+	}
+	return tags
+}
+
+func metadataValue(tags map[string]string, keys ...string) string {
+	for _, key := range keys {
+		if value := strings.TrimSpace(tags[key]); value != "" {
+			return tidy(value, 4096)
+		}
+	}
+	return ""
+}
+
+func readCredits(t *Track, tags map[string]string) {
+	t.Composer, t.Lyricist = metadataValue(tags, "composer"), metadataValue(tags, "lyricist", "text", "writer")
+	t.Comment, t.Copyright, t.ISRC = metadataValue(tags, "comment", "description"), metadataValue(tags, "copyright"), metadataValue(tags, "isrc", "tsrc")
+	t.BPM, _ = strconv.ParseFloat(metadataValue(tags, "bpm", "tbpm"), 64)
+	if math.IsNaN(t.BPM) || math.IsInf(t.BPM, 0) || t.BPM < 0 || t.BPM > 9999 {
+		t.BPM = 0
+	}
+}
+
 func probeTrack(ctx context.Context, path, filename, relativePath string) (Track, int, error) {
 	result, err := probe(ctx, path)
 	if err != nil {
@@ -132,23 +165,30 @@ func probeTrack(ctx context.Context, path, filename, relativePath string) (Track
 	if err != nil {
 		return Track{}, -1, err
 	}
-	tags := map[string]string{}
-	for key, value := range result.Format.Tags {
-		tags[strings.ToLower(key)] = value
-	}
-	for key, value := range audio.Tags {
-		tags[strings.ToLower(key)] = value
-	}
+	tags := probeTags(result)
 	find := func(keys ...string) string {
-		for _, key := range keys {
-			if value := strings.TrimSpace(tags[key]); value != "" {
-				return tidy(value, 4096)
-			}
-		}
-		return ""
+		return metadataValue(tags, keys...)
 	}
 	t := Track{Title: find("title"), Artist: find("artist", "performer"), Album: find("album"), AlbumArtist: find("album_artist", "albumartist", "album artist"), Genre: find("genre"), Version: find("version", "subtitle"), Duration: duration, Size: info.Size(), Format: audio.CodecName, Channels: audio.Channels, OriginalName: filename, Tags: []string{}, Aliases: []string{}}
 	t.Container, t.MIMEType = containerType(result.Format.FormatName, filename)
+	if t.Container == "dsf" {
+		file, err := os.Open(path)
+		if err != nil {
+			return Track{}, -1, err
+		}
+		var header [80]byte
+		_, err = file.ReadAt(header[:], 0)
+		file.Close()
+		if err != nil || string(header[28:32]) != "fmt " {
+			return Track{}, -1, ErrInvalid
+		}
+		rate, samples := binary.LittleEndian.Uint32(header[56:60]), binary.LittleEndian.Uint64(header[64:72])
+		if rate == 0 || samples == 0 {
+			return Track{}, -1, ErrInvalid
+		}
+		// FFprobe may estimate DSF duration from file size, which also includes tags.
+		t.Duration = float64(samples) / float64(rate)
+	}
 	t.SampleRate, _ = strconv.Atoi(audio.SampleRate)
 	if t.SampleRate <= 0 || t.Channels <= 0 || t.Channels > 64 {
 		return Track{}, -1, fmt.Errorf("音频参数无效：%w", ErrInvalid)
@@ -171,6 +211,7 @@ func probeTrack(ctx context.Context, path, filename, relativePath string) (Track
 		t.Bitrate = int64(float64(t.Size) * 8 / duration)
 	}
 	t.Year = numberPrefix(find("date", "year", "originaldate"))
+	readCredits(&t, tags)
 	t.TrackNumber = numberPrefix(find("track", "tracknumber", "track_number"))
 	t.DiscNumber = numberPrefix(find("disc", "discnumber", "disc_number"))
 	base := strings.TrimSuffix(filename, filepath.Ext(filename))
@@ -205,8 +246,18 @@ func probeTrack(ctx context.Context, path, filename, relativePath string) (Track
 	}
 	for key, value := range tags {
 		if key == "lyrics" || strings.HasPrefix(key, "lyrics-") || key == "unsyncedlyrics" || key == "unsynchronised_lyrics" {
-			t.LyricsText = tidy(value, 1<<20)
+			if len(value) <= 1<<20 && utf8.ValidString(value) && !strings.ContainsRune(value, '\x00') {
+				t.LyricsText = value
+			}
 			break
+		}
+	}
+	for key, target := range map[string]*[]string{"lilt_tags": &t.Tags, "lilt_aliases": &t.Aliases} {
+		var values []string
+		if json.Unmarshal([]byte(tags[key]), &values) == nil {
+			if cleaned, err := cleanList(values); err == nil {
+				*target = cleaned
+			}
 		}
 	}
 	t.HasLyrics = t.LyricsText != ""
@@ -275,62 +326,24 @@ func (s *Store) extractCover(ctx context.Context, path, trackID string, index in
 	return syncDir(dir) == nil
 }
 
-func (s *Store) saveCover(ctx context.Context, trackID string, reader io.Reader) error {
+func (s *Store) prepareCover(reader io.Reader) (string, error) {
 	data, err := io.ReadAll(io.LimitReader(reader, (16<<20)+1))
 	if err != nil {
-		return err
+		return "", err
 	}
 	if len(data) > 16<<20 {
-		return fmt.Errorf("封面不能超过 16 MiB")
+		return "", fmt.Errorf("封面不能超过 16 MiB：%w", ErrInvalid)
 	}
 	config, format, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil || (format != "jpeg" && format != "png" && format != "gif" && format != "webp") {
-		return fmt.Errorf("请上传 JPEG、PNG、GIF 或 WebP 封面：%w", ErrInvalid)
+		return "", fmt.Errorf("请上传 JPEG、PNG、GIF 或 WebP 封面：%w", ErrInvalid)
 	}
 	if config.Width < 1 || config.Height < 1 || int64(config.Width)*int64(config.Height) > 25_000_000 {
-		return fmt.Errorf("封面尺寸过大：%w", ErrInvalid)
+		return "", fmt.Errorf("封面尺寸过大：%w", ErrInvalid)
 	}
 	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
-		return fmt.Errorf("无法读取封面：%w", ErrInvalid)
-	}
-	hash := sha256.Sum256(data)
-	fingerprint := hex.EncodeToString(hash[:])
-	rawRelative := filepath.Join("originals", "artwork", fingerprint+".art")
-	rawPath := filepath.Join(s.dir, rawRelative)
-	if err = os.MkdirAll(filepath.Dir(rawPath), 0700); err != nil {
-		return err
-	}
-	if _, statErr := os.Stat(rawPath); os.IsNotExist(statErr) {
-		raw, err := os.CreateTemp(filepath.Dir(rawPath), ".artwork-*")
-		if err != nil {
-			return err
-		}
-		rawName := raw.Name()
-		defer os.Remove(rawName)
-		if _, err = raw.Write(data); err == nil {
-			err = raw.Sync()
-		}
-		closeErr := raw.Close()
-		if err == nil {
-			err = closeErr
-		}
-		if err != nil {
-			return err
-		}
-		if err = os.Link(rawName, rawPath); err != nil {
-			return err
-		}
-		if err = syncDir(filepath.Dir(rawPath)); err != nil {
-			return err
-		}
-	} else if statErr != nil {
-		return statErr
-	} else {
-		existing, n, e := fileFingerprint(rawPath)
-		if e != nil || existing != fingerprint || n != int64(len(data)) {
-			return fmt.Errorf("已有原始封面校验失败，未覆盖文件")
-		}
+		return "", fmt.Errorf("无法读取封面：%w", ErrInvalid)
 	}
 	width, height := config.Width, config.Height
 	if width > 1600 || height > 1600 {
@@ -345,16 +358,12 @@ func (s *Store) saveCover(ctx context.Context, trackID string, reader io.Reader)
 		}
 		img = scaled
 	}
-	dir := filepath.Join(s.dir, "covers", trackID)
-	if err = os.MkdirAll(dir, 0700); err != nil {
-		return err
-	}
+	dir := filepath.Join(s.dir, "covers")
 	temp, err := os.CreateTemp(dir, ".cover-*.jpg")
 	if err != nil {
-		return err
+		return "", err
 	}
 	name := temp.Name()
-	defer os.Remove(name)
 	err = jpeg.Encode(temp, img, &jpeg.Options{Quality: 90})
 	if err == nil {
 		err = temp.Sync()
@@ -364,39 +373,18 @@ func (s *Store) saveCover(ctx context.Context, trackID string, reader io.Reader)
 		err = closeErr
 	}
 	if err != nil {
-		return err
-	}
-	if err = os.Rename(name, filepath.Join(dir, "cover.jpg")); err != nil {
-		return err
+		os.Remove(name)
+		return "", err
 	}
 	if err = syncDir(dir); err != nil {
-		return err
+		os.Remove(name)
+		return "", err
 	}
-	_, err = s.db.ExecContext(ctx, "INSERT INTO artwork (track_id,fingerprint,original_path,created_at) VALUES (?,?,?,?)", trackID, fingerprint, rawRelative, now())
-	return err
+	return name, nil
 }
 
 func (s *Store) SetCover(ctx context.Context, id string, reader io.Reader) (Track, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	t, _, _, err := s.track(ctx, id)
-	if err != nil {
-		return Track{}, err
-	}
-	if err = s.saveCover(ctx, id, reader); err != nil {
-		return Track{}, err
-	}
-	t.UpdatedAt = now()
-	t.CoverURL = s.prefix + "api/tracks/" + id + "/cover"
-	data, err := json.Marshal(t)
-	if err != nil {
-		return Track{}, err
-	}
-	if _, err = s.db.ExecContext(ctx, "UPDATE tracks SET document=? WHERE id=?", string(data), id); err != nil {
-		return Track{}, err
-	}
-	s.hydrate(&t)
-	return t, nil
+	return s.editTrack(ctx, id, TrackPatch{}, reader)
 }
 
 type PlaybackInfo struct {

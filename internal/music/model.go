@@ -9,12 +9,19 @@ var (
 )
 
 type Track struct {
+	legacyCredits bool
 	ID            string   `json:"id"`
 	Title         string   `json:"title"`
 	Artist        string   `json:"artist"`
 	Album         string   `json:"album"`
 	AlbumArtist   string   `json:"albumArtist"`
 	Genre         string   `json:"genre"`
+	Composer      string   `json:"composer"`
+	Lyricist      string   `json:"lyricist"`
+	Comment       string   `json:"comment"`
+	Copyright     string   `json:"copyright"`
+	ISRC          string   `json:"isrc"`
+	BPM           float64  `json:"bpm"`
 	Year          int      `json:"year"`
 	TrackNumber   int      `json:"trackNumber"`
 	DiscNumber    int      `json:"discNumber"`

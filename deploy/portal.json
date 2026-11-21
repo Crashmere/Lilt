@@ -24,7 +24,7 @@
       "id": "originals",
       "name": "音乐与封面原件",
       "path": "/opt/lilt/data/originals",
-      "purpose": "按 SHA-256 保存的上传音频和手动封面原始字节，嵌入封面随音频保留；替换歌曲仍保留旧原件，普通移除可恢复，元数据修改和兼容播放不会改写原件。",
+      "purpose": "按当前 SHA-256 保存音频；资料、歌词和封面直接写回音频，不重编码音轨、不保留编辑副本，成功后移除无归属旧文件；明确上传替换的历史原件和已有封面原件归属仍保留，回收站可恢复。",
       "kind": "media",
       "browse": true,
       "cleanup": false
@@ -42,7 +42,7 @@
       "id": "covers",
       "name": "封面派生",
       "path": "/opt/lilt/data/covers",
-      "purpose": "从嵌入封面或手动上传图像生成的安全静态 JPEG，原始字节另外保留；nas 手工全量备份包含已存派生文件。",
+      "purpose": "从音频嵌入封面生成的安全静态 JPEG；新封面编辑保留嵌入图像和展示派生，不另存上传原图；nas 手工全量备份包含已存派生和写回暂存。",
       "kind": "cache",
       "browse": false,
       "cleanup": false
@@ -99,15 +99,15 @@
     {"method": "GET", "path": "/lilt/api/library", "description": "读取歌曲、专辑、歌手、歌单、标签与统计"},
     {"method": "GET", "path": "/lilt/api/tracks", "description": "按关键词、收藏、标签、专辑、歌手或回收站查询歌曲"},
     {"method": "GET", "path": "/lilt/api/tracks/{id}", "description": "读取歌曲详情与歌词"},
-    {"method": "PATCH", "path": "/lilt/api/tracks/{id}", "description": "编辑资料、版本、别名、标签、收藏和歌词，不改写音频"},
+    {"method": "PATCH", "path": "/lilt/api/tracks/{id}", "description": "将资料、制作信息、版本、别名、标签、歌词和封面移除写回音频；收藏仅更新资料库"},
     {"method": "DELETE", "path": "/lilt/api/tracks/{id}", "description": "移入可恢复的回收站，保留原件"},
     {"method": "POST", "path": "/lilt/api/tracks/{id}/restore", "description": "恢复已移除歌曲"},
     {"method": "GET", "path": "/lilt/api/tracks/{id}/stream", "description": "读取原音频或独立标准、省流量播放版本，支持 Range"},
     {"method": "HEAD", "path": "/lilt/api/tracks/{id}/stream", "description": "读取音频响应头与实际播放参数"},
-    {"method": "GET", "path": "/lilt/api/tracks/{id}/download", "description": "以原文件名下载未经改写的音频原件"},
+    {"method": "GET", "path": "/lilt/api/tracks/{id}/download", "description": "以原文件名下载当前音频，包含已保存的标签、歌词和封面"},
     {"method": "HEAD", "path": "/lilt/api/tracks/{id}/download", "description": "读取原件下载响应头"},
     {"method": "GET", "path": "/lilt/api/tracks/{id}/cover", "description": "读取安全静态封面"},
-    {"method": "POST", "path": "/lilt/api/tracks/{id}/cover", "description": "上传最多 16 MiB 封面，保留原图并生成展示 JPEG"},
+    {"method": "POST", "path": "/lilt/api/tracks/{id}/cover", "description": "一次提交曲目信息与最多 16 MiB 封面，校验后写入音频并生成展示 JPEG"},
     {"method": "GET", "path": "/lilt/api/albums/{id}", "description": "按碟号和曲目序号读取专辑歌曲"},
     {"method": "GET", "path": "/lilt/api/artists/{id}", "description": "读取歌手与关联歌曲、专辑"},
     {"method": "GET", "path": "/lilt/api/export", "description": "导出曲库元数据、歌单与听歌历史 JSON，不是备份恢复入口"},
@@ -122,8 +122,6 @@
     {"method": "DELETE", "path": "/lilt/api/playlists/{id}", "description": "移除歌单，保留歌曲"},
     {"method": "GET", "path": "/lilt/api/playlists/{id}/export", "description": "导出使用原始文件名的 M3U 歌单"},
     {"method": "GET", "path": "/lilt/api/history", "description": "读取最近听歌会话"},
-    {"method": "POST", "path": "/lilt/api/history", "description": "按会话幂等记录累计实际听歌秒数与完成状态"},
-    {"method": "GET", "path": "/lilt/api/player-states", "description": "读取各浏览器独立保存的播放快照"},
-    {"method": "PUT", "path": "/lilt/api/player-states/{deviceId}", "description": "保存本浏览器队列与进度，不自动接管其他设备"}
+    {"method": "POST", "path": "/lilt/api/history", "description": "按会话幂等记录累计实际听歌秒数与完成状态"}
   ]
 }

@@ -7,11 +7,11 @@ The application target is `nas`. Authenticated entrances on `ali` and `vps` reac
 ## Features
 
 - Batch and directory uploads with durable resume, full-file SHA-256 verification and exact-file duplicate detection.
-- Editable track metadata, Chinese pinyin and alias search, album/disc ordering, favorites and tags.
+- Track metadata, composition credits, lyrics and artwork written back into audio without re-encoding or edit copies; Chinese pinyin and alias search, album/disc ordering, favorites and tags.
 - Manual and rule-based playlists, an independent playback queue and explicit continuation from another browser.
 - Original audio or separately generated standard/compact AAC playback, with Range-capable streams and original downloads.
 - Owner-supplied covers and plain-text or timestamped lyrics, listening history and portable metadata/playlist exports.
-- Reversible trash, preserved original bytes and explicit track replacement that retains the logical track's collection state.
+- Reversible trash and explicit track replacement that retains the logical track's collection state.
 - Optional browser-local offline storage, Home Screen branding and supported system media controls.
 
 Offline storage and background playback depend on the browser and operating system. Restoring a saved queue never starts audible playback automatically.

@@ -258,11 +258,18 @@ func (s *server) tracks(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) getTrack(w http.ResponseWriter, r *http.Request) {
-	track, _, _, err := s.store.track(r.Context(), r.PathValue("id"))
+	s.store.mu.Lock()
+	defer s.store.mu.Unlock()
+	track, _, relative, err := s.store.track(r.Context(), r.PathValue("id"))
 	if err != nil {
 		apiError(w, err)
 		return
 	}
+	if err = s.store.loadLegacyCredits(r.Context(), &track, relative); err != nil {
+		apiError(w, err)
+		return
+	}
+	s.store.hydrate(&track)
 	writeJSON(w, http.StatusOK, map[string]any{"track": track})
 }
 
@@ -310,6 +317,10 @@ func serveFile(w http.ResponseWriter, r *http.Request, name, path string) {
 		return
 	}
 	defer file.Close()
+	serveOpenedFile(w, r, name, file)
+}
+
+func serveOpenedFile(w http.ResponseWriter, r *http.Request, name string, file *os.File) {
 	info, err := file.Stat()
 	if err != nil {
 		apiError(w, err)
@@ -319,8 +330,10 @@ func serveFile(w http.ResponseWriter, r *http.Request, name, path string) {
 }
 
 func (s *server) stream(w http.ResponseWriter, r *http.Request) {
+	s.store.mu.Lock()
 	t, hash, path, err := s.mediaTrack(r)
 	if err != nil {
+		s.store.mu.Unlock()
 		apiError(w, err)
 		return
 	}
@@ -330,9 +343,17 @@ func (s *server) stream(w http.ResponseWriter, r *http.Request) {
 	}
 	info, err := s.store.playback(r.Context(), t, hash, path, quality)
 	if err != nil {
+		s.store.mu.Unlock()
 		apiError(w, err)
 		return
 	}
+	file, err := os.Open(info.Path)
+	s.store.mu.Unlock()
+	if err != nil {
+		apiError(w, err)
+		return
+	}
+	defer file.Close()
 	w.Header().Set("X-Lilt-Quality", quality)
 	w.Header().Set("X-Lilt-Bitrate", strconv.FormatInt(info.Bitrate, 10))
 	w.Header().Set("X-Lilt-Format", info.Format)
@@ -348,20 +369,29 @@ func (s *server) stream(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.Header().Set("Content-Type", contentType)
-	serveFile(w, r, t.OriginalName, info.Path)
+	serveOpenedFile(w, r, t.OriginalName, file)
 }
 
 func (s *server) download(w http.ResponseWriter, r *http.Request) {
+	s.store.mu.Lock()
 	t, hash, path, err := s.mediaTrack(r)
+	if err != nil {
+		s.store.mu.Unlock()
+		apiError(w, err)
+		return
+	}
+	file, err := os.Open(path)
+	s.store.mu.Unlock()
 	if err != nil {
 		apiError(w, err)
 		return
 	}
+	defer file.Close()
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": t.OriginalName}))
 	w.Header().Set("Content-Type", t.MIMEType)
 	w.Header().Set("ETag", strconv.Quote(hash))
 	w.Header().Set("Cache-Control", "private, max-age=0, must-revalidate")
-	serveFile(w, r, t.OriginalName, path)
+	serveOpenedFile(w, r, t.OriginalName, file)
 }
 
 func (s *server) cover(w http.ResponseWriter, r *http.Request) {
@@ -386,27 +416,51 @@ func (s *server) replaceCover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer controller.SetReadDeadline(time.Time{})
-	r.Body = http.MaxBytesReader(w, r.Body, 17<<20)
+	r.Body = http.MaxBytesReader(w, r.Body, 20<<20)
 	multipart, err := r.MultipartReader()
 	if err != nil {
 		apiError(w, fmt.Errorf("请上传封面文件：%w", ErrInvalid))
 		return
 	}
+	var data []byte
+	var patch TrackPatch
+	hasMetadata := false
 	for {
 		part, err := multipart.NextPart()
 		if errors.Is(err, io.EOF) {
-			apiError(w, fmt.Errorf("缺少封面文件：%w", ErrInvalid))
-			return
+			break
 		}
 		if err != nil {
 			apiError(w, err)
 			return
 		}
-		if part.FormName() != "file" {
+		if part.FormName() == "metadata" {
+			if hasMetadata {
+				part.Close()
+				apiError(w, ErrInvalid)
+				return
+			}
+			hasMetadata = true
+			metadata, err := io.ReadAll(io.LimitReader(part, (2<<20)+1))
 			part.Close()
+			if err != nil {
+				apiError(w, err)
+				return
+			}
+			decoder := json.NewDecoder(bytes.NewReader(metadata))
+			decoder.DisallowUnknownFields()
+			if len(metadata) > 2<<20 || decoder.Decode(&patch) != nil || decoder.Decode(new(any)) != io.EOF {
+				apiError(w, fmt.Errorf("曲目信息格式无效：%w", ErrInvalid))
+				return
+			}
 			continue
 		}
-		data, err := io.ReadAll(io.LimitReader(part, (16<<20)+1))
+		if part.FormName() != "file" || data != nil {
+			part.Close()
+			apiError(w, fmt.Errorf("封面上传字段无效：%w", ErrInvalid))
+			return
+		}
+		data, err = io.ReadAll(io.LimitReader(part, (16<<20)+1))
 		part.Close()
 		if err != nil {
 			apiError(w, err)
@@ -416,14 +470,17 @@ func (s *server) replaceCover(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusRequestEntityTooLarge, "封面不能超过 16 MiB")
 			return
 		}
-		track, err := s.store.SetCover(r.Context(), r.PathValue("id"), bytes.NewReader(data))
-		if err != nil {
-			apiError(w, err)
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"track": track})
+	}
+	if len(data) == 0 {
+		apiError(w, fmt.Errorf("缺少封面文件：%w", ErrInvalid))
 		return
 	}
+	track, err := s.store.editTrack(r.Context(), r.PathValue("id"), patch, bytes.NewReader(data))
+	if err != nil {
+		apiError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"track": track})
 }
 
 func (s *server) album(w http.ResponseWriter, r *http.Request) {

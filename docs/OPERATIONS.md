@@ -12,8 +12,8 @@ The runtime identity is `lilt`; local publication uses the restricted `lilt-depl
 | `/opt/lilt/bin/deploy-{ssh,release}.sh` | Root-owned fixed publication entry points |
 | `/opt/lilt/config/` | systemd unit, application Nginx location, private runtime environment, Portal declaration and source receipt |
 | `/opt/lilt/data/lilt.sqlite` | Tracks, metadata, lyrics, playlists, uploads, listening sessions, retained legacy player snapshots and artwork ownership |
-| `/opt/lilt/data/originals/` | Immutable accepted audio objects and retained prior replacement objects |
-| `/opt/lilt/data/originals/artwork/` | Accepted manually uploaded artwork bytes, addressed by SHA-256 |
+| `/opt/lilt/data/originals/` | Current SHA-256-addressed audio, retained explicit upload replacements and transient journal-owned metadata staging |
+| `/opt/lilt/data/originals/artwork/` | Legacy manually uploaded artwork retained by existing ownership records; new edits embed artwork in audio |
 | `/opt/lilt/data/uploads/` | Durable incomplete audio upload files |
 | `/opt/lilt/data/covers/` | Sanitized static JPEG artwork, including extracted embedded covers |
 | `/opt/lilt/data/playback/` | Source/quality-addressed compatible AAC/M4A files and descriptors |
@@ -31,6 +31,8 @@ The unit runs:
 The CLI also accepts `LILT_ADDR`, `LILT_DATA_DIR` and `LILT_PREFIX` defaults. Production flags fix those values. Root-owned mode-0600 `/opt/lilt/config/lilt.env` supplies comma-separated `LILT_ORIGINS`; initial installation derives it from NAS's existing private Portal configuration. If the shared Origin set changes, regenerate this application configuration and restart only Lilt under the shared access-change workflow.
 
 Startup initializes the explicitly selected new data directory and opens the supported catalog schema. Never redirect a failed production start to an empty directory. Candidate checks require an existing database and open it read-only.
+
+Metadata writeback uses the existing NAS FFmpeg/FFprobe runtime and native container-tag writers without new packages or services. A `pendingMetadataWrite` settings receipt links validated staging, the new audio fingerprint, catalog metadata and cover changes. Startup completes that receipt before serving requests and removes abandoned edit staging. Read-only candidate checks reject an unfinished receipt; recover it with a compatible program before release or rollback. Existing audio is not rewritten in bulk on startup. New cover edits retain the embedded JPEG and display derivative, not another artwork upload object. Historical artwork ownership and explicit upload revisions remain intact.
 
 ## Uploads, Media and Browser Access
 

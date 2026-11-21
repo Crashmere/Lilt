@@ -4,7 +4,7 @@ Lilt is a single-user, browser-only music library and player. All music, artwork
 
 Read `docs/README.md`, `docs/API.md` and `docs/OPERATIONS.md` as relevant. Use server-operations and explicitly read the target host's remote `/opt/AGENTS.md` before server work. Production activation is recorded in server-operations current-state.
 
-- Preserve uploaded original bytes. Metadata, cover derivatives and compatible playback files are separate. Do not fetch music, artwork, lyrics, fonts or descriptive data from external services at runtime.
+- Metadata edits write tags, lyrics and artwork back into the current audio without re-encoding its sound or retaining edit revisions. Validate staged output before publication, recover interrupted publication and remove only superseded unreferenced audio. Display covers and compatible playback remain derivatives. Do not fetch music, artwork, lyrics, fonts or descriptive data from external services at runtime.
 - Keep duplicate files separate from musical versions. Replacement is explicit and preserves the logical track's favorites, playlist membership and history.
 - Use one SQLite catalog and application-owned data directories. Keep resumable uploads durable, reconcile authoritative offsets and verify the complete SHA-256 before publication.
 - Keep the global player mounted during navigation and data updates. Playlists describe collections; the current queue is an independent snapshot. Restore browser state without automatic audible playback.

@@ -184,10 +184,10 @@ export default function App() {
       </div>}
     </main>
     <PlayerBar player={player} panel={panel} onQueue={() => showPanel('queue')} onLyrics={() => showPanel('lyrics')} onMore={setTrackActions} />
-    {panel === 'queue' && <QueuePanel player={player} onClose={() => setPanel(null)} onSave={ids => setPlaylistEditor({ ids })} />}
+    {panel === 'queue' && <QueuePanel player={player} onClose={() => setPanel(null)} onSave={ids => setPlaylistEditor({ ids })} onMore={setTrackActions} />}
     {panel === 'lyrics' && <LyricsPanel player={player} onClose={() => setPanel(null)} onEdit={track => { void openEditor(track); }} />}
     {uploadOpen && <UploadModal uploader={uploader} tracks={library.tracks} onClose={() => setUploadOpen(false)} onLocate={id => { void locateUpload(id); }} />}
-    {editing && <TrackEditor track={editing} onClose={() => setEditing(undefined)} onSaved={async () => { await refresh(); notify('曲目信息已保存'); }} />}
+    {editing && <TrackEditor key={editing.id} track={editing} onClose={() => setEditing(undefined)} onSaved={async track => { setLibrary(old => ({ ...old, tracks: old.tracks.map(item => item.id === track.id ? track : item) })); await refresh(); notify('已写回音频文件'); }} />}
     {bulkEditing && <BulkEditor tracks={bulkEditing} onClose={() => setBulkEditing(undefined)} onRefresh={refresh} onSaved={() => notify(`已更新 ${bulkEditing.length} 首曲目`)} />}
     {playlistEditor && <PlaylistEditor playlist={playlistEditor.playlist} initialIds={playlistEditor.ids} onClose={() => setPlaylistEditor(undefined)} onSaved={async playlist => { await refresh(); navigate({ kind: 'playlist', id: playlist.id }); notify('歌单已保存'); }} />}
     {addPlaylistIds && <Modal title="加入歌单" onClose={() => setAddPlaylistIds(undefined)}><div className="modal-body add-playlist-list">{library.playlists.filter(item => item.kind === 'manual').map(item => <button key={item.id} onClick={() => { void run(async () => { await json(`/playlists/${encodeURIComponent(item.id)}`, 'PUT', { name: item.name, description: item.description, trackIds: [...item.trackIds, ...addPlaylistIds.filter(id => !item.trackIds.includes(id))] }); await refresh(); setAddPlaylistIds(undefined); notify('已加入歌单'); }); }}><ListMusic size={18} /><span>{item.name}</span><Plus size={17} /></button>)}<button onClick={() => { setPlaylistEditor({ ids: addPlaylistIds }); setAddPlaylistIds(undefined); }}><Plus size={19} /><span>新建歌单</span></button></div></Modal>}
