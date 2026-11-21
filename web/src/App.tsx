@@ -2,7 +2,7 @@ import { startTransition, useDeferredValue, useEffect, useRef, useState } from '
 import { ArrowLeft, BarChart3, Check, ChevronRight, Clock3, Disc3, Download, Heart, House, LibraryBig, ListMusic, LoaderCircle, Menu, MoreHorizontal, Music2, Play, Plus, RefreshCw, Search, Settings2, Smartphone, Trash2, Upload, UsersRound, WifiOff, X } from 'lucide-react';
 import { ApiError, json, messageOf, request, trackURL, API } from './api';
 import { AlbumCards, ArtistCards, Artwork, Empty, Modal, Pill, PlaylistCards, TrackTable } from './components';
-import { BulkEditor, DevicesModal, LyricsPanel, PlayerBar, PlaylistEditor, QueuePanel, SleepModal, TrackEditor, UploadModal } from './panels';
+import { BulkEditor, DevicesModal, LyricsPanel, PlayerBar, PlaylistEditor, QueuePanel, TrackEditor, UploadModal } from './panels';
 import { usePlayer } from './player';
 import { flushHistory, listCached, loadLibrary, putCached, removeCached, saveLibrary } from './storage';
 import type { Album, Artist, CacheInfo, HistoryEntry, Library, Playlist, Track, View } from './types';
@@ -36,7 +36,6 @@ export default function App() {
   const [sidebar, setSidebar] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [panel, setPanel] = useState<'queue' | 'lyrics' | null>(null);
-  const [timerOpen, setTimerOpen] = useState(false);
   const [devicesOpen, setDevicesOpen] = useState(false);
   const [editing, setEditing] = useState<Track>();
   const [bulkEditing, setBulkEditing] = useState<Track[]>();
@@ -117,16 +116,16 @@ export default function App() {
         setCacheBusy(track.title);
         const info = await listCached();
         const existing = info.find(item => item.id === track.id);
-        if (existing?.track.updatedAt === track.updatedAt && existing.quality === player.quality) continue;
+        if (existing?.track.updatedAt === track.updatedAt && existing.quality === 'original') continue;
         const used = info.filter(item => item.id !== track.id).reduce((sum, item) => sum + item.size, 0);
-        const response = await fetch(trackURL(track.id, `stream?quality=${player.quality}`), { credentials: 'same-origin' });
+        const response = await fetch(trackURL(track.id, 'stream?quality=original'), { credentials: 'same-origin' });
         if (!response.ok) throw new Error(response.status === 401 ? '设备授权已失效，请重新打开服务。' : '离线音乐下载失败，请重试。');
         const size = Number(response.headers.get('Content-Length'));
         if (size && used + size > capacity) { void response.body?.cancel(); throw new Error('离线空间已满，请移除部分离线音乐或提高容量。'); }
         const blob = await response.blob();
         if (used + blob.size > capacity) throw new Error('离线空间已满，请移除部分离线音乐或提高容量。');
         const fullTrack = await request<{ track: Track }>(`/tracks/${encodeURIComponent(track.id)}`).then(result => result.track).catch(() => track);
-        await putCached({ id: track.id, track: fullTrack, blob, quality: (response.headers.get('X-Lilt-Quality') || player.quality) as 'original' | 'standard' | 'compact', bitrate: Number(response.headers.get('X-Lilt-Bitrate')) || track.bitrate, size: blob.size, cachedAt: new Date().toISOString() });
+        await putCached({ id: track.id, track: fullTrack, blob, quality: 'original', bitrate: Number(response.headers.get('X-Lilt-Bitrate')) || track.bitrate, size: blob.size, cachedAt: new Date().toISOString() });
         saved++;
       }
       if (navigator.storage?.persist) void navigator.storage.persist().catch(() => undefined);
@@ -178,7 +177,7 @@ export default function App() {
       {view.kind === 'trash' && (trash.length ? <div className="trash-list">{trash.map(track => <article key={track.id}><Artwork url={track.coverUrl} /><div><strong>{track.title}</strong><p>{track.artist} · {track.album}</p><small>{date(track.deletedAt || '')} 移入</small></div><button className="button secondary" onClick={() => { void restoreTrack(track); }}>恢复</button></article>)}</div> : <Empty title="回收站为空" />)}
       </div>}
     </main>
-    <PlayerBar player={player} favorite={track => { void favorite(track); }} onQueue={() => showPanel('queue')} onLyrics={() => showPanel('lyrics')} onTimer={() => setTimerOpen(true)} onDevices={() => setDevicesOpen(true)} />
+    <PlayerBar player={player} panel={panel} onQueue={() => showPanel('queue')} onLyrics={() => showPanel('lyrics')} onMore={setTrackActions} />
     {panel === 'queue' && <QueuePanel player={player} onClose={() => setPanel(null)} onSave={ids => setPlaylistEditor({ ids })} />}
     {panel === 'lyrics' && <LyricsPanel player={player} onClose={() => setPanel(null)} onEdit={track => { void openEditor(track); }} />}
     {uploadOpen && <UploadModal uploader={uploader} tracks={library.tracks} onClose={() => setUploadOpen(false)} onLocate={id => { void locateUpload(id); }} />}
@@ -186,8 +185,7 @@ export default function App() {
     {bulkEditing && <BulkEditor tracks={bulkEditing} onClose={() => setBulkEditing(undefined)} onRefresh={refresh} onSaved={() => notify(`已更新 ${bulkEditing.length} 首曲目`)} />}
     {playlistEditor && <PlaylistEditor playlist={playlistEditor.playlist} initialIds={playlistEditor.ids} onClose={() => setPlaylistEditor(undefined)} onSaved={async playlist => { await refresh(); navigate({ kind: 'playlist', id: playlist.id }); notify('歌单已保存'); }} />}
     {addPlaylistIds && <Modal title="加入歌单" onClose={() => setAddPlaylistIds(undefined)}><div className="modal-body add-playlist-list">{library.playlists.filter(item => item.kind === 'manual').map(item => <button key={item.id} onClick={() => { void run(async () => { await json(`/playlists/${encodeURIComponent(item.id)}`, 'PUT', { name: item.name, description: item.description, trackIds: [...item.trackIds, ...addPlaylistIds.filter(id => !item.trackIds.includes(id))] }); await refresh(); setAddPlaylistIds(undefined); notify('已加入歌单'); }); }}><ListMusic size={18} /><span>{item.name}</span><Plus size={17} /></button>)}<button onClick={() => { setPlaylistEditor({ ids: addPlaylistIds }); setAddPlaylistIds(undefined); }}><Plus size={19} /><span>新建歌单</span></button></div></Modal>}
-    {trackActions && <Modal title={trackActions.title} onClose={() => setTrackActions(undefined)}><div className="modal-body track-action-menu"><button onClick={() => { player.enqueue([trackActions.id], true); setTrackActions(undefined); }}><Play size={18} />下一首播放</button><button onClick={() => { player.enqueue([trackActions.id]); setTrackActions(undefined); }}><ListMusic size={18} />加入播放队列</button><button onClick={() => { setAddPlaylistIds([trackActions.id]); setTrackActions(undefined); }}><Plus size={18} />加入歌单</button>{view.kind === 'playlist' && playlist?.kind === 'manual' && <button onClick={() => { void run(async () => { await json(`/playlists/${encodeURIComponent(playlist.id)}`, 'PUT', { name: playlist.name, description: playlist.description, trackIds: playlist.trackIds.filter(id => id !== trackActions.id) }); setTrackActions(undefined); await refresh(); notify('已从歌单移除'); }); }}><X size={18} />从歌单移除</button>}<button onClick={() => { void openEditor(trackActions); }}><Settings2 size={18} />编辑曲目</button><a href={trackURL(trackActions.id, 'download')}><Download size={18} />下载原文件</a><button onClick={() => { void cacheTracks([trackActions]); setTrackActions(undefined); }}><Download size={18} />{cached.some(item => item.id === trackActions.id) ? '更新离线文件' : '保存离线'}</button>{cached.some(item => item.id === trackActions.id) && <button onClick={() => { void removeOffline(trackActions.id); setTrackActions(undefined); }}><X size={18} />移除离线文件</button>}<button className="danger" onClick={() => { void moveToTrash(trackActions); }}><Trash2 size={18} />移入回收站</button></div></Modal>}
-    {timerOpen && <SleepModal player={player} onClose={() => setTimerOpen(false)} />}
+    {trackActions && <Modal title={trackActions.title} onClose={() => setTrackActions(undefined)}><div className="modal-body track-action-menu"><button onClick={() => { void favorite(trackActions); setTrackActions(undefined); }}><Heart size={18} fill={trackActions.favorite ? 'currentColor' : 'none'} />{trackActions.favorite ? '取消收藏' : '收藏'}</button><button onClick={() => { player.enqueue([trackActions.id], true); setTrackActions(undefined); }}><Play size={18} />下一首播放</button><button onClick={() => { player.enqueue([trackActions.id]); setTrackActions(undefined); }}><ListMusic size={18} />加入播放队列</button><button onClick={() => { setAddPlaylistIds([trackActions.id]); setTrackActions(undefined); }}><Plus size={18} />加入歌单</button>{view.kind === 'playlist' && playlist?.kind === 'manual' && <button onClick={() => { void run(async () => { await json(`/playlists/${encodeURIComponent(playlist.id)}`, 'PUT', { name: playlist.name, description: playlist.description, trackIds: playlist.trackIds.filter(id => id !== trackActions.id) }); setTrackActions(undefined); await refresh(); notify('已从歌单移除'); }); }}><X size={18} />从歌单移除</button>}<button onClick={() => { void openEditor(trackActions); }}><Settings2 size={18} />编辑曲目</button><a href={trackURL(trackActions.id, 'download')}><Download size={18} />下载原文件</a><button onClick={() => { void cacheTracks([trackActions]); setTrackActions(undefined); }}><Download size={18} />{cached.some(item => item.id === trackActions.id) ? '更新离线文件' : '保存离线'}</button>{cached.some(item => item.id === trackActions.id) && <button onClick={() => { void removeOffline(trackActions.id); setTrackActions(undefined); }}><X size={18} />移除离线文件</button>}<button className="danger" onClick={() => { void moveToTrash(trackActions); }}><Trash2 size={18} />移入回收站</button></div></Modal>}
     {devicesOpen && <DevicesModal player={player} tracks={library.tracks} notify={notify} onClose={() => setDevicesOpen(false)} />}
     {player.conflict && <Modal title="其他标签页正在播放" onClose={() => player.setConflict(false)}><div className="modal-body"><p>在此标签页播放，将暂停另一个标签页。</p></div><footer className="modal-footer"><button className="button secondary" onClick={() => player.setConflict(false)}>取消</button><button className="button primary" onClick={() => player.play(true)}>在此播放</button></footer></Modal>}
     {cacheBusy && <div className="cache-progress"><LoaderCircle size={16} className="spin" />正在保存：{cacheBusy}</div>}

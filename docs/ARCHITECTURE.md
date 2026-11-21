@@ -16,7 +16,7 @@ Manual playlists store ordered track IDs. Smart playlists evaluate catalog rules
 
 Each upload has a retained session and acknowledged offset in SQLite, with partial bytes under `uploads/`. The server accepts at most 32 MiB per raw chunk, flushes accepted bytes before acknowledgment and checks the complete SHA-256 before publishing an original. Resume follows the server's offset rather than a browser estimate. Canceling an incomplete upload removes only that session's partial bytes. The [API](API.md#resumable-audio-uploads) defines request and conflict behavior.
 
-Original playback uses the accepted audio bytes when the browser supports their format. Standard and compact requests create separate AAC/M4A derivatives at nominal 192 kbit/s and 96 kbit/s, respectively, with at most two channels and a 48 kHz sample-rate ceiling. Compatible output is generated on request and reused by source fingerprint and quality. One CPU encoding operation runs at a time; FFmpeg probing and audio encoding do not require the shared NVIDIA image runtime.
+The browser player streams accepted original audio bytes, with no playback-file selector or automatic transcoding fallback. Unsupported original formats require a browser that can decode them. Offline saves also retain originals; older compatible caches must be saved again while connected before offline playback. The API retains standard and compact requests for separate AAC/M4A derivatives at nominal 192 kbit/s and 96 kbit/s, respectively, with at most two channels and a 48 kHz sample-rate ceiling. Those outputs are reused by source fingerprint and quality. One CPU encoding operation runs at a time; FFmpeg probing and audio encoding do not require the shared NVIDIA image runtime.
 
 Streams and original downloads support byte ranges. The response identifies the selected playback quality separately from the source audio's properties. Having a lossless original does not imply that a compatible AAC stream or the browser/device output path is lossless.
 
@@ -32,7 +32,7 @@ Listening updates use a session identifier and cumulative actual listening time 
 
 Optional offline audio and the last saved library are stored in IndexedDB. A scoped service worker supports reopening the previously visited application shell; it does not intercept authenticated business APIs or create a public media endpoint. The browser or user can remove local storage, and another device does not automatically receive those files. Offline storage is a convenience, not a permanent recovery copy.
 
-Media Session actions integrate with lock-screen and headset controls when supported. Home Screen installation changes the launch experience, not operating-system background execution guarantees. Sleep timers, background track changes and cross-tab coordination remain subject to browser suspension. Ordinary Tab/Shift+Tab traversal and focus-only decoration follow the user's shared keyboard policy while preserving text input, selections, carets, IME composition and modifier shortcuts.
+Media Session actions integrate with lock-screen and headset controls when supported. Home Screen installation changes the launch experience, not operating-system background execution guarantees. Background track changes and cross-tab coordination remain subject to browser suspension. Ordinary Tab/Shift+Tab traversal and focus-only decoration follow the user's shared keyboard policy while preserving text input, selections, carets, IME composition and modifier shortcuts.
 
 ## Access and Resource Ownership
 

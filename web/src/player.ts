@@ -1,7 +1,7 @@
 import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { ApiError, json, trackURL } from './api';
 import { getCached, peekCached, recordHistory } from './storage';
-import type { PlayerState, Quality, Track } from './types';
+import type { PlayerState, Track } from './types';
 import { identity, readLocal, writeLocal } from './utils';
 
 type Session = { id: string; trackId: string; seconds: number; lastPosition: number };
@@ -12,11 +12,6 @@ function shuffledIds(ids: string[]): string[] {
   for (let index = result.length - 1; index > 0; index--) { const other = Math.floor(Math.random() * (index + 1)); [result[index], result[other]] = [result[other], result[index]]; }
   return result;
 }
-function mimeOf(track: Track): string {
-  if (track.mimeType && track.mimeType !== 'application/octet-stream') return track.mimeType;
-  return ({ mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac', flac: 'audio/flac', wav: 'audio/wav', ogg: 'audio/ogg', opus: 'audio/ogg; codecs="opus"', webm: 'audio/webm' } as Record<string, string>)[track.originalName.split('.').pop()?.toLowerCase() || track.format] || `audio/${track.format}`;
-}
-
 function initialState(): PlayerState {
   const deviceId = readLocal<string>('lilt.device-id', identity());
   writeLocal('lilt.device-id', deviceId);
@@ -33,41 +28,46 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
   const [sourceVersion, setSourceVersion] = useState(0);
-  const [quality, setQuality] = useState<Quality>(() => readLocal('lilt.quality', 'original'));
-  const [actual, setActual] = useState<{ quality: Quality; bitrate: number; cached: boolean }>({ quality, bitrate: 0, cached: false });
+  const [actual, setActual] = useState({ bitrate: 0, cached: false });
   const [conflict, setConflict] = useState(false);
-  const [sleepAt, setSleepAt] = useState(0);
-  const [sleepAfterTrack, setSleepAfterTrack] = useState(false);
-  const [sleepRemaining, setSleepRemaining] = useState(0);
   const tabId = useRef(identity());
   const intent = useRef({ play: false, position: snapshot.position || 0 });
   const session = useRef<Session>({ id: identity(), trackId: '', seconds: 0, lastPosition: snapshot.position || 0 });
-  const source = useRef<{ trackId: string; requested: Quality; effective: Quality; url: string; objectURL: string }>({ trackId: '', requested: quality, effective: quality, url: '', objectURL: '' });
+  const source = useRef({ trackId: '', url: '', objectURL: '' });
   const initialSeekPending = useRef(false);
   const pendingStart = useRef<{ ids: string[]; index: number; start: number } | null>(null);
   const trackId = snapshot.queueIds[snapshot.queueIndex] || '';
   const track = tracks.find(item => item.id === trackId);
   const queue = snapshot.queueIds.map(id => tracks.find(item => item.id === id)).filter((item): item is Track => !!item);
 
-  function prepareSource(nextTrack: Track, start: number, autoplay: boolean, requested = quality, forceStandard = false): void {
+  function playbackError(id: string): string {
+    if (!navigator.onLine) {
+      const cached = peekCached(id);
+      if (cached && cached.quality !== 'original') return '此曲目未保存原件，请联网后重新保存离线。';
+      if (!cached) return '此歌曲尚未保存到离线列表。';
+    }
+    return '原件无法播放，请重试或使用支持该格式的浏览器。';
+  }
+
+  function prepareSource(nextTrack: Track, start: number, autoplay: boolean): void {
     const audio = audioRef.current;
     if (!audio) return;
-    const cached = !navigator.onLine ? peekCached(nextTrack.id) : undefined;
-    const effective: Quality = forceStandard || requested === 'original' && !audio.canPlayType(mimeOf(nextTrack)) ? 'standard' : requested;
-    const url = cached ? URL.createObjectURL(cached.blob) : trackURL(nextTrack.id, `stream?quality=${effective}`);
+    const entry = !navigator.onLine ? peekCached(nextTrack.id) : undefined;
+    const cached = entry?.quality === 'original' ? entry : undefined;
+    const url = cached ? URL.createObjectURL(cached.blob) : trackURL(nextTrack.id, 'stream?quality=original');
     if (source.current.objectURL) URL.revokeObjectURL(source.current.objectURL);
-    source.current = { trackId: nextTrack.id, requested, effective: cached?.quality || effective, url, objectURL: cached ? url : '' };
+    source.current = { trackId: nextTrack.id, url, objectURL: cached ? url : '' };
     if (session.current.trackId !== nextTrack.id) session.current = { id: identity(), trackId: nextTrack.id, seconds: 0, lastPosition: start };
     intent.current = { play: autoplay, position: start };
     initialSeekPending.current = true;
-    setActual({ quality: cached?.quality || effective, bitrate: cached?.bitrate || (effective === 'original' ? nextTrack.bitrate : 0), cached: !!cached });
+    setActual({ bitrate: cached?.bitrate || nextTrack.bitrate, cached: !!cached });
     setLoading(true);
     setSourceVersion(value => value + 1);
     audio.volume = snapshot.volume;
     audio.src = url;
     audio.load();
     if (autoplay) void audio.play().catch(error => {
-      if (error.name !== 'AbortError' && source.current.url === url) { intent.current.play = false; setLoading(false); notify('点击播放以继续，或切换音质后重试。'); }
+      if (error.name !== 'AbortError' && source.current.url === url) { intent.current.play = false; setLoading(false); notify(playbackError(nextTrack.id)); }
     });
   }
 
@@ -80,7 +80,7 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   }
 
   function sourceModeChanged(id: string): boolean {
-    return navigator.onLine ? !!source.current.objectURL : !source.current.objectURL && !!peekCached(id);
+    return navigator.onLine ? !!source.current.objectURL : !source.current.objectURL && peekCached(id)?.quality === 'original';
   }
 
   function releaseLease(): void {
@@ -130,7 +130,7 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
       return;
     }
     intent.current.play = true;
-    void audioRef.current.play().catch(() => notify('无法播放此文件，请切换音质后重试。'));
+    void audioRef.current.play().catch(() => notify(playbackError(trackId)));
   }
   function pause(): void { intent.current.play = false; audioRef.current?.pause(); releaseLease(); persist(true); }
   function seek(value: number): void {
@@ -145,7 +145,6 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   }
   const next = useEffectEvent((automatic = false) => {
     if (!snapshot.queueIds.length) return;
-    if (automatic && sleepAfterTrack) { setSleepAfterTrack(false); pause(); return; }
     if (automatic && snapshot.repeat === 'one') { session.current = { id: identity(), trackId, seconds: 0, lastPosition: 0 }; seek(0); play(); return; }
     if (!claim()) return;
     let index = snapshot.queueIndex + 1;
@@ -195,15 +194,8 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
       else begin(ids, Math.min(index, ids.length - 1), 0, playing);
     } else setSnapshot(old => ({ ...old, queueIds: old.queueIds.filter((_, i) => i !== index), queueIndex: index < old.queueIndex ? old.queueIndex - 1 : old.queueIndex }));
   }
-  function changeQuality(value: Quality): void {
-    intent.current = { play: playing, position };
-    writeLocal('lilt.quality', value);
-    setQuality(value);
-    if (track) prepareSource(track, position, playing && claim(), value);
-  }
   function setVolume(volume: number): void { setSnapshot(old => ({ ...old, volume })); if (audioRef.current) audioRef.current.volume = volume; }
   function setLabel(label: string): void { setSnapshot(old => ({ ...old, label: label.trim() || old.label })); }
-  function sleep(minutes: number): void { setSleepAfterTrack(false); setSleepAt(minutes ? Date.now() + minutes * 60000 : 0); }
   function continueFrom(state: PlayerState): void {
     const ids = state.queueIds.filter(id => tracks.some(item => item.id === id));
     const index = Math.max(0, ids.indexOf(state.trackId));
@@ -240,8 +232,10 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   });
   const onEnded = useEffectEvent(() => { finish(true); next(true); });
   const onError = useEffectEvent(() => {
-    if (track && source.current.effective === 'original' && navigator.onLine) { prepareSource(track, position, intent.current.play, quality, true); return; }
-    setLoading(false); setPlaying(false); notify('音频无法播放，请切换音质或检查原文件。');
+    intent.current.play = false;
+    audioRef.current?.pause();
+    releaseLease();
+    setLoading(false); setPlaying(false); notify(playbackError(trackId));
   });
 
   useEffect(() => {
@@ -257,7 +251,7 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
     if (!audio || !trackId || !track) { if (audio) { audio.pause(); audio.removeAttribute('src'); } source.current.trackId = ''; return; }
     let cancelled = false;
     const abort = new AbortController();
-    if (source.current.trackId !== trackId || source.current.requested !== quality) prepareSource(track, intent.current.position, intent.current.play);
+    if (source.current.trackId !== trackId) prepareSource(track, intent.current.position, intent.current.play);
     void (async () => {
       const currentSource = source.current;
       if (currentSource.objectURL) return;
@@ -266,17 +260,19 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
         if (!navigator.onLine) throw new TypeError('offline');
         const response = await fetch(url, { method: 'HEAD', credentials: 'same-origin', signal: abort.signal });
         if (!response.ok) throw new ApiError(response.status, {}, response.status === 401 ? '设备授权已失效，请重新打开服务。' : '音频暂时无法加载。');
-        if (!cancelled && source.current.url === url) setActual({ quality: (response.headers.get('X-Lilt-Quality') || currentSource.effective) as Quality, bitrate: Number(response.headers.get('X-Lilt-Bitrate')) || (currentSource.effective === 'original' ? track.bitrate : 0), cached: false });
+        if (!cancelled && source.current.url === url) setActual({ bitrate: Number(response.headers.get('X-Lilt-Bitrate')) || track.bitrate, cached: false });
       } catch (error) {
         if (abort.signal.aborted) return;
         if (error instanceof ApiError && error.status === 401) { audio.pause(); throw error; }
         const cached = await getCached(trackId).catch(() => undefined);
-        if (!cached || cancelled) throw error;
+        if (cancelled) return;
+        if (cached && cached.quality !== 'original') throw new Error('此曲目未保存原件，请联网后重新保存离线。');
+        if (!cached) throw error;
         const objectURL = URL.createObjectURL(cached.blob);
         if (source.current.objectURL) URL.revokeObjectURL(source.current.objectURL);
-        source.current = { ...currentSource, url: objectURL, objectURL, effective: cached.quality };
+        source.current = { ...currentSource, url: objectURL, objectURL };
         initialSeekPending.current = true;
-        setActual({ quality: cached.quality, bitrate: cached.bitrate, cached: true });
+        setActual({ bitrate: cached.bitrate, cached: true });
         audio.src = objectURL; audio.load();
         if (intent.current.play) void audio.play().catch(() => notify('点击播放以继续。'));
       }
@@ -285,7 +281,7 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
       }
     })().catch(error => { if (!cancelled) { setLoading(false); notify(error instanceof Error && error.message !== 'offline' ? error.message : '此歌曲尚未保存到离线列表。'); } });
     return () => { cancelled = true; abort.abort(); };
-  }, [trackId, quality, !!track, sourceVersion]);
+  }, [trackId, !!track, sourceVersion]);
 
   const mediaPlay = useEffectEvent(() => play());
   const mediaPause = useEffectEvent(() => pause());
@@ -305,11 +301,6 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
     const lease = readLocal<Lease | null>('lilt.playback-lease', null);
     if (playing && lease?.tabId === tabId.current) writeLocal('lilt.playback-lease', { ...lease, updatedAt: Date.now() });
     if (!lease?.playing || lease.tabId === tabId.current) persist();
-    if (sleepAt) {
-      const remaining = Math.max(0, Math.ceil((sleepAt - Date.now()) / 1000));
-      setSleepRemaining(remaining);
-      if (!remaining) { setSleepAt(0); pause(); notify('已按定时设置停止播放'); }
-    }
   });
   const remoteHeartbeat = useEffectEvent(() => { if (playing) { persist(true); finish(); } });
   const onStorage = useEffectEvent((event: StorageEvent) => {
@@ -333,9 +324,9 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   }, [track?.title, track?.artist, track?.album, track?.coverUrl]);
 
   return {
-    audioRef, snapshot, track, trackId, queue, position, playing, loading, quality, actual,
-    conflict, setConflict, sleepAt, sleepAfterTrack, sleepRemaining, setSleepAfterTrack,
-    begin, play, pause, seek, next, previous, enqueue, reorder, remove, changeQuality, setVolume, setLabel, sleep, continueFrom,
+    audioRef, snapshot, track, trackId, queue, position, playing, loading, actual,
+    conflict, setConflict,
+    begin, play, pause, seek, next, previous, enqueue, reorder, remove, setVolume, setLabel, continueFrom,
     toggleShuffle: () => setSnapshot(old => {
       if (old.shuffle || !old.queueIds.length) return { ...old, shuffle: !old.shuffle };
       return { ...old, shuffle: true, queueIds: [old.queueIds[old.queueIndex], ...shuffledIds(old.queueIds.filter((_, index) => index !== old.queueIndex))], queueIndex: 0 };
