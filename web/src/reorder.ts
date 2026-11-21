@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type DragEvent } from 'react';
+import { flushSync } from 'react-dom';
 import type { Track } from './types';
 import { duration } from './utils';
 
@@ -38,7 +39,7 @@ export function useReorder(tracks: Track[], onReorder?: Reorder) {
     cancelAnimations();
   }, []);
 
-  // Wait for acknowledged playlist data, rather than animating a successful drop on release.
+  // Position feedback follows the local move; pending save feedback remains separate.
   useLayoutEffect(() => {
     const pending = landing.current;
     if (!pending || !root.current) return;
@@ -79,7 +80,7 @@ export function useReorder(tracks: Track[], onReorder?: Reorder) {
     const result = onReorder(from, to);
     if (result) {
       busy.current = true;
-      setSaving(from);
+      setSaving(to);
       const finish = () => {
         pending.settled = true;
         busy.current = false;
@@ -100,7 +101,7 @@ export function useReorder(tracks: Track[], onReorder?: Reorder) {
     image.inert = true;
     const card = document.createElement('div');
     card.className = 'reorder-drag-card';
-    const cover = event.currentTarget.querySelector('.artwork')?.cloneNode(true) as HTMLElement | undefined;
+    const cover = event.currentTarget.closest('[data-reorder-index]')?.querySelector('.artwork')?.cloneNode(true) as HTMLElement | undefined;
     if (cover) {
       cover.querySelectorAll('[id]').forEach(element => element.removeAttribute('id'));
       cover.querySelectorAll('img').forEach(element => { element.loading = 'eager'; element.draggable = false; });
@@ -145,8 +146,12 @@ export function useReorder(tracks: Track[], onReorder?: Reorder) {
     const current = active.current;
     if (!current) return;
     event.preventDefault();
-    end();
-    if (current.order === order && current.boundary !== null) move(current.from, current.boundary - (current.boundary > current.from ? 1 : 0));
+    event.dataTransfer.dropEffect = 'move';
+    // Commit the destination before native dragging ends, without painting the old source.
+    flushSync(() => {
+      end();
+      if (current.order === order && current.boundary !== null) move(current.from, current.boundary - (current.boundary > current.from ? 1 : 0));
+    });
   }
 
   function rowProps(index: number) {
@@ -155,16 +160,24 @@ export function useReorder(tracks: Track[], onReorder?: Reorder) {
     return {
       'data-reorder-index': index,
       className: [drag?.from === index ? 'reorder-source' : '', boundary === index ? 'reorder-before' : '', boundary === tracks.length && index === tracks.length - 1 ? 'reorder-after' : '', saving === index ? 'reorder-saving' : ''].join(' '),
-      draggable: !!onReorder && saving === null,
-      onDragStart: (event: DragEvent<HTMLElement>) => start(event, index),
+      draggable: false,
       onDragEnter: (event: DragEvent<HTMLElement>) => locate(event, index),
       onDragOver: (event: DragEvent<HTMLElement>) => locate(event, index),
       onDrop: (event: DragEvent<HTMLElement>) => drop(event, index),
+    };
+  }
+
+  function handleProps(index: number) {
+    return {
+      draggable: !!onReorder && saving === null,
+      title: '拖动调整顺序',
+      'aria-label': `拖动调整 ${tracks[index].title || tracks[index].originalName} 的顺序`,
+      onDragStart: (event: DragEvent<HTMLElement>) => start(event, index),
       onDragEnd: end,
     };
   }
 
-  return { root, rowProps, move, saving, listProps: {
+  return { root, rowProps, handleProps, saving, listProps: {
     className: drag ? 'is-reordering' : '',
     'aria-busy': saving !== null,
     onDragLeave: (event: DragEvent<HTMLDivElement>) => {

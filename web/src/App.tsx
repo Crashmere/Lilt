@@ -170,9 +170,17 @@ export default function App() {
     const ids = [...playlist.trackIds];
     const [id] = ids.splice(from, 1);
     ids.splice(to, 0, id);
-    const result = await json<{ playlist: Playlist }>(`/playlists/${encodeURIComponent(playlist.id)}`, 'PUT', { trackIds: ids });
-    setLibrary(old => ({ ...old, playlists: old.playlists.map(item => item.id === playlist.id ? result.playlist : item) }));
-    await refresh();
+    refreshAbort.current?.abort();
+    setLibrary(old => ({ ...old, playlists: old.playlists.map(item => item.id === playlist.id ? { ...item, trackIds: ids } : item) }));
+    try {
+      const result = await json<{ playlist: Playlist }>(`/playlists/${encodeURIComponent(playlist.id)}`, 'PUT', { trackIds: ids });
+      setLibrary(old => ({ ...old, playlists: old.playlists.map(item => item.id === playlist.id ? result.playlist : item) }));
+    } catch (error) {
+      setLibrary(old => ({ ...old, playlists: old.playlists.map(item => item.id === playlist.id ? { ...item, trackIds: playlist.trackIds } : item) }));
+      throw error;
+    } finally {
+      void refresh();
+    }
   });
   const playlistMemberships = indexPlaylistMemberships(library.playlists);
   const collectionNavigation: CollectionNavigation = {
