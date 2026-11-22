@@ -598,8 +598,9 @@
 .lyrics-cover-modal{width:760px;max-height:min(90dvh,calc(100dvh - var(--player-height) - 48px));overflow:hidden;display:flex;flex-direction:column}
 .lyrics-cover-modal>.modal-header{position:static;flex:none;padding:16px 20px}
 .lyrics-cover-modal .modal-header h2{font-size:18px}
+.lyrics-cover-modal>.modal-footer{flex:none;padding:12px 20px}
 .lyrics-cover-preview{display:flex;align-items:center;justify-content:center;min-height:0;padding:16px;overflow:auto}
-.lyrics-cover-preview>img{display:block;max-width:100%;max-height:calc(100dvh - var(--player-height) - 150px);object-fit:contain;border-radius:5px}
+.lyrics-cover-preview>img{display:block;max-width:100%;max-height:calc(100dvh - var(--player-height) - 210px);object-fit:contain;border-radius:5px}
 @media(max-width:390px){
   .lyrics-panel>header{gap:8px}
   .lyrics-cover{width:36px}
