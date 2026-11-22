@@ -138,7 +138,7 @@ func (s *Store) validatePlaylist(ctx context.Context, p *Playlist) error {
 	if p.Name == "" || len(p.Description) > 8192 {
 		return fmt.Errorf("歌单名称或简介无效：%w", ErrInvalid)
 	}
-	if p.Kind != "manual" && p.Kind != "smart" {
+	if p.Kind != "manual" && p.Kind != "external" && p.Kind != "game" && p.Kind != "smart" {
 		return ErrInvalid
 	}
 	if p.Rules.YearFrom < 0 || p.Rules.YearTo < 0 || p.Rules.YearFrom > 9999 || p.Rules.YearTo > 9999 || p.Rules.YearTo > 0 && p.Rules.YearFrom > p.Rules.YearTo || p.Rules.UnheardDays < 0 || p.Rules.UnheardDays > 36500 || p.Rules.Limit < 0 || p.Rules.Limit > 10000 || len(p.Rules.Artist) > 4096 || len(p.Rules.Genre) > 4096 {
@@ -217,8 +217,8 @@ func (s *Store) SavePlaylist(ctx context.Context, id string, in PlaylistInput) (
 		p.TrackIDs = *in.TrackIDs
 	}
 	if in.AddTrackIDs != nil {
-		if id == "" || p.Kind != "manual" || in.TrackIDs != nil {
-			return Playlist{}, fmt.Errorf("追加曲目仅适用于现有普通歌单，且不能同时替换曲目列表：%w", ErrInvalid)
+		if id == "" || p.Kind == "smart" || in.TrackIDs != nil {
+			return Playlist{}, fmt.Errorf("追加曲目仅适用于现有非智能歌单，且不能同时替换曲目列表：%w", ErrInvalid)
 		}
 		seen := make(map[string]bool, len(p.TrackIDs))
 		for _, trackID := range p.TrackIDs {

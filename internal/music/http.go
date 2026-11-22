@@ -286,13 +286,13 @@ func (s *server) tracks(w http.ResponseWriter, r *http.Request) {
 			apiError(w, err)
 			return
 		}
-		manual := []Playlist{}
+		retained := []Playlist{}
 		for _, playlist := range playlists {
-			if playlist.Kind == "manual" {
-				manual = append(manual, playlist)
+			if playlist.Kind != "smart" {
+				retained = append(retained, playlist)
 			}
 		}
-		result["playlists"] = manual
+		result["playlists"] = retained
 	}
 	writeJSON(w, http.StatusOK, result)
 }

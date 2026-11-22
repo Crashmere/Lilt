@@ -2,6 +2,7 @@ import { useState, type CSSProperties, type ReactNode } from 'react';
 import { Check, Disc3, GripVertical, Heart, LoaderCircle, MoreHorizontal, Music2, Pause, Pencil, Play, Plus, Settings2, X } from 'lucide-react';
 import type { Player } from './player';
 import type { PlaylistMemberships } from './playlist-memberships';
+import { PLAYLIST_KINDS, PLAYLIST_LABELS } from './playlist-kinds';
 import type { FilterColumn } from './library-filters';
 import type { Album, Playlist, Track } from './types';
 import { AlbumLink, TrackCredits, type CollectionNavigation } from './track-links';
@@ -36,13 +37,18 @@ export function AlbumCards({ albums, onOpen, onPlay }: { albums: Album[]; onOpen
   </article>)}</div>;
 }
 
-export function PlaylistCards({ playlists, onOpen, onCreate }: { playlists: Playlist[]; onOpen: (playlist: Playlist) => void; onCreate: () => void }) {
-  return <div className="playlist-grid">{playlists.map(playlist => <button key={playlist.id} className="playlist-card" onClick={() => onOpen(playlist)}><Artwork url={playlist.coverUrl} title={playlist.name} /><div><span className="eyebrow">{playlist.kind === 'smart' ? '智能歌单' : '歌单'}</span><h3>{playlist.name}</h3><p>{playlist.trackIds.length} 首{playlist.description ? ` · ${playlist.description}` : ''}</p></div></button>)}<button className="playlist-create" onClick={onCreate}><Plus size={25} /><span>新建歌单</span></button></div>;
+export function PlaylistCards({ playlists, onOpen, empty = '还没有歌单，请新建歌单' }: { playlists: Playlist[]; onOpen: (playlist: Playlist) => void; empty?: string }) {
+  const groups = PLAYLIST_KINDS.map(kind => ({ kind, items: playlists.filter(playlist => playlist.kind === kind) })).filter(group => group.items.length > 0);
+  if (!groups.length) return <Empty title={empty} />;
+  return <div className="playlist-groups">{groups.map(({ kind, items }) => <section className="playlist-section" key={kind} aria-labelledby={`playlist-kind-${kind}`}>
+    <div className="section-heading"><h2 id={`playlist-kind-${kind}`}>{PLAYLIST_LABELS[kind]}</h2><span className="muted">{items.length} 个歌单</span></div>
+    <div className="playlist-grid">{items.map(playlist => <button key={playlist.id} className="playlist-card" onClick={() => onOpen(playlist)}><Artwork url={playlist.coverUrl} title={playlist.name} /><div><h3>{playlist.name}</h3><p>{playlist.trackIds.length} 首{playlist.description ? ` · ${playlist.description}` : ''}</p></div></button>)}</div>
+  </section>)}</div>;
 }
 
 export function TrackPlaylists({ playlists = [], onOpen }: { playlists?: Playlist[]; onOpen: () => void }) {
   if (!playlists.length) return null;
-  const names = playlists.map(playlist => `${playlist.name}${playlist.kind === 'smart' ? '（智能歌单）' : ''}`).join('、');
+  const names = playlists.map(playlist => `${playlist.name}${playlist.kind !== 'manual' ? `（${PLAYLIST_LABELS[playlist.kind]}）` : ''}`).join('、');
   return <button className="playlist-memberships" title={names} aria-label={`查看所属歌单：${names}`} aria-haspopup="dialog" onClick={onOpen}>
     <span className="playlist-chips">{playlists.slice(0, 2).map(playlist => <span className={`playlist-chip ${playlist.kind === 'smart' ? 'smart' : ''}`} key={playlist.id}>{playlist.kind === 'smart' && <Settings2 size={11} aria-hidden="true" />}<span>{playlist.name}</span></span>)}</span>
     {playlists.length > 2 && <span className="playlist-overflow">+{playlists.length - 2}</span>}

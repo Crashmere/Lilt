@@ -620,6 +620,13 @@
   .lyrics-panel>header{gap:8px}
 }
 
+.playlist-groups{display:grid;gap:36px}
+.playlist-section .section-heading{margin-bottom:18px}
+.playlist-section h2{font-size:24px}
+.playlist-section .section-heading>span{font-size:12px}
+.playlist-kind-options{flex-wrap:wrap}
+.playlist-kind-options button{white-space:nowrap}
+@media(max-width:480px){.playlist-kind-options button{flex-basis:calc(50% - 4px)}}
 .filter-table-scroll{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;padding-bottom:6px}
 .filter-table-content{min-width:calc(680px + 140px * var(--filter-column-count))}
 .track-list.filtering .track-heading,.track-list.filtering .track-row{grid-template-columns:22px 26px minmax(180px,1.5fr) minmax(100px,1fr) minmax(125px,1fr) repeat(var(--filter-column-count),minmax(130px,1fr)) 45px 96px;gap:10px}
