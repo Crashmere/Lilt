@@ -1,4 +1,4 @@
-import type { Library } from './types';
+import type { Library, Track } from './types';
 
 export const BASE = '/lilt/';
 export const API = `${BASE}api`;
@@ -65,4 +65,5 @@ export function json<T>(path: string, method: string, data?: unknown): Promise<T
   return request<T>(path, { method, headers: { 'Content-Type': 'application/json' }, body: data === undefined ? undefined : JSON.stringify(data) });
 }
 export const trackURL = (id: string, suffix: string) => `${API}/tracks/${encodeURIComponent(id)}/${suffix}`;
+export const streamURL = (track: Track, buffering: boolean) => trackURL(track.id, `stream?quality=original${buffering && track.audioVersion ? `&v=${track.audioVersion}&buffer=1` : ''}`);
 export const messageOf = (error: unknown) => error instanceof Error ? (error.message === 'Failed to fetch' ? '无法连接，请检查网络后重试。' : error.message) : '操作失败，请重试。';

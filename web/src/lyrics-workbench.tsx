@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { Check, Download, LockKeyhole, Pause, Play, Plus, Sparkles, Trash2, Undo2, Redo2, Upload } from 'lucide-react';
 import './lyrics-workbench.css';
 import { Modal } from './components';
@@ -10,6 +10,7 @@ import { useActiveLyric } from './lyrics';
 import { loadLyricDraft, removeLyricDraft, saveLyricDraft } from './storage';
 import { downloadLyrics, importLyrics, moveLine, parseDocument, readTime, serializeDocument, timeLabel, type EditLine, type LyricDocument, type LyricWord } from './lyric-document';
 import { LyricWaveform } from './lyric-waveform';
+import { useWorkbenchAudio } from './workbench-audio';
 
 type Result = { id: string; time: number | null; words?: LyricWord[]; confidence: number; warning?: string };
 type Job = { id: string; kind: 'align' | 'waveform'; status: 'queued' | 'running' | 'done' | 'error' | 'cancelled'; phase: string; progress: number; audioVersion: string; draftVersion: string; results?: Result[]; peaks?: number[]; error?: string };
@@ -43,32 +44,45 @@ export function LyricsWorkbench({ track, player, onClose, onSaved }: { track: Tr
   const [loop, setLoop] = useState(false);
   const [range, setRange] = useState<[number, number]>([0, Math.round(track.duration * 1000)]);
   const [rate, setRate] = useState(1);
+  const [followLyrics, setFollowLyrics] = useState(true);
   const [tools, setTools] = useState({ available: false, alignment: false });
   const [job, setJob] = useState<Job>();
   const [waveJob, setWaveJob] = useState<Job>();
   const [peaks, setPeaks] = useState<number[]>([]);
+  const [audioTrack, setAudioTrack] = useState(track);
   const [modelInput, setModelInput] = useState<ModelInput>();
   const [find, setFind] = useState('');
   const [replacement, setReplacement] = useState('');
   const [serverCopy, setServerCopy] = useState<Track>();
   const fileInput = useRef<HTMLInputElement>(null);
   const lineInputs = useRef(new Map<string, HTMLTextAreaElement>());
+  const rowList = useRef<HTMLDivElement>(null);
+  const manualScrollUntil = useRef(0);
   const saving = useRef(false);
   const mounted = useRef(true);
   const latestPlayer = useRef(player); latestPlayer.current = player;
+  const preload = useWorkbenchAudio(audioTrack, (target, url) => latestPlayer.current.setAuditionSource(target, url));
+  const waveformPeaks = preload.peaks || peaks;
   const latestDraft = useRef<Draft>({ doc, base }); latestDraft.current = { doc, base, raw, source, job, modelInput };
   const draftKey = useRef(`${track.id}:${editorTab()}`);
-  const currentText = source ? raw : comparable(doc);
-  const dirty = currentText !== comparable(parseDocument(base.lyricsText));
+  const serialized = useMemo(() => comparable(doc), [doc]);
+  const baseline = useMemo(() => comparable(parseDocument(base.lyricsText)), [base.lyricsText]);
+  const currentText = source ? raw : serialized;
+  const dirty = currentText !== baseline;
   const chosen = doc.lines.filter(line => selected.has(line.id));
-  const timed = doc.lines.filter(line => line.time !== null && !line.translation).map(line => ({ time: (line.time! + doc.offset) / 1000, text: line.text })).sort((a, b) => a.time - b.time);
+  const timed = useMemo(() => doc.lines.filter(line => line.time !== null && !line.translation).map(line => ({ time: (line.time! + doc.offset) / 1000, text: line.text })).sort((a, b) => a.time - b.time), [doc]);
   const current = useActiveLyric(timed, player.position, player.getPosition, player.playing && player.trackId === track.id);
-  const results = new Map(job?.results?.map(result => [result.id, result]));
-  const modelOrder = modelInput ? doc.lines.filter(line => modelInput.lines.some(old => old.id === line.id)).map(line => line.id) : [];
-  const stale = !!modelInput && (source && raw !== comparable(doc) || modelInput.audioVersion !== base.audioVersion || modelInput.offset !== doc.offset || modelInput.lines.some((old, index) => {
-    const line = doc.lines.find(item => item.id === old.id), result = results.get(old.id);
-    return !line || modelOrder[index] !== old.id || line.text !== old.text || line.pronunciation !== old.pronunciation || !!line.locked !== !!old.locked || line.time !== old.time && line.time !== (result?.time == null ? undefined : Math.max(0, result.time - doc.offset));
-  }));
+  const results = useMemo(() => new Map(job?.results?.map(result => [result.id, result])), [job?.results]);
+  const stale = useMemo(() => {
+    if (!modelInput) return false;
+    const ids = new Set(modelInput.lines.map(line => line.id));
+    const order = doc.lines.filter(line => ids.has(line.id)).map(line => line.id);
+    const lines = new Map(doc.lines.map(line => [line.id, line]));
+    return source && raw !== serialized || modelInput.audioVersion !== base.audioVersion || modelInput.offset !== doc.offset || modelInput.lines.some((old, index) => {
+      const line = lines.get(old.id), result = results.get(old.id);
+      return !line || order[index] !== old.id || line.text !== old.text || line.pronunciation !== old.pronunciation || !!line.locked !== !!old.locked || line.time !== old.time && line.time !== (result?.time == null ? undefined : Math.max(0, result.time - doc.offset));
+    });
+  }, [modelInput, doc, results, source, raw, serialized, base.audioVersion]);
 
   function change(next: LyricDocument | ((current: LyricDocument) => LyricDocument)) {
     setHistory(old => {
@@ -82,7 +96,29 @@ export function LyricsWorkbench({ track, player, onClose, onSaved }: { track: Tr
   function undo() { setHistory(old => old.past.length ? { past: old.past.slice(0, -1), doc: old.past.at(-1)!, future: [old.doc, ...old.future] } : old); }
   function redo() { setHistory(old => old.future.length ? { past: [...old.past, old.doc], doc: old.future[0], future: old.future.slice(1) } : old); }
   async function act(action: () => void | Promise<void>) { setError(''); try { await action(); } catch (failure) { setError(messageOf(failure)); } }
-  function audition(time: number) { player.startAudition(track, Math.max(0, time / 1000)); player.setPlaybackRate(rate); }
+  function audition(time: number) { player.startAudition(audioTrack, Math.max(0, time / 1000)); player.setPlaybackRate(rate); }
+  function revealLine(id: string) {
+    const list = rowList.current, row = lineInputs.current.get(id)?.closest('.lyric-edit-row');
+    if (!list || !row) return;
+    const bounds = list.getBoundingClientRect(), target = row.getBoundingClientRect();
+    if (target.top < bounds.top + 8 || target.bottom > bounds.bottom - 8) list.scrollBy({ top: target.top - bounds.top - list.clientHeight * 0.35, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  }
+  const toggleAudition = useEffectEvent(() => {
+    if (!ready || busy) return;
+    const control = latestPlayer.current;
+    if (control.auditionTrack?.id === track.id && control.playing) control.pause();
+    else audition(control.auditionTrack?.id === track.id ? control.getPosition() * 1000 : range[0]);
+  });
+  useEffect(() => {
+    latestPlayer.current.setAuditionToggle(toggleAudition);
+    return () => latestPlayer.current.setAuditionToggle();
+  }, []);
+  useEffect(() => {
+    if (!followLyrics || !player.playing || player.trackId !== track.id || current < 0 || Date.now() < manualScrollUntil.current) return;
+    if (document.activeElement?.closest('.lyric-edit-row input,.lyric-edit-row textarea')) return;
+    const line = doc.lines.find(item => item.time !== null && (item.time + doc.offset) / 1000 === timed[current]?.time);
+    if (line) revealLine(line.id);
+  }, [current, player.playing, followLyrics]);
   function mark() {
     if (player.trackId !== track.id) { setError('请先试听当前曲目'); return; }
     const line = chosen[0]; if (!line) return;
@@ -91,7 +127,7 @@ export function LyricsWorkbench({ track, player, onClose, onSaved }: { track: Tr
     update(line.id, old => moveLine(old, time));
     const index = doc.lines.findIndex(item => item.id === line.id);
     const following = doc.lines.slice(index + 1).find(item => !item.translation && !item.credit);
-    if (following) setSelected(new Set([following.id]));
+    if (following) { setSelected(new Set([following.id])); if (followLyrics) revealLine(following.id); }
   }
   function switchSource() { if (source) { change(parseDocument(raw)); setSource(false); } else { setRaw(comparable(doc)); setSource(true); } }
   function shift(amount: number) {
@@ -164,7 +200,7 @@ export function LyricsWorkbench({ track, player, onClose, onSaved }: { track: Tr
     }
     setBase({ lyricsText: latest.lyricsText || '', lyricsVersion: latest.lyricsVersion || '', audioVersion: latest.audioVersion || '' });
     if (!keepDraft) { change(parseDocument(latest.lyricsText || '')); setSource(false); }
-    if (latest.audioVersion !== base.audioVersion) { player.endAudition(); setPeaks([]); setWaveJob(undefined); }
+    if (latest.audioVersion !== base.audioVersion) { player.endAudition(); setPeaks([]); setWaveJob(undefined); setAudioTrack(latest); setRange([0, Math.round(latest.duration * 1000)]); }
     setJob(undefined); setModelInput(undefined); setServerCopy(undefined); setError('');
     setNotice(keepDraft ? '已保留草稿，请确认内容后保存' : '已载入服务器歌词');
   }
@@ -236,7 +272,7 @@ export function LyricsWorkbench({ track, player, onClose, onSaved }: { track: Tr
       <section className="lyric-edit-pane">
         {source ? <textarea className="lyric-source" aria-label="歌词源码" spellCheck={false} value={raw} onChange={event => setRaw(event.target.value)} /> : <>
           <div className="lyric-edit-tools"><label><input type="checkbox" aria-label="选择全部歌词" checked={doc.lines.length > 0 && doc.lines.every(line => selected.has(line.id))} onChange={event => setSelected(new Set(event.target.checked ? doc.lines.map(line => line.id) : []))} />全选</label><button className="text-button" onClick={mark}>打点并下一行 <kbd>K</kbd></button><button className="text-button" onClick={() => shift(-step)}>提前</button><button className="text-button" onClick={() => shift(step)}>延后</button><select aria-label="调整步长" value={step} onChange={event => setStep(Number(event.target.value))}>{[10, 50, 100, 200, 500, 1000].map(value => <option key={value} value={value}>{value} ms</option>)}</select><button className="text-button" onClick={() => change(old => ({ ...old, lines: old.lines.map(line => selected.has(line.id) && !line.locked ? moveLine(line, null) : line) }))}>清除时间</button></div>
-          <div className="lyric-row-list">{doc.lines.map((line, index) => {
+          <div className="lyric-row-list" ref={rowList} onWheel={() => { manualScrollUntil.current = Date.now() + 4000; }} onTouchMove={() => { manualScrollUntil.current = Date.now() + 4000; }}>{doc.lines.map((line, index) => {
             const result = results.get(line.id), active = line.time !== null && timed[current]?.time === (line.time + doc.offset) / 1000 && player.trackId === track.id;
             const warning = line.time !== null && (line.time + doc.offset > track.duration * 1000 || index > 0 && doc.lines[index - 1].time !== null && line.time < doc.lines[index - 1].time!) ? '时间顺序或范围需检查' : '';
             return <div key={line.id} className={`lyric-edit-row ${selected.has(line.id) ? 'selected' : ''} ${active ? 'playing' : ''}`}>
@@ -249,7 +285,7 @@ export function LyricsWorkbench({ track, player, onClose, onSaved }: { track: Tr
               {(result || warning) && <div className="lyric-candidate">{warning || result?.warning}{result?.time != null && <><span>建议 {timeLabel(result.time)}</span><button className="text-button" disabled={stale} onClick={() => accept([line.id])}><Check size={12} />应用</button><button className="text-button" onClick={() => audition(Math.max(0, result.time! - 1500))}>试听</button></>}</div>}
             </div>;
           })}</div>
-          <div className="lyric-structure-tools"><button className="text-button" onClick={() => { const line = { id: identity(), text: '', time: null }; change(old => ({ ...old, lines: [...old.lines, line] })); setSelected(new Set([line.id])); }}><Plus size={14} />加行</button><button className="text-button" disabled={chosen.length !== 1} onClick={() => {
+          <div className="lyric-structure-tools"><label className="lyric-follow"><input type="checkbox" checked={followLyrics} onChange={event => setFollowLyrics(event.target.checked)} />跟随播放</label><button className="text-button" onClick={() => { const line = { id: identity(), text: '', time: null }; change(old => ({ ...old, lines: [...old.lines, line] })); setSelected(new Set([line.id])); }}><Plus size={14} />加行</button><button className="text-button" disabled={chosen.length !== 1} onClick={() => {
             const line = chosen[0], at = lineInputs.current.get(line.id)?.selectionStart || Math.floor(line.text.length / 2);
             const next = { id: identity(), text: line.text.slice(at), time: null };
             change(old => ({ ...old, lines: old.lines.flatMap(item => item.id === line.id ? [{ ...item, text: item.text.slice(0, at), words: undefined }, next] : [item]) }));
@@ -261,13 +297,14 @@ export function LyricsWorkbench({ track, player, onClose, onSaved }: { track: Tr
         <div className="lyric-replace"><input aria-label="查找歌词" placeholder="查找" value={find} onChange={event => setFind(event.target.value)} /><input aria-label="替换文字" placeholder="替换为" value={replacement} onChange={event => setReplacement(event.target.value)} /><button className="text-button" disabled={!find} onClick={() => { if (source) setRaw(raw.replaceAll(find, replacement)); else change(old => ({ ...old, lines: old.lines.map(line => line.text.includes(find) ? { ...line, text: line.text.replaceAll(find, replacement), words: undefined } : line) })); }}>全部替换</button></div>
       </section>
       <section className="lyric-calibration-pane">
-        <div className="lyric-transport"><button className="round-play" aria-label="校准试听" onClick={() => { if (player.auditionTrack?.id === track.id && player.playing) player.pause(); else audition(player.auditionTrack?.id === track.id ? player.getPosition() * 1000 : range[0]); }}>{player.auditionTrack?.id === track.id && player.playing ? <Pause size={19} /> : <Play size={19} />}</button><span>{timeLabel(player.trackId === track.id ? player.position * 1000 : 0)}</span><select aria-label="试听速度" value={rate} onChange={event => { const next = Number(event.target.value); setRate(next); if (player.auditionTrack?.id === track.id) player.setPlaybackRate(next); }}>{[0.5, 0.75, 1, 1.25].map(value => <option key={value} value={value}>{value}×</option>)}</select><button className="text-button" disabled={!player.auditionTrack} onClick={() => player.endAudition()}>结束试听</button></div>
+        <div className="lyric-transport"><button className="round-play" aria-label="校准试听" onClick={toggleAudition}>{player.auditionTrack?.id === track.id && player.playing ? <Pause size={19} /> : <Play size={19} />}</button><span>{timeLabel(player.trackId === track.id ? player.position * 1000 : 0)}</span><select aria-label="试听速度" value={rate} onChange={event => { const next = Number(event.target.value); setRate(next); if (player.auditionTrack?.id === track.id) player.setPlaybackRate(next); }}>{[0.5, 0.75, 1, 1.25].map(value => <option key={value} value={value}>{value}×</option>)}</select><button className="text-button" disabled={!player.auditionTrack} onClick={() => player.endAudition()}>结束试听</button></div>
         <div className="lyric-range"><label>A<TimeInput label="选段开始时间" value={range[0]} onChange={value => { if (value !== null) setRange([Math.max(0, value), range[1]]); }} /></label><label>B<TimeInput label="选段结束时间" value={range[1]} onChange={value => { if (value !== null) setRange([range[0], Math.min(value, track.duration * 1000)]); }} /></label><label><input type="checkbox" checked={loop} onChange={event => { setLoop(event.target.checked); if (range[1] <= range[0]) setError('B 必须晚于 A'); }} />循环</label><button className="text-button" onClick={() => {
           const times = chosen.filter(line => line.time !== null).map(line => line.time! + doc.offset).sort((a, b) => a - b); if (!times.length) return;
           const next = doc.lines.find(line => line.time !== null && line.time + doc.offset > times.at(-1)!);
           setRange([Math.max(0, times[0] - 1500), next?.time !== null && next?.time !== undefined ? next.time + doc.offset : track.duration * 1000]);
         }}>按所选行设范围</button></div>
-        {peaks.length > 0 ? <LyricWaveform peaks={peaks} duration={track.duration * 1000} lines={source ? [] : doc.lines} offset={doc.offset} selected={selected} position={player.trackId === track.id ? player.position * 1000 : 0} onMove={(id, time) => { if (ready && !busy && !source) update(id, line => moveLine(line, time)); }} onSeek={time => { if (ready && !busy) audition(time); }} /> : <div className="lyric-wave-empty"><button className="button secondary" disabled={!tools.available || activeJob(waveJob)} onClick={() => { void act(() => submit('waveform')); }}>{activeJob(waveJob) ? waveJob?.phase : '加载波形'}</button>{waveJob?.error && <p className="error-text">{waveJob.error}</p>}</div>}
+        <div className="lyric-audio-status" role="status">{preload.phase === 'loading' ? <><progress max={1} value={preload.progress} /><span>加载全曲 {Math.round(preload.progress * 100)}%</span></> : preload.phase === 'ready' ? <span>全曲已加载</span> : <><span>{preload.message}</span>{preload.phase === 'error' && <button className="text-button" onClick={preload.retry}>重试</button>}</>}</div>
+        {waveformPeaks.length > 0 ? <LyricWaveform peaks={waveformPeaks} duration={audioTrack.duration * 1000} lines={source ? [] : doc.lines} offset={doc.offset} selected={selected} position={player.trackId === track.id ? player.position * 1000 : 0} getPosition={() => player.trackId === track.id ? player.getPosition() * 1000 : 0} playing={player.trackId === track.id && player.playing} onMove={(id, time) => { if (ready && !busy && !source) update(id, line => moveLine(line, time)); }} onSeek={time => { if (ready && !busy) audition(time); }} /> : <div className="lyric-wave-empty">{preload.wave === 'pending' ? <span>{preload.phase === 'loading' ? '加载音频后生成波形' : '生成波形…'}</span> : <button className="button secondary" disabled={!tools.available || activeJob(waveJob)} onClick={() => { void act(() => submit('waveform')); }}>{activeJob(waveJob) ? waveJob?.phase : '服务器生成波形'}</button>}{waveJob?.error && <p className="error-text">{waveJob.error}</p>}</div>}
         <fieldset className="lyric-offset" disabled={source}><label>整体偏移<input type="number" aria-label="整体偏移毫秒" value={doc.offset} step={step} onChange={event => { const value = Number(event.target.value); if (Number.isFinite(value)) change(old => ({ ...old, offset: value })); }} /><span>ms</span></label><button className="text-button" onClick={() => change(old => ({ ...old, offset: old.offset - step }))}>提前</button><button className="text-button" onClick={() => change(old => ({ ...old, offset: old.offset + step }))}>延后</button><button className="text-button" onClick={interpolate}>锚点校准</button></fieldset>
         <div className="lyric-preview" aria-label="歌词试听预览">{player.trackId === track.id && current >= 0 ? <>{timed.slice(Math.max(0, current - 1), current + 2).map((line, index) => <p key={`${line.time}-${index}`} className={line.time === timed[current].time ? 'active' : ''}>{line.text || '♪'}</p>)}{doc.lines.filter(line => line.translation && line.time !== null && (line.time + doc.offset) / 1000 === timed[current].time).map(line => <p className="translation" key={line.id}>{line.text}</p>)}</> : <p>试听后预览歌词</p>}</div>
         <div className="lyric-model"><h3><Sparkles size={17} />模型校准 <small>中文歌声</small></h3><div className="lyric-model-actions"><button className="button secondary" disabled={source || !tools.alignment || activeJob(job)} onClick={() => { void act(() => submit('align', true)); }}>校准整首</button><button className="button secondary" disabled={source || !tools.alignment || activeJob(job) || !chosen.length} onClick={() => { void act(() => submit('align')); }}>校准所选行</button></div>{!tools.alignment && <p className="muted">模型服务未就绪，可继续人工校准。</p>}{activeJob(job) && <div className="lyric-job-progress"><progress max={1} value={job!.progress} /><span>{job!.phase}</span><button className="text-button" onClick={() => { void act(async () => { const result = await request<{ job: Job }>(`/lyrics-jobs/${job!.id}`, { method: 'DELETE' }); setJob(result.job); }); }}>取消</button></div>}{job?.status === 'error' && <p className="error-text">{job.error}</p>}{job?.status === 'done' && <div className="lyric-model-review"><span>{stale ? '草稿已变更，请重新校准' : `${job.results?.length || 0} 行候选，应用后试听确认`}</span><button className="text-button" disabled={stale} onClick={() => accept(job.results?.map(item => item.id) || [])}>应用全部</button><button className="text-button" onClick={() => { setJob(undefined); setModelInput(undefined); }}>丢弃候选</button></div>}</div>

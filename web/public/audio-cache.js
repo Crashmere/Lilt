@@ -7,6 +7,7 @@ const AUDIO_FIRST = 128 * 1024;
 const AUDIO_NEXT_RATE = 64 * 1024;
 const audioEntries = new Map();
 const audioClients = new Map();
+const audioEditors = new Map();
 let audioStorage = Promise.resolve();
 let audioNetwork = Promise.resolve();
 let audioPumping;
@@ -32,8 +33,18 @@ function audioStates() {
   return [...audioClients.values()].filter(state => Date.now() - state.at <= 15000);
 }
 
+function audioEditorStates() {
+  return [...audioEditors.values()].filter(state => Date.now() - state.at <= 15000);
+}
+
+function audioRequested(url) {
+  // Editor preloading is explicit demand, independent of audible playback intent.
+  return audioEditorStates().some(state => state.url === url)
+    || audioStates().some(state => state.playing && (state.current === url || state.next === url && state.prefetch));
+}
+
 function audioWanted(entry) {
-  return audioStates().some(state => state.current === entry.url || state.next === entry.url);
+  return audioEditorStates().some(state => state.url === entry.url) || audioStates().some(state => state.current === entry.url || state.next === entry.url);
 }
 
 function audioRetain(size) {
@@ -80,7 +91,8 @@ function audioPlan(entry) {
   const states = audioStates();
   const current = states.filter(state => state.current === entry.url && state.playing);
   const next = states.filter(state => state.next === entry.url && state.prefetch && state.playing);
-  if (!current.length && !next.length) return;
+  const editor = audioEditorStates().some(state => state.url === entry.url);
+  if (!current.length && !next.length && !editor) return;
   const urgent = current.some(state => state.seeking || state.ahead < 12);
   if (!urgent && (audioForeground || Date.now() < audioPageUntil)) return;
   let start = audioMissing(entry, 0);
@@ -94,12 +106,12 @@ function audioPlan(entry) {
   const rate = Math.max(16 * 1024, ...current.map(state => state.rate || entry.rate));
   const fullNext = next.some(state => state.complete);
   const nextLimit = Math.min(entry.size, Math.max(256 * 1024, entry.rate * 12) + AUDIO_FIRST);
-  if (!current.length && !fullNext && entry.received >= nextLimit) return;
-  const due = Math.max(entry.retryAt, urgent ? 0 : entry.paceAt);
-  const length = current.length ? AUDIO_CHUNK : Math.min(AUDIO_FIRST, fullNext ? AUDIO_FIRST : nextLimit - entry.received);
+  if (!current.length && !editor && !fullNext && entry.received >= nextLimit) return;
+  const due = Math.max(entry.retryAt, urgent || editor ? 0 : entry.paceAt);
+  const length = current.length || editor ? AUDIO_CHUNK : Math.min(AUDIO_FIRST, fullNext ? AUDIO_FIRST : nextLimit - entry.received);
   const { part } = audioPart(entry, start);
   return { entry, start, end: Math.min(entry.size - 1, start + length - 1, part ? part.start - 1 : entry.size - 1),
-    due, priority: urgent ? 0 : current.length ? 1 : 2, rate: urgent ? 0 : current.length ? rate * 1.25 : AUDIO_NEXT_RATE };
+    due, priority: urgent ? 0 : current.length || editor ? 1 : 2, rate: urgent || editor ? 0 : current.length ? rate * 1.25 : AUDIO_NEXT_RATE };
 }
 
 function audioWithNetwork(task) {
@@ -250,14 +262,14 @@ async function audioLoad(request, url) {
     }
     await caches.open(AUDIO_CACHE).then(cache => cache.delete(url)).catch(() => undefined);
   }
-  if (!audioStates().some(state => state.current === url && state.playing || state.next === url && state.prefetch && state.playing)) return { response: await fetch(request) };
+  if (!audioRequested(url)) return { response: await fetch(request) };
   let resolve, reject;
   const ready = new Promise((yes, no) => { resolve = yes; reject = no; });
   const download = audioWithNetwork(async () => {
     const started = Date.now();
     const abort = new AbortController();
     const start = Number(/^bytes=(\d+)-/.exec(request.headers.get('Range') || '')?.[1] || 0);
-    const current = audioStates().some(state => state.current === url && state.playing);
+    const current = audioEditorStates().some(state => state.url === url) || audioStates().some(state => state.current === url && state.playing);
     const length = current ? AUDIO_CHUNK : AUDIO_FIRST;
     const response = await fetch(url, { credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: AbortSignal.any([abort.signal, AbortSignal.timeout(45000)]), headers: { Range: `bytes=${start}-${start + length - 1}` } });
     if (!response.ok) { resolve({ response }); return; }
@@ -271,7 +283,7 @@ async function audioLoad(request, url) {
     const entry = { url, size, etag, rate, received: 0, complete: false, initializing: true, abort, headers: response.headers, parts: [], consumers: new Set(), waiters: new Set(), at: Date.now(), failures: 0, retryAt: 0, paceAt: current ? 0 : started + length / AUDIO_NEXT_RATE * 1000 };
     audioActive = entry;
     resolve({ entry, download });
-    if (!audioStates().some(state => state.playing && (state.current === url || state.next === url && state.prefetch))) abort.abort();
+    if (!audioRequested(url)) abort.abort();
     try { await audioRead(entry, response, start, Math.min(size - 1, start + length - 1)); }
     catch (error) { if (!abort.signal.aborted) { if (error.terminal) entry.error = error; entry.failures = 1; entry.retryAt = Date.now() + 1000; } }
     finally { entry.initializing = false; entry.abort = undefined; audioActive = undefined; audioWake(entry); }
@@ -320,18 +332,24 @@ self.addEventListener('message', event => {
   if (data?.type === 'lilt-audio-reset') {
     const entry = audioEntries.get(audioURL(data.url));
     if (entry && !entry.loading && !entry.complete) { entry.error = undefined; entry.failures = 0; audioWake(entry); }
+  } else if (data?.type === 'lilt-audio-editor' && event.source?.id) {
+    const url = audioURL(data.url);
+    if (url) audioEditors.set(event.source.id, { url, at: Date.now() });
+    else audioEditors.delete(event.source.id);
+    for (const [id, state] of audioEditors) if (Date.now() - state.at > 15000) audioEditors.delete(id);
+    event.ports[0]?.postMessage({ ready: true });
   } else if (data?.type === 'lilt-audio-state' && event.source?.id) {
     audioClients.set(event.source.id, { current: audioURL(data.current), next: audioURL(data.next), prefetch: !!data.prefetch,
       playing: !!data.playing, ahead: Math.max(0, Number(data.ahead) || 0), rate: Math.max(0, Number(data.rate) || 0), complete: !!data.complete, seeking: !!data.seeking, at: Date.now() });
     for (const [id, state] of audioClients) if (Date.now() - state.at > 15000) audioClients.delete(id);
-    if (audioActive) {
-      const plan = audioActive.initializing
-        ? audioStates().some(state => state.playing && (state.current === audioActive.url || state.next === audioActive.url && state.prefetch))
-        : audioPlan(audioActive);
-      if (!plan || plan.priority === 2 && [...audioEntries.values()].some(entry => audioPlan(entry)?.priority === 0)) audioActive.abort?.abort();
-    }
-    for (const entry of audioEntries.values()) if (!entry.loading) audioWake(entry);
   } else return;
+  if (audioActive) {
+    const plan = audioActive.initializing ? audioRequested(audioActive.url) : audioPlan(audioActive);
+    const urgentElsewhere = audioStates().some(state => state.playing && state.current && state.current !== audioActive.url && (state.seeking || state.ahead < 12));
+    const activeUrgent = audioStates().some(state => state.playing && state.current === audioActive.url && (state.seeking || state.ahead < 12));
+    if (!plan || urgentElsewhere && !activeUrgent) audioActive.abort?.abort();
+  }
+  for (const entry of audioEntries.values()) if (!entry.loading) audioWake(entry);
   event.waitUntil(audioPump());
 });
 

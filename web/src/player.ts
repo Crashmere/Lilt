@@ -1,5 +1,5 @@
 import { useEffect, useEffectEvent, useRef, useState } from 'react';
-import { isTransient, trackURL } from './api';
+import { isTransient, streamURL } from './api';
 import { recordHistory } from './storage';
 import type { PlayerState, Track } from './types';
 import { identity, readLocal, writeLocal } from './utils';
@@ -9,10 +9,6 @@ type Session = { id: string; trackId: string; seconds: number; lastPosition: num
 type Lease = { tabId: string; updatedAt: number; playing: boolean };
 const PREFETCH_START = 20;
 const PREFETCH_STOP = 12;
-
-function streamURL(track: Track, buffering: boolean): string {
-  return trackURL(track.id, `stream?quality=original${buffering && track.audioVersion ? `&v=${track.audioVersion}&buffer=1` : ''}`);
-}
 
 function shuffledIds(ids: string[]): string[] {
   const result = [...ids];
@@ -44,6 +40,8 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   const [conflict, setConflict] = useState(false);
   const [auditionTrack, setAuditionTrack] = useState<Track>();
   const auditionRef = useRef<Track | undefined>(undefined);
+  const auditionAudio = useRef<{ trackId: string; version?: string; url: string } | undefined>(undefined);
+  const auditionToggle = useRef<(() => void) | undefined>(undefined);
   const auditionReturn = useRef<{ position: number } | undefined>(undefined);
   const tabId = useRef(identity());
   const intent = useRef({ play: false, position: snapshot.position || 0 });
@@ -126,7 +124,7 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   function prepareSource(nextTrack: Track, start: number, autoplay: boolean, recovering = false): void {
     let audio = audioRef.current;
     if (!audio) return;
-    const url = streamURL(nextTrack, !!navigator.serviceWorker?.controller);
+    const url = playbackURL(nextTrack);
     if (recovering) navigator.serviceWorker?.controller?.postMessage({ type: 'lilt-audio-reset', url });
     const prepared = autoplay && start === 0 && warm.current?.url === url && !warm.current.audio.error ? warm.current : undefined;
     if (prepared) {
@@ -331,6 +329,19 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   function setPlaybackRate(rate: number): void {
     for (const ref of audioRefs) if (ref.current) { ref.current.playbackRate = rate; ref.current.preservesPitch = true; }
   }
+  function playbackURL(target: Track): string {
+    const local = auditionAudio.current;
+    return auditionRef.current?.id === target.id && local?.trackId === target.id && local.version === target.audioVersion
+      ? local.url : streamURL(target, !!navigator.serviceWorker?.controller);
+  }
+  function setAuditionSource(target: Track, url?: string): void {
+    if (url) { auditionAudio.current = { trackId: target.id, version: target.audioVersion, url }; return; }
+    const local = auditionAudio.current;
+    if (local?.trackId !== target.id || local.version !== target.audioVersion) return;
+    if (source.current.url === local.url) endAudition();
+    auditionAudio.current = undefined;
+  }
+  function setAuditionToggle(toggle?: () => void): void { auditionToggle.current = toggle; }
   function startAudition(target: Track, start = 0, takeover = false): void {
     if (!claim(takeover)) { pendingAudition.current = { target, start }; return; }
     pendingAudition.current = null; pendingStart.current = null;
@@ -339,7 +350,11 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
     intent.current = { play: true, position: start };
     setPlayRequested(true); setPosition(start); clearWarm(); cancelRecovery(); setFailure('');
     session.current = { id: identity(), trackId: target.id, seconds: 0, lastPosition: start };
-    if (source.current.url === streamURL(target, !!navigator.serviceWorker?.controller) && audioRef.current?.src && !audioRef.current.error) { audioRef.current.currentTime = start; tryPlay(); }
+    if (source.current.url === playbackURL(target) && audioRef.current?.src && !audioRef.current.error) {
+      initialSeekPending.current = audioRef.current.readyState < 1;
+      if (!initialSeekPending.current) audioRef.current.currentTime = start;
+      tryPlay();
+    }
     else prepareSource(target, start, true);
   }
   function endAudition(restore = true): void {
@@ -468,11 +483,13 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   const onPlaybackKey = useEffectEvent((event: KeyboardEvent) => {
     if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.ctrlKey || event.metaKey || event.altKey) return;
     const target = event.target;
-    if (target instanceof HTMLElement && (target.isContentEditable || target.closest('input:not([type="range"]), textarea, select, [role="textbox"]'))) return;
+    const inputs = auditionToggle.current && event.key === ' ' ? 'input:not([type="range"]):not([type="checkbox"]), textarea, select, [role="textbox"]' : 'input:not([type="range"]), textarea, select, [role="textbox"]';
+    if (target instanceof HTMLElement && (target.isContentEditable || target.closest(inputs))) return;
     if (event.shiftKey && event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
 
     switch (event.key) {
       case ' ':
+        if (auditionToggle.current) { event.preventDefault(); if (!event.repeat) auditionToggle.current(); break; }
         if (!queue.length && !auditionRef.current) return;
         event.preventDefault();
         if (!event.repeat) { if (playing || intent.current.play) pause(); else play(); }
@@ -546,7 +563,7 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
     audioRef, audioRefs, lyrics, snapshot, track, trackId, queue, position, playing, loading, playRequested, bufferedEnd, failure,
     conflict, setConflict,
     begin, play, pause, seek, getPosition, next, previous, enqueue, reorder, remove, removeTracks, setVolume,
-    startAudition, endAudition, setPlaybackRate, auditionTrack,
+    startAudition, endAudition, setAuditionSource, setAuditionToggle, setPlaybackRate, auditionTrack,
     toggleShuffle: () => setSnapshot(old => {
       if (old.shuffle || !old.queueIds.length) return { ...old, shuffle: !old.shuffle };
       return { ...old, shuffle: true, queueIds: [old.queueIds[old.queueIndex], ...shuffledIds(old.queueIds.filter((_, index) => index !== old.queueIndex))], queueIndex: 0 };
