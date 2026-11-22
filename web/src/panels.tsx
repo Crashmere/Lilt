@@ -135,9 +135,9 @@ export function LyricsPanel({ player, onClose, onEdit, onAdjust }: { player: Pla
       {(lyrics.lines.length > 0 || saveError?.trackId === player.trackId) && <footer className="lyrics-footer">
         {saveError?.trackId === player.trackId && <p className="error-text" role="alert">{saveError.message}</p>}
         {lyrics.lines.length > 0 && <div className="lyrics-offset" aria-busy={savingId === player.trackId}>
-          <button aria-label="歌词提前 0.5 秒" title="提前 0.5 秒" disabled={!!savingId || loading || !!error} onClick={() => { void adjust(-0.5); }}><ChevronLeft size={14} /></button>
+          <button aria-label="歌词提前 0.2 秒" title="提前 0.2 秒" disabled={!!savingId || loading || !!error} onClick={() => { void adjust(-0.2); }}><ChevronLeft size={14} /></button>
           <span role="status" aria-label="歌词偏移">{savingId === player.trackId ? '保存中…' : `${lyrics.offset > 0 ? '+' : ''}${lyrics.offset.toFixed(1)} 秒`}</span>
-          <button aria-label="歌词延后 0.5 秒" title="延后 0.5 秒" disabled={!!savingId || loading || !!error} onClick={() => { void adjust(0.5); }}><ChevronRight size={14} /></button>
+          <button aria-label="歌词延后 0.2 秒" title="延后 0.2 秒" disabled={!!savingId || loading || !!error} onClick={() => { void adjust(0.2); }}><ChevronRight size={14} /></button>
         </div>}
       </footer>}
     </> : <Empty title="尚未播放" text="选择曲目后查看歌词。" />}
