@@ -9,6 +9,7 @@ The runtime identity is `lilt`; local publication uses the restricted `lilt-depl
 | Path | Responsibility |
 | --- | --- |
 | `/opt/lilt/bin/lilt` | Static Linux amd64 Go program with embedded web assets |
+| `/opt/lilt/bin/lyrics-model/` | Optional root-owned isolated CPython runtime, pinned dependencies, SOFA source and Mandarin weights |
 | `/opt/lilt/bin/deploy-{ssh,release}.sh` | Root-owned fixed publication entry points |
 | `/opt/lilt/config/` | systemd unit, application Nginx location, private runtime environment, Portal declaration and source receipt |
 | `/opt/lilt/data/lilt.sqlite` | Tracks, metadata, file-hash recognition history, lyrics, playlists, uploads, listening sessions, retained legacy player snapshots and artwork ownership |
@@ -17,6 +18,7 @@ The runtime identity is `lilt`; local publication uses the restricted `lilt-depl
 | `/opt/lilt/data/uploads/` | Durable incomplete audio upload files |
 | `/opt/lilt/data/covers/` | Sanitized static JPEG artwork, including extracted embedded covers |
 | `/opt/lilt/data/playback/` | Source/quality-addressed compatible AAC/M4A files and descriptors |
+| `/opt/lilt/data/analysis/` | Disposable lyrics-job audio links, owned inference staging, worker lock and model runtime caches; receipts remain in SQLite settings |
 | `/opt/lilt/releases/` | Uploaded programs, previous programs, hashes, acceptance and rollback records |
 | `/opt/lilt/docs/` | Controlled maintenance documentation and provenance |
 
@@ -35,6 +37,37 @@ Startup initializes the explicitly selected new data directory and opens the sup
 Metadata writeback uses the existing NAS FFmpeg/FFprobe runtime and native container-tag writers without new packages or services. A `pendingMetadataWrite` settings receipt links validated staging, the new audio fingerprint, catalog metadata and cover changes. Startup completes that receipt before serving requests and removes abandoned edit staging. Read-only candidate checks reject an unfinished receipt; recover it with a compatible program before release or rollback. Existing audio is not rewritten in bulk on startup. New cover edits retain the embedded JPEG and display derivative, not another artwork upload object. Historical artwork ownership and explicit upload revisions remain intact.
 
 File-hash recognition uses the additive `track_fingerprints` table in the same catalog, covered by complete SQLite recovery. First history-aware startup seeds current hashes and backfills completed upload receipts only for tracks without explicit replacement revisions, where those receipts still identify the same audio lineage. It records `fingerprintHistoryVersion=1`; later starts do not repeat the legacy backfill. Existing track documents and audio files are unchanged by initialization. Unrecorded intermediate pre-upgrade metadata hashes cannot be reconstructed. Metadata publication maintains hash records atomically; explicit audio replacement resets only that track's recognition history. Older compatible programs can open the additive schema but do not maintain these mappings.
+
+## Optional Lyrics Worker
+
+The editor and native audition need no new runtime. Waveforms and model candidates use `lilt-lyrics.service` on `nas`, running the same Go executable as `lilt` with `lyrics-worker --data /opt/lilt/data --model-root /opt/lilt/bin/lyrics-model`. This is separate from the main 512 MiB Web service and from Aura/Curio's image environment. The committed unit caps CPU at two cores, memory at 4 GiB and tasks at 96, forbids network sockets, and allows writes only in Lilt data. One worker serializes jobs; inference releases its model/GPU process after each job. CUDA is selected when available, CPU otherwise; fewer than 2 GiB free CUDA memory produces a retryable error rather than competing for the remaining memory.
+
+The model service is optional and requires explicit administrator activation. Keep shared current-state aligned with actual `nas` installation; a Portal/source declaration is not evidence of an active unit. Install only after authorization, under the shared maintenance and Lilt deployment locks, without modifying shared release scripts or other applications' runtimes. Preserve existing runtime/unit paths; the installer rejects them rather than replacing them.
+
+Prepare a private bundle from the pushed source and these official artifacts:
+
+| Bundle file | Source and SHA-256 |
+| --- | --- |
+| `source.tar.gz` | [SOFA commit 9549c6a86d16019c817eefe4bb8183405da524cc](https://api.github.com/repos/qiuqiao/SOFA/tarball/9549c6a86d16019c817eefe4bb8183405da524cc); `a4b15d5a2e75f237b5ac919fb1b9d8619d40cf06f9d13a19abdba3da45e43b60` |
+| `model.zip` | [Mandarin singing v1.0.1 release asset](https://github.com/qiuqiao/SOFA/releases/download/v1.0.1/pretrained_mandarin_singing.zip); `63a8c6191fe6bdf29ac40af2955ef96816b8391596d94a4340e0f58dcf47f26e` |
+| `lyrics-model.lock` | Committed hash-pinned universal dependency lock generated from `deploy/lyrics-model.in` |
+| `lilt-lyrics.service` | Committed unit source |
+
+The extracted checkpoint becomes `model/model.ckpt`, SHA-256 `612cb69ef3503befc43286f0d90893b4b3ad959df07ed08799dba2bea69d2b51`. Weight training/provider information is retained from the archive; see [third-party notices](THIRD_PARTY_NOTICES.md#optional-lyrics-model). Weights are not bundled in the public Git repository or fetched by application requests.
+
+Run the committed installer as administrator on `nas`:
+
+```sh
+bash deploy/install-lyrics-model.sh /path/to/verified-bundle
+```
+
+It verifies source/weight hashes, uses installed `uv` to provision CPython 3.11.16 beneath the model root, creates a dedicated venv, syncs the pinned dependencies with required hashes, and smoke-loads the checkpoint on CPU. No global Python packages, host CUDA toolkit, build runtimes or containers are installed. It installs the unit in `/opt/lilt/config/`, links it through systemd, and enables it without starting it. The next normal local Lilt release starts the worker through `lilt.service.wants`; `PartOf` and `Requires` stop/restart it with the main service. Provision before that release so the new CLI and `analysis/` directory are available when it starts.
+
+After installation, validate one synthetic job on an isolated `nas` catalog under `lilt`, verifying actual CUDA progress, sandbox access and cleanup without writing owner tracks. Then verify the production worker heartbeat with read-only requests, main health, authentication rejection and the Portal receipt. No performance or real-song accuracy claim follows merely from loading the checkpoint. If model preparation fails, preserve and inspect the partially created runtime; do not rerun initialization over it.
+
+For worker diagnosis, inspect `journalctl -u lilt-lyrics` and `/api/lyrics-tools`. Stop only this worker to inspect analysis state. Running jobs become retryable errors on worker restart, queued snapshots remain processable, and cancellation kills active inference plus its FFmpeg children. Startup removes only worker-owned orphan links/staging. Do not purge `analysis/` while jobs are queued/running. Removing only the worker leaves manual editing available. When rolling back to a program without `lyrics-worker`, stop/disable the worker and remove its main-service wants link first; do not delete its runtime or any originals.
+
+Full `nas` recovery captures the complete SQLite catalog and application data tree, including analysis state. Model binaries/dependencies are reconstructed from this manifest rather than treated as owner data. Runtime reconstruction and restoration remain separate from browser controls.
 
 ## Uploads, Media and Browser Access
 

@@ -15,7 +15,7 @@ export function matches(track: Track, query: string): boolean {
 export function identity(): string { return globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`; }
 export function readLocal<T>(key: string, fallback: T): T { try { return JSON.parse(localStorage.getItem(key) || 'null') ?? fallback; } catch { return fallback; } }
 export function writeLocal(key: string, value: unknown): void { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* Storage can be unavailable in private browsing. */ } }
-export type LyricLine = { time: number; text: string };
+export type LyricLine = { time: number; text: string; secondary?: string[]; words?: { time: number; text: string }[] };
 const lyricOffsetPattern = /\[offset:([+-]?\d+)\]/i;
 const lyricTimestampPattern = /\[(\d+):(\d{2})(?:[.:](\d+))?\]/g;
 const lyricMetadataPattern = /^\[(?:ar|ti|al|by|offset|length|re|ve):[^\]]*\]\s*$/i;
@@ -58,8 +58,16 @@ export function parseLyrics(text: string): { lines: LyricLine[]; plain: string; 
     const body = value.replace(lyricTimestampPattern, '').replace(/<\d+:\d{2}(?:[.:]\d+)?>/g, '').trim();
     plain.push(body);
     if (value && times[0]?.index !== 0) fullyTimed = false;
-    for (const time of times) lines.push({ time: Number(time[1]) * 60 + Number(time[2]) + Number(`0.${time[3] || 0}`) + offset, text: body });
+    const tokens = [...value.matchAll(/<(\d+):(\d{2})(?:[.:](\d+))?>/g)];
+    const words = tokens.length ? tokens.map((token, i) => ({ time: Number(token[1]) * 60 + Number(token[2]) + Number(`0.${token[3] || 0}`) + offset, text: value.slice(token.index! + token[0].length, tokens[i + 1]?.index ?? value.length) })) : undefined;
+    for (const time of times) lines.push({ time: Number(time[1]) * 60 + Number(time[2]) + Number(`0.${time[3] || 0}`) + offset, text: body, words });
   }
   // A stray timestamp must not hide the rest of a plain or partially timed lyric.
-  return { lines: fullyTimed ? lines.sort((a, b) => a.time - b.time) : [], plain: plain.join('\n').trim(), offset };
+  const grouped: LyricLine[] = [];
+  if (fullyTimed) for (const line of lines.sort((a, b) => a.time - b.time)) {
+    const previous = grouped.at(-1);
+    if (previous?.time === line.time) previous.secondary = [...(previous.secondary || []), line.text];
+    else grouped.push(line);
+  }
+  return { lines: grouped, plain: plain.join('\n').trim(), offset };
 }

@@ -7,6 +7,7 @@ import { LibraryFilterModal } from './library-filter-modal';
 import { activeFilterColumns, EMPTY_FILTERS, matchesFilters, type LibraryFilters } from './library-filters';
 import { BulkEditor, LyricsPanel, PlayerBar, PlaylistEditor, QueuePanel, TrackEditor, UploadModal } from './panels';
 import { usePlayer } from './player';
+import { LyricsWorkbench } from './lyrics-workbench';
 import type { Reorder } from './reorder';
 import { indexPlaylistMemberships } from './playlist-memberships';
 import { PLAYLIST_LABELS } from './playlist-kinds';
@@ -52,6 +53,7 @@ export default function App() {
   const [uploadPlaylist, setUploadPlaylist] = useState<UploadPlaylist>();
   const [panel, setPanel] = useState<'queue' | 'lyrics' | null>(null);
   const [editing, setEditing] = useState<Track>();
+  const [lyricsEditing, setLyricsEditing] = useState<Track>();
   const [bulkEditing, setBulkEditing] = useState<Track[]>();
   const [trackActions, setTrackActions] = useState<Track>();
   const [albumActions, setAlbumActions] = useState<Album>();
@@ -132,6 +134,7 @@ export default function App() {
   async function run(action: () => Promise<void>) { try { await action(); } catch (error) { notify(messageOf(error)); } }
   async function favorite(track: Track) { await run(async () => { const result = await json<{ track: Track }>(`/tracks/${encodeURIComponent(track.id)}`, 'PATCH', { favorite: !track.favorite }); setLibrary(old => ({ ...old, tracks: old.tracks.map(item => item.id === track.id ? result.track : item) })); await refresh(); }); }
   async function openEditor(track: Track) { await run(async () => { const result = await request<{ track: Track }>(`/tracks/${encodeURIComponent(track.id)}`); setEditing(result.track); setTrackActions(undefined); }); }
+  async function openLyricsEditor(track: Track) { await run(async () => { const result = await request<{ track: Track }>(`/tracks/${encodeURIComponent(track.id)}`); setLyricsEditing(result.track); setTrackActions(undefined); }); }
   async function adjustLyrics(track: Track, seconds: number) {
     const path = `/tracks/${encodeURIComponent(track.id)}`;
     const current = await request<{ lyricsText: string; updatedAt: string }>(`${path}/lyrics`);
@@ -301,7 +304,8 @@ export default function App() {
     </main>
     <PlayerBar player={player} panel={panel} onQueue={() => showPanel('queue')} onLyrics={() => showPanel('lyrics')} onMore={setTrackActions} collectionNavigation={collectionNavigation} />
     {panel === 'queue' && <QueuePanel player={player} playlistMemberships={playlistMemberships} showPlaylists={setPlaylistTrack} onClose={() => setPanel(null)} onSave={ids => setPlaylistEditor({ ids })} onMore={setTrackActions} collectionNavigation={collectionNavigation} />}
-    {panel === 'lyrics' && <LyricsPanel player={player} onClose={() => setPanel(null)} onEdit={track => { void openEditor(track); }} onAdjust={adjustLyrics} />}
+    {panel === 'lyrics' && <LyricsPanel player={player} onClose={() => setPanel(null)} onEdit={track => { void openLyricsEditor(track); }} onAdjust={adjustLyrics} />}
+    {lyricsEditing && <LyricsWorkbench key={lyricsEditing.id} track={lyricsEditing} player={player} onClose={() => setLyricsEditing(undefined)} onSaved={track => { setLibrary(old => ({ ...old, tracks: old.tracks.map(item => item.id === track.id ? track : item) })); void refresh(); notify('歌词已写回歌曲文件'); }} />}
     {filtersOpen && view.kind === 'library' && <LibraryFilterModal value={libraryFilters} tracks={library.tracks} playlistMemberships={playlistMemberships} query={query} onClose={() => setFiltersOpen(false)} onApply={setLibraryFilters} />}
     {uploadOpen && <UploadModal uploader={uploader} playlist={uploadPlaylist} onClose={() => setUploadOpen(false)} onLocate={id => { void locateUpload(id); }} />}
     {editing && <TrackEditor key={editing.id} track={editing} onClose={() => setEditing(undefined)} onSaved={async track => { setLibrary(old => ({ ...old, tracks: old.tracks.map(item => item.id === track.id ? track : item) })); await refresh(); notify('已写回音频文件'); }} />}
@@ -321,8 +325,8 @@ export default function App() {
       </button>) : <p className="muted">未加入歌单</p>}
     </div></Modal>}
     {addPlaylistIds && <Modal title="加入歌单" onClose={() => setAddPlaylistIds(undefined)}><div className="modal-body add-playlist-list">{library.playlists.filter(item => item.kind !== 'smart').map(item => <button key={item.id} onClick={() => { void run(async () => { await json(`/playlists/${encodeURIComponent(item.id)}`, 'PUT', { name: item.name, description: item.description, trackIds: [...item.trackIds, ...addPlaylistIds.filter(id => !item.trackIds.includes(id))] }); await refresh(); setAddPlaylistIds(undefined); notify('已加入歌单'); }); }}><ListMusic size={18} /><span>{item.name}</span><Plus size={17} /></button>)}<button onClick={() => { setPlaylistEditor({ ids: addPlaylistIds }); setAddPlaylistIds(undefined); }}><Plus size={19} /><span>新建歌单</span></button></div></Modal>}
-    {trackActions && <Modal title={`${trackActions.title} · 更多功能`} onClose={() => setTrackActions(undefined)}><div className="modal-body track-action-menu"><button onClick={() => { void favorite(trackActions); setTrackActions(undefined); }}><Heart size={18} fill={trackActions.favorite ? 'currentColor' : 'none'} />{trackActions.favorite ? '取消收藏' : '收藏'}</button><button onClick={() => { player.enqueue([trackActions.id], true); setTrackActions(undefined); }}><Play size={18} />下一首播放</button><button onClick={() => { player.enqueue([trackActions.id]); setTrackActions(undefined); }}><ListMusic size={18} />加入播放队列</button><button onClick={() => { setAddPlaylistIds([trackActions.id]); setTrackActions(undefined); }}><Plus size={18} />加入歌单</button>{removePlaylistTracks && <button onClick={() => { void removePlaylistTracks([trackActions.id]); }}><X size={18} />从歌单移除</button>}<button onClick={() => { void openEditor(trackActions); }}><Settings2 size={18} />编辑曲目</button><a href={trackURL(trackActions.id, 'download')}><Download size={18} />下载原文件</a><button className="danger" onClick={() => { void moveToTrash(trackActions); }}><Trash2 size={18} />移入回收站</button></div></Modal>}
-    {player.conflict && <Modal title="其他标签页正在播放" onClose={() => player.setConflict(false)}><div className="modal-body"><p>在此标签页播放，将暂停另一个标签页。</p></div><footer className="modal-footer"><button className="button secondary" onClick={() => player.setConflict(false)}>取消</button><button className="button primary" onClick={() => player.play(true)}>在此播放</button></footer></Modal>}
+    {trackActions && <Modal title={`${trackActions.title} · 更多功能`} onClose={() => setTrackActions(undefined)}><div className="modal-body track-action-menu"><button onClick={() => { void favorite(trackActions); setTrackActions(undefined); }}><Heart size={18} fill={trackActions.favorite ? 'currentColor' : 'none'} />{trackActions.favorite ? '取消收藏' : '收藏'}</button><button onClick={() => { player.enqueue([trackActions.id], true); setTrackActions(undefined); }}><Play size={18} />下一首播放</button><button onClick={() => { player.enqueue([trackActions.id]); setTrackActions(undefined); }}><ListMusic size={18} />加入播放队列</button><button onClick={() => { setAddPlaylistIds([trackActions.id]); setTrackActions(undefined); }}><Plus size={18} />加入歌单</button>{removePlaylistTracks && <button onClick={() => { void removePlaylistTracks([trackActions.id]); }}><X size={18} />从歌单移除</button>}<button onClick={() => { void openEditor(trackActions); }}><Settings2 size={18} />编辑曲目</button><button onClick={() => { void openLyricsEditor(trackActions); }}><Music2 size={18} />歌词工作台</button><a href={trackURL(trackActions.id, 'download')}><Download size={18} />下载原文件</a><button className="danger" onClick={() => { void moveToTrash(trackActions); }}><Trash2 size={18} />移入回收站</button></div></Modal>}
+    {player.conflict && <Modal title="其他标签页正在播放" className="playback-conflict" onClose={() => player.setConflict(false)}><div className="modal-body"><p>在此标签页播放，将暂停另一个标签页。</p></div><footer className="modal-footer"><button className="button secondary" onClick={() => player.setConflict(false)}>取消</button><button className="button primary" onClick={() => player.play(true)}>在此播放</button></footer></Modal>}
     {toast && <div className="toast" role="status">{toast}<button aria-label="关闭提示" onClick={() => setToast('')}><X size={15} /></button></div>}
   </div>;
 }

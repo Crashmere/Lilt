@@ -31,6 +31,9 @@ export const loadLibrary = () => operation('readonly', store => {
   const etag = store.get('library-etag');
   return (): { library: Library; etag: string } | undefined => library.result ? { library: library.result, etag: typeof etag.result === 'string' ? etag.result : '' } : undefined;
 });
+export const saveLyricDraft = (id: string, draft: unknown) => operation('readwrite', store => { store.put(draft, `lyrics-draft:${id}`); return () => undefined; });
+export const loadLyricDraft = <T,>(id: string) => operation('readonly', store => { const value = store.get(`lyrics-draft:${id}`); return () => value.result as T | undefined; });
+export const removeLyricDraft = (id: string) => operation('readwrite', store => { store.delete(`lyrics-draft:${id}`); return () => undefined; });
 export function recordHistory(entry: Pick<HistoryEntry, 'trackId' | 'sessionId' | 'seconds' | 'completed'>): void {
   const pending = readLocal<Record<string, typeof entry>>('lilt.pending-history', {});
   pending[entry.sessionId] = entry;

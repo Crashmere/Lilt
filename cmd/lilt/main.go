@@ -40,7 +40,7 @@ func main() {
 
 func run() error {
 	if len(os.Args) < 2 {
-		return fmt.Errorf("usage: lilt serve [--addr ADDRESS] [--data DIRECTORY] [--prefix /lilt/] | lilt check --data DIRECTORY | lilt repair-cover --data DIRECTORY --track ID (stop the server first)")
+		return fmt.Errorf("usage: lilt serve [--addr ADDRESS] [--data DIRECTORY] [--prefix /lilt/] | lilt check --data DIRECTORY | lilt lyrics-worker --data DIRECTORY [--model-root DIRECTORY] | lilt repair-cover --data DIRECTORY --track ID (stop the server first)")
 	}
 	command := os.Args[1]
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
@@ -48,6 +48,7 @@ func run() error {
 	addr := flags.String("addr", env("LILT_ADDR", "127.0.0.1:18089"), "HTTP listen address")
 	prefix := flags.String("prefix", env("LILT_PREFIX", "/lilt/"), "Application URL prefix")
 	track := flags.String("track", "", "Track ID for offline display-cover repair")
+	modelRoot := flags.String("model-root", env("LILT_LYRICS_MODEL_ROOT", "/opt/lilt/bin/lyrics-model"), "Isolated lyrics model runtime and weights directory")
 	if err := flags.Parse(os.Args[2:]); err != nil {
 		return err
 	}
@@ -63,6 +64,11 @@ func run() error {
 		}
 		result["version"] = version
 		return json.NewEncoder(os.Stdout).Encode(result)
+	}
+	if command == "lyrics-worker" {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		return music.RunLyricsWorker(ctx, *data, *modelRoot)
 	}
 	if command != "serve" && command != "repair-cover" {
 		return fmt.Errorf("unknown command: %s", command)

@@ -27,6 +27,12 @@ DM Sans and Fraunces are bundled with the frontend under `web/public/fonts/` and
 - DM Sans: Copyright 2014 The DM Sans Project Authors (https://github.com/googlefonts/dm-fonts). The complete notice and license are in [DM-Sans-OFL.txt](../web/public/fonts/DM-Sans-OFL.txt), alongside `dm-sans.ttf`.
 - Fraunces: Copyright 2018 The Fraunces Project Authors (https://github.com/undercasetype/Fraunces). The complete notice and license are in [Fraunces-OFL.txt](../web/public/fonts/Fraunces-OFL.txt), alongside `fraunces.ttf`.
 
+## Optional Lyrics Model
+
+The offline alignment installation uses [SOFA](https://github.com/qiuqiao/SOFA), pinned to commit `9549c6a86d16019c817eefe4bb8183405da524cc`. SOFA code is MIT licensed, copyright (c) 2023 suco; its complete LICENSE remains in the installed source archive. The Mandarin singing checkpoint is the separate `pretrained_mandarin_singing.zip` asset from upstream release v1.0.1. Its README identifies Mandarin singing, the opencpop-extension dictionary and training data listed in `data_providers.md`; preserve those files. The code's MIT notice does not establish a separate license grant for model weights or training datasets. Review upstream weight/data terms before redistributing them or changing the personal-use scope.
+
+The isolated runtime includes CPython (PSF), PyTorch/torchaudio (BSD-style), Lightning (Apache-2.0), NumPy (BSD-3-Clause), librosa (ISC), numba (BSD-2-Clause), pypinyin (MIT), pandas (BSD-3-Clause) and other resolved dependencies. Exact versions, platform-specific NVIDIA dependencies and hashes are recorded in `deploy/lyrics-model.lock`; preserve each installed distribution's own notices, including NVIDIA component terms. `deploy/lyrics-model.in` owns direct pins, including the setuptools compatibility pin needed by the older librosa release. These dependencies and weights are installed only in the Lilt model root, not embedded in the Web bundle or shared with other applications.
+
 ## MIT-Licensed Components
 
 React and React DOM:

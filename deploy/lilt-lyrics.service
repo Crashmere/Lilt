@@ -1,0 +1,37 @@
+[Unit]
+Description=Lilt offline singing alignment and waveform worker
+After=lilt.service
+Requires=lilt.service
+PartOf=lilt.service
+
+[Service]
+Type=simple
+User=lilt
+Group=lilt
+WorkingDirectory=/opt/lilt
+ExecStart=/opt/lilt/bin/lilt lyrics-worker --data /opt/lilt/data --model-root /opt/lilt/bin/lyrics-model
+Environment=PYTHONNOUSERSITE=1
+Environment=HF_HUB_OFFLINE=1
+Environment=OMP_NUM_THREADS=2
+Environment=MKL_NUM_THREADS=2
+Environment=MPLCONFIGDIR=/opt/lilt/data/analysis/matplotlib
+Environment=NUMBA_CACHE_DIR=/opt/lilt/data/analysis/numba
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+KillMode=control-group
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/lilt/data
+RestrictAddressFamilies=AF_UNIX
+Nice=10
+CPUWeight=25
+CPUQuota=200%
+MemoryMax=4G
+TasksMax=96
+
+[Install]
+WantedBy=multi-user.target lilt.service

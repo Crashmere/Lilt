@@ -290,27 +290,29 @@ func (s *Store) Library(ctx context.Context) (Library, error) {
 }
 
 type TrackPatch struct {
-	Title             *string   `json:"title"`
-	Artist            *string   `json:"artist"`
-	Album             *string   `json:"album"`
-	AlbumArtist       *string   `json:"albumArtist"`
-	Genre             *string   `json:"genre"`
-	Composer          *string   `json:"composer"`
-	Lyricist          *string   `json:"lyricist"`
-	Comment           *string   `json:"comment"`
-	Copyright         *string   `json:"copyright"`
-	ISRC              *string   `json:"isrc"`
-	BPM               *float64  `json:"bpm"`
-	Year              *int      `json:"year"`
-	TrackNumber       *int      `json:"trackNumber"`
-	DiscNumber        *int      `json:"discNumber"`
-	Version           *string   `json:"version"`
-	Tags              *[]string `json:"tags"`
-	Aliases           *[]string `json:"aliases"`
-	Favorite          *bool     `json:"favorite"`
-	LyricsText        *string   `json:"lyricsText"`
-	RemoveCover       bool      `json:"removeCover"`
-	ExpectedUpdatedAt *string   `json:"expectedUpdatedAt"`
+	Title                 *string   `json:"title"`
+	Artist                *string   `json:"artist"`
+	Album                 *string   `json:"album"`
+	AlbumArtist           *string   `json:"albumArtist"`
+	Genre                 *string   `json:"genre"`
+	Composer              *string   `json:"composer"`
+	Lyricist              *string   `json:"lyricist"`
+	Comment               *string   `json:"comment"`
+	Copyright             *string   `json:"copyright"`
+	ISRC                  *string   `json:"isrc"`
+	BPM                   *float64  `json:"bpm"`
+	Year                  *int      `json:"year"`
+	TrackNumber           *int      `json:"trackNumber"`
+	DiscNumber            *int      `json:"discNumber"`
+	Version               *string   `json:"version"`
+	Tags                  *[]string `json:"tags"`
+	Aliases               *[]string `json:"aliases"`
+	Favorite              *bool     `json:"favorite"`
+	LyricsText            *string   `json:"lyricsText"`
+	RemoveCover           bool      `json:"removeCover"`
+	ExpectedUpdatedAt     *string   `json:"expectedUpdatedAt"`
+	ExpectedLyricsVersion *string   `json:"expectedLyricsVersion"`
+	ExpectedAudioVersion  *string   `json:"expectedAudioVersion"`
 }
 
 func cleanList(values []string) ([]string, error) {
@@ -334,6 +336,9 @@ func (s *Store) UpdateTrack(ctx context.Context, id string, p TrackPatch) (Track
 }
 
 func applyTrackPatch(t *Track, p TrackPatch) error {
+	if p.ExpectedLyricsVersion != nil && *p.ExpectedLyricsVersion != t.LyricsVersion || p.ExpectedAudioVersion != nil && *p.ExpectedAudioVersion != t.AudioVersion {
+		return fmt.Errorf("歌词或音频已更新，草稿已保留，请重新载入后合并：%w", ErrConflict)
+	}
 	if p.ExpectedUpdatedAt != nil && *p.ExpectedUpdatedAt != t.UpdatedAt {
 		return fmt.Errorf("曲目信息已更新，请重新打开编辑：%w", ErrConflict)
 	}

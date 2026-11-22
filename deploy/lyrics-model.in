@@ -1,0 +1,15 @@
+# Runtime dependencies for the pinned SOFA singing aligner; no global installation.
+torch==2.5.1
+torchaudio==2.5.1
+lightning==2.4.0
+torchmetrics==1.5.2
+numpy==1.24.4
+numba==0.59.1
+librosa==0.9.2
+einops==0.6.1
+matplotlib==3.7.5
+PyYAML==6.0.1
+soundfile==0.12.1
+pypinyin==0.53.0
+pandas==2.0.3
+setuptools==75.8.0

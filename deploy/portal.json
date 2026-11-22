@@ -8,14 +8,14 @@
   "root": "/opt/lilt",
   "port": 18089,
   "user": "lilt",
-  "units": ["lilt.service"],
+  "units": ["lilt.service", "lilt-lyrics.service"],
   "database": "/opt/lilt/data/lilt.sqlite",
   "resources": [
     {
       "id": "data",
       "name": "业务数据",
       "path": "/opt/lilt/data",
-      "purpose": "歌曲、专辑与歌手元数据、版本、别名、标签、收藏、歌词、歌单与规则、播放历史、浏览器进度、持久上传、手动封面原件归属和文件历史哈希；历史哈希用于识别编辑前的文件，不保留编辑副本；音乐与封面均由本人提供，不依赖外部曲库。",
+      "purpose": "歌曲、专辑与歌手元数据、版本、别名、标签、收藏、歌词、歌单与规则、播放历史、浏览器进度、持久上传、手动封面原件归属、文件历史哈希与歌词分析任务；历史哈希用于识别编辑前的文件，不保留编辑副本；音乐与封面均由本人提供，不依赖外部曲库。",
       "kind": "data",
       "browse": true,
       "cleanup": false
@@ -57,6 +57,15 @@
       "cleanup": false
     },
     {
+      "id": "analysis",
+      "name": "歌词分析暂存",
+      "path": "/opt/lilt/data/analysis",
+      "purpose": "模型校准和波形任务使用当前音频的硬链接快照、推理暂存、工作锁和运行缓存；结束或取消后清理所选任务暂存，重启清理无归属材料；候选在同一 SQLite 内，不自动写回歌曲、不保留歌词编辑版本。",
+      "kind": "cache",
+      "browse": false,
+      "cleanup": false
+    },
+    {
       "id": "releases",
       "name": "部署版本",
       "path": "/opt/lilt/releases",
@@ -84,6 +93,15 @@
       "cleanup": false
     },
     {
+      "id": "lyrics-model",
+      "name": "歌词模型运行环境",
+      "path": "/opt/lilt/bin/lyrics-model",
+      "purpose": "独立只读 CPython 环境、固定依赖、SOFA 代码与中文歌声权重；由管理员按校验清单安装，运行时不联网，不复用或改动 Aura、Curio 的图像环境。",
+      "kind": "binaries",
+      "browse": false,
+      "cleanup": false
+    },
+    {
       "id": "docs",
       "name": "维护文档",
       "path": "/opt/lilt/docs",
@@ -99,6 +117,12 @@
     {"method": "GET", "path": "/lilt/api/library", "description": "读取歌曲、专辑、歌手、歌单、标签与统计"},
     {"method": "GET", "path": "/lilt/api/tracks", "description": "按关键词、收藏、标签、专辑、歌手或回收站查询歌曲"},
     {"method": "GET", "path": "/lilt/api/tracks/{id}", "description": "读取歌曲详情与歌词"},
+    {"method": "GET", "path": "/lilt/api/tracks/{id}/lyrics", "description": "读取歌词正文与独立内容版本"},
+    {"method": "GET", "path": "/lilt/api/lyrics-tools", "description": "查询歌词工作服务、中文歌声模型可用状态"},
+    {"method": "GET", "path": "/lilt/api/tracks/{id}/lyrics-jobs", "description": "读取歌曲最近的波形与模型候选任务"},
+    {"method": "POST", "path": "/lilt/api/tracks/{id}/lyrics-jobs", "description": "按音频和歌词版本提交离线波形或中文歌声对齐，不自动写回"},
+    {"method": "GET", "path": "/lilt/api/lyrics-jobs/{job}", "description": "读取歌词分析进度、候选字词时间或波形"},
+    {"method": "DELETE", "path": "/lilt/api/lyrics-jobs/{job}", "description": "取消未完成的歌词分析与所选临时材料"},
     {"method": "PATCH", "path": "/lilt/api/tracks/{id}", "description": "将资料、制作信息、版本、别名、标签、歌词和封面移除写回音频；收藏仅更新资料库"},
     {"method": "DELETE", "path": "/lilt/api/tracks/{id}", "description": "移入可恢复的回收站，保留原件"},
     {"method": "POST", "path": "/lilt/api/tracks/{id}/restore", "description": "恢复已移除歌曲"},

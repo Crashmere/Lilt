@@ -42,6 +42,9 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   const [lyricsNextId, setLyricsNextId] = useState('');
   const [failure, setFailure] = useState('');
   const [conflict, setConflict] = useState(false);
+  const [auditionTrack, setAuditionTrack] = useState<Track>();
+  const auditionRef = useRef<Track | undefined>(undefined);
+  const auditionReturn = useRef<{ position: number } | undefined>(undefined);
   const tabId = useRef(identity());
   const intent = useRef({ play: false, position: snapshot.position || 0 });
   const session = useRef<Session>({ id: identity(), trackId: '', seconds: 0, lastPosition: snapshot.position || 0 });
@@ -53,10 +56,11 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   const lastProgress = useRef(Date.now());
   const recoveryPosition = useRef(0);
   const pendingStart = useRef<{ ids: string[]; index: number; start: number } | null>(null);
-  const trackId = snapshot.queueIds[snapshot.queueIndex] || '';
-  const track = tracks.find(item => item.id === trackId);
+  const pendingAudition = useRef<{ target: Track; start: number } | null>(null);
+  const trackId = auditionTrack?.id || snapshot.queueIds[snapshot.queueIndex] || '';
+  const track = tracks.find(item => item.id === trackId) || auditionTrack;
   const queue = snapshot.queueIds.map(id => tracks.find(item => item.id === id)).filter((item): item is Track => !!item);
-  const nextId = snapshot.repeat === 'one' ? '' : snapshot.queueIds[snapshot.queueIndex + 1] || (snapshot.repeat === 'all' && !snapshot.shuffle ? snapshot.queueIds[0] : '');
+  const nextId = auditionTrack || snapshot.repeat === 'one' ? '' : snapshot.queueIds[snapshot.queueIndex + 1] || (snapshot.repeat === 'all' && !snapshot.shuffle ? snapshot.queueIds[0] : '');
   const nextTrack = tracks.find(item => item.id === nextId && item.id !== trackId);
   const lyrics = useLyrics(track);
   useLyrics(nextTrack?.id === lyricsNextId ? nextTrack : undefined);
@@ -182,12 +186,14 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   }
   const syncPosition = useEffectEvent(() => { setPosition(getPosition()); });
   const persist = useEffectEvent(() => {
+    if (auditionRef.current) return;
     const lease = readLocal<Lease | null>('lilt.playback-lease', null);
     if (lease?.playing && lease.tabId !== tabId.current && Date.now() - lease.updatedAt < 9000) return;
     const state: PlayerState = { ...snapshot, trackId, position: getPosition(), updatedAt: new Date().toISOString() };
     writeLocal('lilt.player', state);
   });
   const finish = useEffectEvent((completed = false) => {
+    if (auditionRef.current) return;
     const current = session.current;
     if (current.trackId && current.seconds > 0) recordHistory({ trackId: current.trackId, sessionId: current.id, seconds: Math.floor(current.seconds), completed });
   });
@@ -195,6 +201,8 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   function begin(ids: string[], index = 0, start = 0, autoplay = true, takeover = false): void {
     if (!ids.length) return;
     if (autoplay && !claim(takeover)) { pendingStart.current = { ids, index, start }; return; }
+    pendingAudition.current = null;
+    if (auditionRef.current) endAudition(false);
     pendingStart.current = null;
     finish();
     let nextIndex = Math.max(0, Math.min(index, ids.length - 1));
@@ -213,6 +221,7 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   }
 
   function play(takeover = false): void {
+    if (takeover && pendingAudition.current) { const pending = pendingAudition.current; startAudition(pending.target, pending.start, true); return; }
     if (takeover && pendingStart.current) { const pending = pendingStart.current; begin(pending.ids, pending.index, pending.start, true, true); return; }
     if (!trackId || !audioRef.current?.src) { if (tracks.length) begin(tracks.map(item => item.id), 0, 0, true, takeover); return; }
     if (!claim(takeover)) return;
@@ -241,6 +250,7 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
     persist();
   }
   const next = useEffectEvent((automatic = false) => {
+    if (auditionRef.current && !automatic) endAudition();
     if (!snapshot.queueIds.length) return;
     if (automatic && snapshot.repeat === 'one') { session.current = { id: identity(), trackId, seconds: 0, lastPosition: 0 }; seek(0); play(); return; }
     if (!claim()) return;
@@ -257,11 +267,13 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
     setPosition(0);
     session.current = { id: identity(), trackId: queueIds[index], seconds: 0, lastPosition: 0 };
     setSnapshot(old => ({ ...old, queueIds, queueIndex: index, position: 0 }));
-    if (queueIds[index] === trackId) { seek(0); play(); }
+    if (queueIds[index] === source.current.trackId) { seek(0); play(); }
     else { const nextTrack = tracks.find(item => item.id === queueIds[index]); if (nextTrack) prepareSource(nextTrack, 0, true); }
   });
   function previous(): void {
-    if (position > 3) { seek(0); return; }
+    const auditioning = !!auditionRef.current;
+    if (auditioning) endAudition();
+    if (!auditioning && position > 3) { seek(0); return; }
     if (!claim()) return;
     const index = Math.max(0, snapshot.queueIndex - 1);
     finish(); session.current = { id: identity(), trackId: snapshot.queueIds[index], seconds: 0, lastPosition: 0 };
@@ -291,6 +303,7 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
     if (entries.length === snapshot.queueIds.length) return;
     const queueIds = entries.map(entry => entry.id);
     const currentIndex = entries.findIndex(entry => entry.index === snapshot.queueIndex);
+    if (auditionRef.current && currentIndex < 0) endAudition(false);
     if (currentIndex >= 0) {
       setSnapshot(old => ({ ...old, queueIds, queueIndex: currentIndex }));
     } else if (!entries.length) {
@@ -314,6 +327,35 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
     removeEntries(id => removed.has(id));
   }
   function setVolume(volume: number): void { setSnapshot(old => ({ ...old, volume })); if (audioRef.current) audioRef.current.volume = volume; }
+
+  function setPlaybackRate(rate: number): void {
+    for (const ref of audioRefs) if (ref.current) { ref.current.playbackRate = rate; ref.current.preservesPitch = true; }
+  }
+  function startAudition(target: Track, start = 0, takeover = false): void {
+    if (!claim(takeover)) { pendingAudition.current = { target, start }; return; }
+    pendingAudition.current = null; pendingStart.current = null;
+    if (!auditionRef.current) { finish(); persist(); auditionReturn.current = { position: getPosition() }; }
+    auditionRef.current = target; setAuditionTrack(target);
+    intent.current = { play: true, position: start };
+    setPlayRequested(true); setPosition(start); clearWarm(); cancelRecovery(); setFailure('');
+    session.current = { id: identity(), trackId: target.id, seconds: 0, lastPosition: start };
+    if (source.current.url === streamURL(target, !!navigator.serviceWorker?.controller) && audioRef.current?.src && !audioRef.current.error) { audioRef.current.currentTime = start; tryPlay(); }
+    else prepareSource(target, start, true);
+  }
+  function endAudition(restore = true): void {
+    if (!auditionRef.current) return;
+    pause(); setPlaybackRate(1);
+    auditionRef.current = undefined; setAuditionTrack(undefined);
+    const saved = auditionReturn.current; auditionReturn.current = undefined;
+    if (restore && saved) {
+      const original = tracks.find(item => item.id === snapshot.queueIds[snapshot.queueIndex]);
+      setSnapshot(old => ({ ...old, position: saved.position }));
+      setPosition(saved.position); intent.current = { play: false, position: saved.position };
+      session.current = { id: identity(), trackId: original?.id || '', seconds: 0, lastPosition: saved.position };
+      if (original) prepareSource(original, saved.position, false);
+      else { audioRef.current?.removeAttribute('src'); audioRef.current?.load(); }
+    }
+  }
 
   const onCanPlay = useEffectEvent(() => {
     const audio = audioRef.current;
@@ -344,7 +386,7 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
     const audio = audioRef.current;
     if (!audio || initialSeekPending.current) return;
     const delta = audio.currentTime - session.current.lastPosition;
-    if (!audio.paused && !audio.seeking && delta > 0) {
+    if (!auditionRef.current && !audio.paused && !audio.seeking && delta > 0) {
       session.current.seconds += delta; lastProgress.current = Date.now();
       if (audio.currentTime - recoveryPosition.current >= 5) retries.current = 0;
     }
@@ -364,7 +406,7 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
     if (!intent.current.play) releaseLease();
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
   });
-  const onEnded = useEffectEvent(() => { finish(true); next(true); });
+  const onEnded = useEffectEvent(() => { if (auditionRef.current) { pause(); return; } finish(true); next(true); });
   const onError = useEffectEvent(() => {
     const audio = audioRef.current;
     if (!audio || !audio.error || audio.error.code === 1) return;
@@ -431,7 +473,7 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
 
     switch (event.key) {
       case ' ':
-        if (!queue.length) return;
+        if (!queue.length && !auditionRef.current) return;
         event.preventDefault();
         if (!event.repeat) { if (playing || intent.current.play) pause(); else play(); }
         break;
@@ -504,12 +546,13 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
     audioRef, audioRefs, lyrics, snapshot, track, trackId, queue, position, playing, loading, playRequested, bufferedEnd, failure,
     conflict, setConflict,
     begin, play, pause, seek, getPosition, next, previous, enqueue, reorder, remove, removeTracks, setVolume,
+    startAudition, endAudition, setPlaybackRate, auditionTrack,
     toggleShuffle: () => setSnapshot(old => {
       if (old.shuffle || !old.queueIds.length) return { ...old, shuffle: !old.shuffle };
       return { ...old, shuffle: true, queueIds: [old.queueIds[old.queueIndex], ...shuffledIds(old.queueIds.filter((_, index) => index !== old.queueIndex))], queueIndex: 0 };
     }),
     toggleRepeat: () => setSnapshot(old => ({ ...old, repeat: old.repeat === 'off' ? 'all' : old.repeat === 'all' ? 'one' : 'off' })),
-    clear: () => { pause(); setSnapshot(old => ({ ...old, queueIds: [], queueIndex: 0, trackId: '', position: 0 })); },
+    clear: () => { endAudition(false); pause(); setSnapshot(old => ({ ...old, queueIds: [], queueIndex: 0, trackId: '', position: 0 })); },
   };
 }
 export type Player = ReturnType<typeof usePlayer>;

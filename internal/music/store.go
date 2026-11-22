@@ -81,7 +81,7 @@ func Open(dir, prefix string) (*Store, error) {
 	if err = os.MkdirAll(abs, 0700); err != nil {
 		return nil, err
 	}
-	for _, name := range []string{"originals", "uploads", "covers", "playback"} {
+	for _, name := range []string{"originals", "uploads", "covers", "playback", "analysis"} {
 		path := filepath.Join(abs, name)
 		if info, e := os.Lstat(path); e == nil && (info.Mode()&os.ModeSymlink != 0 || !info.IsDir()) {
 			return nil, fmt.Errorf("data directory is not an owned directory: %s", name)

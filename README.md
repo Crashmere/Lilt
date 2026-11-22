@@ -11,6 +11,7 @@ The application target is `nas`. Authenticated entrances on `ali` and `vps` reac
 - Manual and rule-based playlists, an independent playback queue and explicit continuation from another browser.
 - Original audio or separately generated standard/compact AAC playback, with Range-capable streams and original downloads.
 - Owner-supplied covers and plain-text or timestamped lyrics, listening history and portable metadata/playlist exports.
+- Lyrics workbench with millisecond editing, waveform-assisted timing, linked translations, local drafts and optional offline Mandarin singing alignment with candidate review.
 - Reversible trash and explicit track replacement that retains the logical track's collection state.
 - Home Screen branding and supported system media controls.
 
