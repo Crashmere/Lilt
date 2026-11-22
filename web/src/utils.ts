@@ -17,6 +17,8 @@ export function readLocal<T>(key: string, fallback: T): T { try { return JSON.pa
 export function writeLocal(key: string, value: unknown): void { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* Storage can be unavailable in private browsing. */ } }
 export type LyricLine = { time: number; text: string };
 const lyricOffsetPattern = /\[offset:([+-]?\d+)\]/i;
+const lyricTimestampPattern = /\[(\d+):(\d{2}(?:\.\d+)?)\]/g;
+const lyricMetadataPattern = /^\[(?:ar|ti|al|by|offset|length|re|ve):[^\]]*\]\s*$/i;
 
 export function adjustLyricsOffset(text: string, seconds: number): string {
   const milliseconds = Number(text.match(lyricOffsetPattern)?.[1] || 0) + Math.round(seconds * 1000);
@@ -28,11 +30,18 @@ export function adjustLyricsOffset(text: string, seconds: number): string {
 
 export function parseLyrics(text: string): { lines: LyricLine[]; plain: string; offset: number } {
   const lines: LyricLine[] = [];
+  const plain: string[] = [];
+  let fullyTimed = true;
   const offset = Number(text.match(lyricOffsetPattern)?.[1] || 0) / 1000;
   for (const raw of text.split(/\r?\n/)) {
-    const times = [...raw.matchAll(/\[(\d+):(\d{2}(?:\.\d+)?)\]/g)];
-    const body = raw.replace(/\[\d+:\d{2}(?:\.\d+)?\]/g, '').replace(/<\d+:\d{2}(?:\.\d+)?>/g, '').trim();
+    const value = raw.trim();
+    if (lyricMetadataPattern.test(value)) continue;
+    const times = [...value.matchAll(lyricTimestampPattern)];
+    const body = value.replace(lyricTimestampPattern, '').replace(/<\d+:\d{2}(?:\.\d+)?>/g, '').trim();
+    plain.push(body);
+    if (value && times[0]?.index !== 0) fullyTimed = false;
     for (const time of times) lines.push({ time: Number(time[1]) * 60 + Number(time[2]) + offset, text: body });
   }
-  return { lines: lines.sort((a, b) => a.time - b.time), plain: text.replace(/^\[(ar|ti|al|by|offset):.*\]\s*$/gim, '').trim(), offset };
+  // A stray timestamp must not hide the rest of a plain or partially timed lyric.
+  return { lines: fullyTimed ? lines.sort((a, b) => a.time - b.time) : [], plain: plain.join('\n').trim(), offset };
 }
