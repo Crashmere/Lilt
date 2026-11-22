@@ -108,32 +108,42 @@ function CoverPreviewModal({ url, title, filename, onClose }: { url: string; tit
 function TimedLyrics({ lines, current, content, onSeek }: { lines: LyricLine[]; current: number; content: string; onSeek: (seconds: number) => void }) {
   const bodyRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const lineRef = useRef<HTMLButtonElement>(null);
   const previous = useRef<{ current: number; content: string }>(undefined);
 
   useLayoutEffect(() => {
     const body = bodyRef.current;
     const scroll = scrollRef.current;
+    const list = listRef.current;
     const line = lineRef.current;
-    if (!body || !scroll || !line) return;
+    if (!body || !scroll || !list || !line) return;
     const dimensions = () => [body.clientWidth, body.clientHeight, line.offsetHeight].join(':');
     let size = dimensions();
-    let frame = 0;
-    const stop = () => { cancelAnimationFrame(frame); frame = 0; };
+    let motion: Animation | undefined;
+    const stop = () => {
+      if (!motion) return;
+      const transform = getComputedStyle(list).transform;
+      const shift = transform === 'none' ? 0 : new DOMMatrixReadOnly(transform).m42;
+      motion.cancel();
+      motion = undefined;
+      // Hand native scrolling the currently displayed position when interrupted.
+      scroll.scrollTo({ top: scroll.scrollTop - shift, behavior: 'instant' });
+    };
     const center = (animate = false) => {
       stop();
       scroll.style.setProperty('--lyrics-edge', `${body.clientHeight / 2}px`);
-      const top = line.offsetTop + line.offsetHeight / 2 - scroll.clientHeight / 2;
-      if (!animate) { scroll.scrollTo({ top, behavior: 'instant' }); return; }
       const start = scroll.scrollTop;
-      const started = performance.now();
-      const advance = (now: number) => {
-        const progress = Math.min((now - started) / 360, 1);
-        const eased = progress * progress * (3 - 2 * progress);
-        scroll.scrollTo({ top: start + (top - start) * eased, behavior: 'instant' });
-        frame = progress < 1 ? requestAnimationFrame(advance) : 0;
-      };
-      frame = requestAnimationFrame(advance);
+      const bounds = line.getBoundingClientRect();
+      const top = start + bounds.top + bounds.height / 2 - scroll.getBoundingClientRect().top - scroll.clientHeight / 2;
+      scroll.scrollTo({ top, behavior: 'instant' });
+      const distance = scroll.scrollTop - start;
+      if (!animate || Math.abs(distance) < 1) return;
+      // Commit the scroll once; the compositor moves the list between positions.
+      motion = list.animate([
+        { transform: `translateY(${distance}px)` },
+        { transform: 'translateY(0)' },
+      ], { duration: 360, easing: 'cubic-bezier(0.4, 0, 0.2, 1)' });
     };
     const advancing = previous.current?.content === content && previous.current.current >= 0 && current === previous.current.current + 1;
     center(advancing && !window.matchMedia('(prefers-reduced-motion: reduce)').matches);
@@ -153,7 +163,9 @@ function TimedLyrics({ lines, current, content, onSeek }: { lines: LyricLine[]; 
 
   return <div className="lyrics-body timed-lyrics" ref={bodyRef}>
     <div className="lyrics-scroll" ref={scrollRef}>
-      {lines.map((line, index) => <button key={index} className={`lyric-line ${index === current ? 'active' : ''}`} ref={index === Math.max(0, current) ? lineRef : undefined} aria-current={index === current ? 'true' : undefined} onClick={() => onSeek(Math.max(0, line.time))}>{line.text || '♪'}</button>)}
+      <div className="lyrics-lines" ref={listRef}>
+        {lines.map((line, index) => <button key={index} className={`lyric-line ${index === current ? 'active' : ''}`} ref={index === Math.max(0, current) ? lineRef : undefined} aria-current={index === current ? 'true' : undefined} onClick={() => onSeek(Math.max(0, line.time))}>{line.text || '♪'}</button>)}
+      </div>
     </div>
   </div>;
 }
