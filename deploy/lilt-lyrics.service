@@ -9,6 +9,7 @@ Type=simple
 User=lilt
 Group=lilt
 WorkingDirectory=/opt/lilt
+ExecStartPre=/usr/bin/mkdir -p /opt/lilt/data/analysis/torch-kernels /opt/lilt/data/analysis/cuda
 ExecStart=/opt/lilt/bin/lilt lyrics-worker --data /opt/lilt/data --model-root /opt/lilt/bin/lyrics-model
 Environment=PYTHONNOUSERSITE=1
 Environment=HF_HUB_OFFLINE=1
