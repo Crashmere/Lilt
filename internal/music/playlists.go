@@ -12,12 +12,13 @@ import (
 )
 
 type PlaylistInput struct {
-	Name        *string     `json:"name"`
-	Description *string     `json:"description"`
-	Kind        *string     `json:"kind"`
-	Rules       *SmartRules `json:"rules"`
-	TrackIDs    *[]string   `json:"trackIds"`
-	AddTrackIDs *[]string   `json:"addTrackIds"`
+	Name           *string     `json:"name"`
+	Description    *string     `json:"description"`
+	Kind           *string     `json:"kind"`
+	Rules          *SmartRules `json:"rules"`
+	TrackIDs       *[]string   `json:"trackIds"`
+	AddTrackIDs    *[]string   `json:"addTrackIds"`
+	RemoveTrackIDs *[]string   `json:"removeTrackIds"`
 }
 
 func smartMatches(t Track, rules SmartRules, cutoff time.Time) bool {
@@ -215,6 +216,25 @@ func (s *Store) SavePlaylist(ctx context.Context, id string, in PlaylistInput) (
 	}
 	if in.TrackIDs != nil {
 		p.TrackIDs = *in.TrackIDs
+	}
+	if in.RemoveTrackIDs != nil {
+		if id == "" || p.Kind == "smart" || in.TrackIDs != nil || in.AddTrackIDs != nil {
+			return Playlist{}, fmt.Errorf("移除曲目仅适用于现有非智能歌单，且不能同时替换或追加曲目：%w", ErrInvalid)
+		}
+		removed := make(map[string]bool, len(*in.RemoveTrackIDs))
+		for _, trackID := range *in.RemoveTrackIDs {
+			if !validID(trackID) {
+				return Playlist{}, ErrInvalid
+			}
+			removed[trackID] = true
+		}
+		ids := make([]string, 0, len(p.TrackIDs))
+		for _, trackID := range p.TrackIDs {
+			if !removed[trackID] {
+				ids = append(ids, trackID)
+			}
+		}
+		p.TrackIDs = ids
 	}
 	if in.AddTrackIDs != nil {
 		if id == "" || p.Kind == "smart" || in.TrackIDs != nil {

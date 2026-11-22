@@ -285,12 +285,33 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
       return { ...old, queueIds: entries.map(item => item.id), queueIndex: entries.findIndex(item => item.current) };
     });
   }
-  function remove(index: number): void {
-    if (index === snapshot.queueIndex) {
-      const ids = snapshot.queueIds.filter((_, i) => i !== index);
-      if (!ids.length) { pause(); setSnapshot(old => ({ ...old, queueIds: [], queueIndex: 0, trackId: '', position: 0 })); }
-      else begin(ids, Math.min(index, ids.length - 1), 0, playing);
-    } else setSnapshot(old => ({ ...old, queueIds: old.queueIds.filter((_, i) => i !== index), queueIndex: index < old.queueIndex ? old.queueIndex - 1 : old.queueIndex }));
+  function removeEntries(remove: (id: string, index: number) => boolean): void {
+    // Indices distinguish the current entry from other occurrences of the same track.
+    const entries = snapshot.queueIds.map((id, index) => ({ id, index })).filter(entry => !remove(entry.id, entry.index));
+    if (entries.length === snapshot.queueIds.length) return;
+    const queueIds = entries.map(entry => entry.id);
+    const currentIndex = entries.findIndex(entry => entry.index === snapshot.queueIndex);
+    if (currentIndex >= 0) {
+      setSnapshot(old => ({ ...old, queueIds, queueIndex: currentIndex }));
+    } else if (!entries.length) {
+      pause(); setPosition(0);
+      setSnapshot(old => ({ ...old, queueIds: [], queueIndex: 0, trackId: '', position: 0 }));
+    } else {
+      const following = entries.findIndex(entry => entry.index > snapshot.queueIndex);
+      const queueIndex = following >= 0 ? following : entries.length - 1;
+      finish(); cancelRecovery(); setFailure('');
+      intent.current = { play: intent.current.play, position: 0 };
+      setPosition(0);
+      session.current = { id: identity(), trackId: queueIds[queueIndex], seconds: 0, lastPosition: 0 };
+      setSnapshot(old => ({ ...old, queueIds, queueIndex, trackId: queueIds[queueIndex], position: 0 }));
+      const nextTrack = tracks.find(item => item.id === queueIds[queueIndex]);
+      if (nextTrack) prepareSource(nextTrack, 0, intent.current.play);
+    }
+  }
+  function remove(index: number): void { removeEntries((_id, entryIndex) => entryIndex === index); }
+  function removeTracks(ids: string[]): void {
+    const removed = new Set(ids);
+    removeEntries(id => removed.has(id));
   }
   function setVolume(volume: number): void { setSnapshot(old => ({ ...old, volume })); if (audioRef.current) audioRef.current.volume = volume; }
 
@@ -482,7 +503,7 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   return {
     audioRef, audioRefs, lyrics, snapshot, track, trackId, queue, position, playing, loading, playRequested, bufferedEnd, failure,
     conflict, setConflict,
-    begin, play, pause, seek, getPosition, next, previous, enqueue, reorder, remove, setVolume,
+    begin, play, pause, seek, getPosition, next, previous, enqueue, reorder, remove, removeTracks, setVolume,
     toggleShuffle: () => setSnapshot(old => {
       if (old.shuffle || !old.queueIds.length) return { ...old, shuffle: !old.shuffle };
       return { ...old, shuffle: true, queueIds: [old.queueIds[old.queueIndex], ...shuffledIds(old.queueIds.filter((_, index) => index !== old.queueIndex))], queueIndex: 0 };

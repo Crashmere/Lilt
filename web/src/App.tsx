@@ -1,7 +1,7 @@
 import { startTransition, useDeferredValue, useEffect, useEffectEvent, useRef, useState } from 'react';
 import { ArrowLeft, BarChart3, Check, ChevronRight, Clock3, Disc3, Download, Heart, House, LibraryBig, ListMusic, LoaderCircle, Menu, MoreHorizontal, Music2, Play, Plus, RefreshCw, Search, Settings2, SlidersHorizontal, Trash2, Upload, UsersRound, WifiOff, X } from 'lucide-react';
 import { ApiError, json, messageOf, readLibrary, request, trackURL, API } from './api';
-import { AlbumCards, Artwork, Empty, Modal, Pill, PlaylistCards, TrackPlaylists, TrackTable } from './components';
+import { AlbumCards, Artwork, Empty, Modal, Pill, PlaylistCards, TrackPlaylists, TrackTable, type BulkTrackAction } from './components';
 import { ArtistBrowser } from './artists';
 import { LibraryFilterModal } from './library-filter-modal';
 import { activeFilterColumns, EMPTY_FILTERS, matchesFilters, type LibraryFilters } from './library-filters';
@@ -71,6 +71,8 @@ export default function App() {
 
   function notify(text: string) { setToast(text); if (toastTimer.current) clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToast(''), 4500); }
   const player = usePlayer(library.tracks, notify);
+  const playerRef = useRef(player);
+  useEffect(() => { playerRef.current = player; }, [player]);
 
   async function refresh() {
     refreshAbort.current?.abort();
@@ -155,10 +157,29 @@ export default function App() {
   async function moveToTrash(track: Track) {
     await run(async () => {
       await request(`/tracks/${encodeURIComponent(track.id)}`, { method: 'DELETE' });
-      const index = player.snapshot.queueIds.indexOf(track.id);
-      if (index >= 0) player.remove(index);
+      playerRef.current.removeTracks([track.id]);
       setTrackActions(undefined); await refresh(); notify('已移入回收站');
     });
+  }
+  async function bulkTrackAction(tracks: Track[], action: BulkTrackAction) {
+    const targets = tracks.filter(track => action === 'trash' || track.favorite !== (action === 'favorite'));
+    const updated = new Map<string, Track>();
+    const deleted: string[] = [];
+    let failure = '';
+    for (const track of targets) {
+      try {
+        const path = `/tracks/${encodeURIComponent(track.id)}`;
+        if (action === 'trash') { await request(path, { method: 'DELETE' }); deleted.push(track.id); }
+        else { const result = await json<{ track: Track }>(path, 'PATCH', { favorite: action === 'favorite' }); updated.set(track.id, result.track); }
+      } catch (error) { failure = messageOf(error); break; }
+    }
+    if (deleted.length) playerRef.current.removeTracks(deleted);
+    const removed = new Set(deleted);
+    setLibrary(old => ({ ...old, tracks: old.tracks.filter(track => !removed.has(track.id)).map(track => updated.get(track.id) || track) }));
+    await refresh();
+    const count = deleted.length + updated.size;
+    const label = action === 'trash' ? '移入回收站' : action === 'favorite' ? '收藏' : '取消收藏';
+    notify(failure ? `已${label} ${count}/${targets.length} 首，${failure}` : `已${label} ${count} 首`);
   }
   async function restoreTrack(track: Track) { await run(async () => { await json(`/tracks/${encodeURIComponent(track.id)}/restore`, 'POST'); setTrash(old => old.filter(item => item.id !== track.id)); await refresh(); notify('已恢复曲目'); }); }
   function playTracks(tracks: Track[] | string[]) { player.begin(tracks.map(item => typeof item === 'string' ? item : item.id)); }
@@ -178,6 +199,12 @@ export default function App() {
 
   const album = library.albums.find(item => item.id === view.id);
   const playlist = library.playlists.find(item => item.id === view.id);
+  const removePlaylistTracks = playlist && playlist.kind !== 'smart' && view.kind === 'playlist' ? (ids: string[]) => run(async () => {
+    await json(`/playlists/${encodeURIComponent(playlist.id)}`, 'PUT', { removeTrackIds: ids });
+    setTrackActions(undefined);
+    await refresh();
+    notify(`已从歌单移除 ${ids.length} 首`);
+  }) : undefined;
   const reorderPlaylist: Reorder = (from, to) => run(async () => {
     if (!playlist) return;
     const ids = [...playlist.trackIds];
@@ -211,7 +238,7 @@ export default function App() {
   if (!['album', 'playlist'].includes(view.kind)) visibleTracks = [...visibleTracks].sort((a, b) => sort === 'title' ? a.title.localeCompare(b.title, 'zh-CN') : sort === 'artist' ? a.artist.localeCompare(b.artist, 'zh-CN') : sort === 'album' ? a.album.localeCompare(b.album, 'zh-CN') : sort === 'played' ? b.playCount - a.playCount : sort === 'duration' ? b.duration - a.duration : new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime());
   const table = (tracks: Track[], compact = false, onReorder?: Reorder, albumTracks = false) => {
     if (!tracks.length && view.kind === 'library' && activeFilterCount) return <Empty title="没有匹配的曲目"><button className="button secondary" onClick={() => setFiltersOpen(true)}><SlidersHorizontal size={16} />调整筛选</button></Empty>;
-    return <TrackTable key={`${view.kind}-${view.id || ''}`} tracks={tracks} player={player} favorite={track => { void favorite(track); }} edit={track => { void openEditor(track); }} actions={setTrackActions} playlistMemberships={playlistMemberships} showPlaylists={setPlaylistTrack} addToPlaylist={setAddPlaylistIds} bulkEdit={setBulkEditing} collectionNavigation={collectionNavigation} filterColumns={view.kind === 'library' ? libraryFilterColumns : undefined} compact={compact} albumTracks={albumTracks} onReorder={onReorder} empty={deferredQuery || tag ? '没有匹配的曲目' : '没有曲目'} />;
+    return <TrackTable key={`${view.kind}-${view.id || ''}`} tracks={tracks} player={player} favorite={track => { void favorite(track); }} edit={track => { void openEditor(track); }} actions={setTrackActions} playlistMemberships={playlistMemberships} showPlaylists={setPlaylistTrack} addToPlaylist={setAddPlaylistIds} bulkEdit={setBulkEditing} selectionAction={bulkTrackAction} removeFromPlaylist={removePlaylistTracks} collectionNavigation={collectionNavigation} filterColumns={view.kind === 'library' ? libraryFilterColumns : undefined} compact={compact} albumTracks={albumTracks} onReorder={onReorder} empty={deferredQuery || tag ? '没有匹配的曲目' : '没有曲目'} />;
   };
   const openedAlbum = (item: Album) => navigate({ kind: 'album', id: item.id });
   const openedArtist = (item: Artist) => navigate({ kind: 'artist', id: item.id });
@@ -294,7 +321,7 @@ export default function App() {
       </button>) : <p className="muted">未加入歌单</p>}
     </div></Modal>}
     {addPlaylistIds && <Modal title="加入歌单" onClose={() => setAddPlaylistIds(undefined)}><div className="modal-body add-playlist-list">{library.playlists.filter(item => item.kind !== 'smart').map(item => <button key={item.id} onClick={() => { void run(async () => { await json(`/playlists/${encodeURIComponent(item.id)}`, 'PUT', { name: item.name, description: item.description, trackIds: [...item.trackIds, ...addPlaylistIds.filter(id => !item.trackIds.includes(id))] }); await refresh(); setAddPlaylistIds(undefined); notify('已加入歌单'); }); }}><ListMusic size={18} /><span>{item.name}</span><Plus size={17} /></button>)}<button onClick={() => { setPlaylistEditor({ ids: addPlaylistIds }); setAddPlaylistIds(undefined); }}><Plus size={19} /><span>新建歌单</span></button></div></Modal>}
-    {trackActions && <Modal title={`${trackActions.title} · 更多功能`} onClose={() => setTrackActions(undefined)}><div className="modal-body track-action-menu"><button onClick={() => { void favorite(trackActions); setTrackActions(undefined); }}><Heart size={18} fill={trackActions.favorite ? 'currentColor' : 'none'} />{trackActions.favorite ? '取消收藏' : '收藏'}</button><button onClick={() => { player.enqueue([trackActions.id], true); setTrackActions(undefined); }}><Play size={18} />下一首播放</button><button onClick={() => { player.enqueue([trackActions.id]); setTrackActions(undefined); }}><ListMusic size={18} />加入播放队列</button><button onClick={() => { setAddPlaylistIds([trackActions.id]); setTrackActions(undefined); }}><Plus size={18} />加入歌单</button>{view.kind === 'playlist' && playlist && playlist.kind !== 'smart' && <button onClick={() => { void run(async () => { await json(`/playlists/${encodeURIComponent(playlist.id)}`, 'PUT', { name: playlist.name, description: playlist.description, trackIds: playlist.trackIds.filter(id => id !== trackActions.id) }); setTrackActions(undefined); await refresh(); notify('已从歌单移除'); }); }}><X size={18} />从歌单移除</button>}<button onClick={() => { void openEditor(trackActions); }}><Settings2 size={18} />编辑曲目</button><a href={trackURL(trackActions.id, 'download')}><Download size={18} />下载原文件</a><button className="danger" onClick={() => { void moveToTrash(trackActions); }}><Trash2 size={18} />移入回收站</button></div></Modal>}
+    {trackActions && <Modal title={`${trackActions.title} · 更多功能`} onClose={() => setTrackActions(undefined)}><div className="modal-body track-action-menu"><button onClick={() => { void favorite(trackActions); setTrackActions(undefined); }}><Heart size={18} fill={trackActions.favorite ? 'currentColor' : 'none'} />{trackActions.favorite ? '取消收藏' : '收藏'}</button><button onClick={() => { player.enqueue([trackActions.id], true); setTrackActions(undefined); }}><Play size={18} />下一首播放</button><button onClick={() => { player.enqueue([trackActions.id]); setTrackActions(undefined); }}><ListMusic size={18} />加入播放队列</button><button onClick={() => { setAddPlaylistIds([trackActions.id]); setTrackActions(undefined); }}><Plus size={18} />加入歌单</button>{removePlaylistTracks && <button onClick={() => { void removePlaylistTracks([trackActions.id]); }}><X size={18} />从歌单移除</button>}<button onClick={() => { void openEditor(trackActions); }}><Settings2 size={18} />编辑曲目</button><a href={trackURL(trackActions.id, 'download')}><Download size={18} />下载原文件</a><button className="danger" onClick={() => { void moveToTrash(trackActions); }}><Trash2 size={18} />移入回收站</button></div></Modal>}
     {player.conflict && <Modal title="其他标签页正在播放" onClose={() => player.setConflict(false)}><div className="modal-body"><p>在此标签页播放，将暂停另一个标签页。</p></div><footer className="modal-footer"><button className="button secondary" onClick={() => player.setConflict(false)}>取消</button><button className="button primary" onClick={() => player.play(true)}>在此播放</button></footer></Modal>}
     {toast && <div className="toast" role="status">{toast}<button aria-label="关闭提示" onClick={() => setToast('')}><X size={15} /></button></div>}
   </div>;
