@@ -41,7 +41,7 @@ export function PlaylistCards({ playlists, onOpen, onCreate }: { playlists: Play
 }
 
 export function TrackPlaylists({ playlists = [], onOpen }: { playlists?: Playlist[]; onOpen: () => void }) {
-  if (!playlists.length) return <span className="playlist-empty" aria-label="未加入歌单">未加入</span>;
+  if (!playlists.length) return null;
   const names = playlists.map(playlist => `${playlist.name}${playlist.kind === 'smart' ? '（智能歌单）' : ''}`).join('、');
   return <button className="playlist-memberships" title={names} aria-label={`查看所属歌单：${names}`} aria-haspopup="dialog" onClick={onOpen}>
     <span className="playlist-chips">{playlists.slice(0, 2).map(playlist => <span className={`playlist-chip ${playlist.kind === 'smart' ? 'smart' : ''}`} key={playlist.id}>{playlist.kind === 'smart' && <Settings2 size={11} aria-hidden="true" />}<span>{playlist.name}</span></span>)}</span>

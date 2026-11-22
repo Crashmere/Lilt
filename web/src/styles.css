@@ -192,7 +192,6 @@
 .playlist-memberships:hover .playlist-chip{border-color:#b6c3a3;background:#e2ead8}
 .playlist-memberships:hover .playlist-chip.smart{border-color:#d1bf9e;background:#e9dfcd}
 .playlist-overflow{flex:none;color:#7f8b6f;font-size:10px;font-variant-numeric:tabular-nums;padding:3px 5px;border-radius:4px;background:#eeede5}
-.playlist-empty{color:#a9ae9f;font-size:10px;white-space:nowrap}
 .history-heading,.history-list>article{display:grid;grid-template-columns:45px minmax(150px,1.5fr) minmax(135px,1fr) 70px 110px 16px;gap:16px;align-items:center}
 .trash-heading,.trash-list>article{display:grid;grid-template-columns:53px minmax(150px,1.7fr) minmax(135px,1fr) 65px;gap:17px;align-items:center}
 .history-heading,.trash-heading{min-height:36px;border-bottom:1px solid var(--line);color:#98998b;font-size:10px;padding:0 8px}
@@ -217,7 +216,7 @@
 .queue-row-actions{grid-column:4;grid-row:1}
 .queue-row>.playlist-cell,.track-row>.playlist-cell{max-width:100%}
 .queue-row>.playlist-cell{display:flex;align-items:center;gap:7px}
-.queue-row>.playlist-cell::before{content:"歌单";font-size:10px;color:#9aa08d;flex:none}
+.queue-row>.playlist-cell:not(:empty)::before{content:"歌单";font-size:10px;color:#9aa08d;flex:none}
 .queue-row .playlist-chips{flex-direction:row}
 .joined-track{display:flex;align-items:center;gap:12px;padding-bottom:20px;margin-bottom:7px;border-bottom:1px solid var(--line)}
 .joined-track>.artwork{width:44px;border-radius:6px;flex:none}
@@ -251,7 +250,7 @@
   .track-row>.time-cell{grid-column:4;grid-row:1}
   .track-row>.track-actions{grid-column:5;grid-row:1}
   .track-row>.playlist-cell{grid-column:3/-1;grid-row:2;padding-left:44px;display:flex;align-items:center;gap:7px}
-  .track-row>.playlist-cell::before{content:"歌单";font-size:10px;color:#9aa08d;flex:none}
+  .track-row>.playlist-cell:not(:empty)::before{content:"歌单";font-size:10px;color:#9aa08d;flex:none}
   .playlist-chips{flex-direction:row}
   .history-heading,.trash-heading{display:none}
   .history-list>article{grid-template-columns:39px minmax(0,1fr) auto 16px;gap:6px 10px}
@@ -267,7 +266,7 @@
   .trash-list>article>.button{grid-column:3;grid-row:1}
   .trash-list>article>.playlist-cell{grid-column:2/-1;grid-row:2}
   .history-list>article>.playlist-cell,.trash-list>article>.playlist-cell{display:flex;align-items:center;gap:7px}
-  .history-list>article>.playlist-cell::before,.trash-list>article>.playlist-cell::before{content:"歌单";font-size:10px;color:#9aa08d;flex:none}
+  .history-list>article>.playlist-cell:not(:empty)::before,.trash-list>article>.playlist-cell:not(:empty)::before{content:"歌单";font-size:10px;color:#9aa08d;flex:none}
 }
 @media(max-width:740px){
   .track-list.filtering .inline-album{display:block}
