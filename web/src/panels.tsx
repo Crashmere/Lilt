@@ -10,6 +10,7 @@ import type { Uploader, UploadPlaylist } from './upload';
 import { droppedFiles } from './drop-files';
 import { formatUploadRate } from './upload-rate';
 import { bytes, duration, parseLyrics, type LyricLine } from './utils';
+import { useActiveLyric } from './lyrics';
 import { useReorder } from './reorder';
 
 function PlayerGlyph({ name }: { name: 'shuffle' | 'previous' | 'play' | 'pause' | 'next' | 'repeat' | 'more' | 'lyrics' | 'queue' | 'volume' }) {
@@ -149,8 +150,7 @@ export function LyricsPanel({ player, onClose, onEdit, onAdjust }: { player: Pla
   const [coverPreview, setCoverPreview] = useState<{ url: string; title: string; album: string }>();
   const saving = useRef(false);
   const lyrics = parseLyrics(text);
-  let current = -1;
-  lyrics.lines.forEach((line, index) => { if (line.time <= player.position) current = index; });
+  const current = useActiveLyric(lyrics.lines, player.position, player.getPosition, player.playing);
 
   async function adjust(seconds: number) {
     const track = player.track;

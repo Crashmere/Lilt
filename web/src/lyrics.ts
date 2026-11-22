@@ -1,6 +1,36 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useEffectEvent, useLayoutEffect, useState } from 'react';
 import { messageOf, read } from './api';
 import type { Track } from './types';
+import type { LyricLine } from './utils';
+
+export function useActiveLyric(lines: LyricLine[], position: number, getPosition: () => number, playing: boolean): number {
+  function at(time: number): number {
+    let index = lines.length - 1;
+    while (index >= 0 && lines[index].time > time) index--;
+    return index;
+  }
+  const [current, setCurrent] = useState(() => at(position));
+  const synchronize = useEffectEvent(() => { setCurrent(at(getPosition())); });
+  const timed = lines.length > 0;
+
+  useLayoutEffect(() => { synchronize(); }, [lines, position]);
+  useEffect(() => {
+    let frame = 0;
+    const sample = () => {
+      frame = 0;
+      synchronize();
+      // Read the media clock, never elapsed wall time: buffering and suspension must not advance lyrics.
+      if (timed && playing && document.visibilityState === 'visible') frame = requestAnimationFrame(sample);
+    };
+    const resume = () => { cancelAnimationFrame(frame); sample(); };
+    document.addEventListener('visibilitychange', resume);
+    window.addEventListener('pageshow', resume);
+    resume();
+    return () => { cancelAnimationFrame(frame); document.removeEventListener('visibilitychange', resume); window.removeEventListener('pageshow', resume); };
+  }, [playing, timed]);
+
+  return current;
+}
 
 type LyricsContent = { trackId: string; version: string; text: string };
 type LyricsState = LyricsContent & { loading: boolean; error: string };

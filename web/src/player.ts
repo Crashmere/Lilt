@@ -176,10 +176,15 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
     if (lease?.tabId === tabId.current) writeLocal('lilt.playback-lease', { ...lease, playing: false, updatedAt: Date.now() });
   }
 
+  function getPosition(): number {
+    const audio = audioRef.current;
+    return initialSeekPending.current || !audio?.getAttribute('src') ? intent.current.position : audio.currentTime;
+  }
+  const syncPosition = useEffectEvent(() => { setPosition(getPosition()); });
   const persist = useEffectEvent(() => {
     const lease = readLocal<Lease | null>('lilt.playback-lease', null);
     if (lease?.playing && lease.tabId !== tabId.current && Date.now() - lease.updatedAt < 9000) return;
-    const state: PlayerState = { ...snapshot, trackId, position: initialSeekPending.current ? intent.current.position : audioRef.current?.currentTime ?? position, updatedAt: new Date().toISOString() };
+    const state: PlayerState = { ...snapshot, trackId, position: getPosition(), updatedAt: new Date().toISOString() };
     writeLocal('lilt.player', state);
   });
   const finish = useEffectEvent((completed = false) => {
@@ -297,6 +302,7 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
       if (Math.abs(audio.currentTime - start) > 0.2) audio.currentTime = start;
       session.current.lastPosition = start; initialSeekPending.current = false;
     }
+    syncPosition();
     setLoading(intent.current.play && audio.readyState < 3);
     if (intent.current.play && audio.readyState >= 3 && audio.paused && claim()) tryPlay();
   });
@@ -312,7 +318,7 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
     updatePrefetch();
   });
   const onWaiting = useEffectEvent(() => { if (intent.current.play) setLoading(true); updatePrefetch(); });
-  const onPlaying = useEffectEvent(() => { lastProgress.current = Date.now(); setLoading(false); setFailure(''); onProgress(); });
+  const onPlaying = useEffectEvent(() => { lastProgress.current = Date.now(); syncPosition(); setLoading(false); setFailure(''); onProgress(); });
   const onTime = useEffectEvent(() => {
     const audio = audioRef.current;
     if (!audio || initialSeekPending.current) return;
@@ -333,7 +339,7 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
     if (intent.current.play && !initialSeekPending.current && !audio?.error && !audio?.ended && retryTimer.current === undefined) {
       intent.current.play = false; setPlayRequested(false); setLoading(false); cancelRecovery();
     }
-    setPlaying(false); finish(); persist();
+    syncPosition(); setPlaying(false); finish(); persist();
     if (!intent.current.play) releaseLease();
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
   });
@@ -451,7 +457,7 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   });
   const leave = useEffectEvent(() => { finish(); pause(); });
   const reconnect = useEffectEvent(() => { if (intent.current.play && audioRef.current && (audioRef.current.error || audioRef.current.readyState < 3)) { retries.current = 0; retryPlayback(true); } });
-  const visible = useEffectEvent(() => { lastProgress.current = Date.now(); });
+  const visible = useEffectEvent(() => { lastProgress.current = Date.now(); syncPosition(); });
   useEffect(() => {
     const workerReady = (event: MessageEvent) => { if (event.data?.type === 'lilt-audio-ready') { cacheReady.current = true; updatePrefetch(); } };
     const ping = () => navigator.serviceWorker?.controller?.postMessage({ type: 'lilt-audio-ping' });
@@ -462,9 +468,10 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
     const historyTick = setInterval(historyHeartbeat, 15000);
     window.addEventListener('storage', onStorage);
     window.addEventListener('pagehide', leave);
+    window.addEventListener('pageshow', visible);
     window.addEventListener('online', reconnect);
     document.addEventListener('visibilitychange', visible);
-    return () => { cancelRecovery(); clearInterval(tick); clearInterval(historyTick); window.removeEventListener('storage', onStorage); window.removeEventListener('pagehide', leave); window.removeEventListener('online', reconnect); document.removeEventListener('visibilitychange', visible); navigator.serviceWorker?.removeEventListener('message', workerReady); navigator.serviceWorker?.removeEventListener('controllerchange', ping); };
+    return () => { cancelRecovery(); clearInterval(tick); clearInterval(historyTick); window.removeEventListener('storage', onStorage); window.removeEventListener('pagehide', leave); window.removeEventListener('pageshow', visible); window.removeEventListener('online', reconnect); document.removeEventListener('visibilitychange', visible); navigator.serviceWorker?.removeEventListener('message', workerReady); navigator.serviceWorker?.removeEventListener('controllerchange', ping); };
   }, []);
   useEffect(() => { persist(); }, [snapshot]);
   useEffect(() => {
@@ -475,7 +482,7 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   return {
     audioRef, audioRefs, lyrics, snapshot, track, trackId, queue, position, playing, loading, playRequested, bufferedEnd, failure,
     conflict, setConflict,
-    begin, play, pause, seek, next, previous, enqueue, reorder, remove, setVolume,
+    begin, play, pause, seek, getPosition, next, previous, enqueue, reorder, remove, setVolume,
     toggleShuffle: () => setSnapshot(old => {
       if (old.shuffle || !old.queueIds.length) return { ...old, shuffle: !old.shuffle };
       return { ...old, shuffle: true, queueIds: [old.queueIds[old.queueIndex], ...shuffledIds(old.queueIds.filter((_, index) => index !== old.queueIndex))], queueIndex: 0 };
