@@ -311,6 +311,7 @@ func probeTrack(ctx context.Context, path, filename, relativePath string) (Track
 			t.Title = base
 		}
 	}
+	t.Title = tidy(t.Title, 4096)
 	parts := strings.Split(strings.Trim(strings.ReplaceAll(relativePath, "\\", "/"), "/"), "/")
 	if t.Album == "" && len(parts) >= 2 {
 		t.Album = tidy(parts[len(parts)-2], 4096)

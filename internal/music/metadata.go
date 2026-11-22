@@ -46,6 +46,8 @@ func (s *Store) editTrack(ctx context.Context, id string, p TrackPatch, cover io
 		if err = s.loadLegacyCredits(ctx, &t, relative); err != nil {
 			return Track{}, err
 		}
+		// Legacy filename-derived titles must match tag readback normalization.
+		t.Title = tidy(t.Title, 4096)
 	}
 	if err = applyTrackPatch(&t, p); err != nil {
 		return Track{}, err
