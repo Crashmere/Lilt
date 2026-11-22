@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, CheckCheck, ChevronDown, CircleAlert, Download, FolderUp, GripVertical, ImagePlus, ListMusic, LoaderCircle, MoreHorizontal, Music2, Pause, Play, Plus, Repeat, Repeat1, RotateCw, Shuffle, Trash2, UploadCloud, X } from 'lucide-react';
+import { Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Download, FolderUp, GripVertical, ImagePlus, ListMusic, LoaderCircle, MoreHorizontal, Music2, Pause, Play, Plus, Repeat, Repeat1, RotateCw, Shuffle, Trash2, UploadCloud, X } from 'lucide-react';
 import { ApiError, json, messageOf, request, trackURL } from './api';
 import { Artwork, Empty, Modal, TrackPlaylists } from './components';
 import { TrackCredits, type CollectionNavigation } from './track-links';
@@ -100,6 +100,8 @@ export function LyricsPanel({ player, onClose, onEdit, onAdjust }: { player: Pla
   const { text, loading, error, reload } = player.lyrics;
   const [savingId, setSavingId] = useState('');
   const [saveError, setSaveError] = useState<{ trackId: string; message: string }>();
+  const [coverPreview, setCoverPreview] = useState<{ url: string; title: string }>();
+  const [coverFailed, setCoverFailed] = useState(false);
   const saving = useRef(false);
   const activeRef = useRef<HTMLButtonElement>(null);
   const lyrics = parseLyrics(text);
@@ -116,19 +118,34 @@ export function LyricsPanel({ player, onClose, onEdit, onAdjust }: { player: Pla
     finally { saving.current = false; setSavingId(''); }
   }
 
-  return <aside className="side-panel lyrics-panel">
-    <header><div><span className="eyebrow">正在播放</span><h2>歌词</h2></div><button className="icon-button" aria-label="关闭歌词" onClick={onClose}><X size={22} /></button></header>
+  return <><aside className="side-panel lyrics-panel" aria-label="歌词">
+    <header>
+      <div><span className="eyebrow">正在播放</span><h2>歌词</h2></div>
+      {player.track ? <div className="lyrics-track">
+        <button className="lyrics-cover" aria-label="查看封面大图" title="查看封面大图" aria-haspopup="dialog" disabled={!player.track.coverUrl} onClick={() => {
+          setCoverFailed(false);
+          setCoverPreview({ url: player.track!.coverUrl, title: player.track!.title });
+        }}><Artwork url={player.track.coverUrl} /></button>
+        <div><h3 title={player.track.title}>{player.track.title}</h3><p title={player.track.artist}>{player.track.artist}</p></div>
+      </div> : <div />}
+      <button className="icon-button" aria-label="关闭歌词" onClick={onClose}><X size={22} /></button>
+    </header>
     {player.track ? <>
-      <div className="lyrics-track"><Artwork url={player.track.coverUrl} size={480} /><h3>{player.track.title}</h3><p>{player.track.artist}</p></div>
-      {lyrics.lines.length > 0 && <div className="lyrics-offset" aria-busy={savingId === player.trackId}>
-        <button disabled={!!savingId} onClick={() => { void adjust(-0.5); }}>提前 0.5 秒</button>
-        <span role="status">{savingId === player.trackId ? '保存中…' : `${lyrics.offset > 0 ? '+' : ''}${lyrics.offset.toFixed(1)} 秒`}</span>
-        <button disabled={!!savingId} onClick={() => { void adjust(0.5); }}>延后 0.5 秒</button>
-      </div>}
-      {saveError?.trackId === player.trackId && <p className="error-text" role="alert">{saveError.message}</p>}
       <div className="lyrics-body" aria-busy={loading}>{loading ? <div className="empty-state" role="status"><div className="empty-symbol"><LoaderCircle size={32} className="spin" /></div><h3>歌词加载中…</h3></div> : error ? <Empty title="歌词加载失败" text={error}><button className="button secondary" onClick={reload}>重试</button></Empty> : lyrics.lines.length ? lyrics.lines.map((line, index) => <button key={index} className={`lyric-line ${index === current ? 'active' : ''}`} ref={index === current ? activeRef : undefined} onClick={() => player.seek(Math.max(0, line.time))}>{line.text || '♪'}</button>) : text ? <p className="plain-lyrics">{lyrics.plain}</p> : <Empty title="此曲目没有歌词"><button className="button secondary" onClick={() => onEdit(player.track!)}>添加歌词</button></Empty>}</div>
+      {(lyrics.lines.length > 0 || saveError?.trackId === player.trackId) && <footer className="lyrics-footer">
+        {saveError?.trackId === player.trackId && <p className="error-text" role="alert">{saveError.message}</p>}
+        {lyrics.lines.length > 0 && <div className="lyrics-offset" aria-busy={savingId === player.trackId}>
+          <button aria-label="歌词提前 0.5 秒" title="提前 0.5 秒" disabled={!!savingId || loading || !!error} onClick={() => { void adjust(-0.5); }}><ChevronLeft size={14} /></button>
+          <span role="status" aria-label="歌词偏移">{savingId === player.trackId ? '保存中…' : `${lyrics.offset > 0 ? '+' : ''}${lyrics.offset.toFixed(1)} 秒`}</span>
+          <button aria-label="歌词延后 0.5 秒" title="延后 0.5 秒" disabled={!!savingId || loading || !!error} onClick={() => { void adjust(0.5); }}><ChevronRight size={14} /></button>
+        </div>}
+      </footer>}
     </> : <Empty title="尚未播放" text="选择曲目后查看歌词。" />}
-  </aside>;
+  </aside>
+    {coverPreview && <Modal title={coverPreview.title} className="lyrics-cover-modal" onClose={() => setCoverPreview(undefined)}>
+      <div className="lyrics-cover-preview">{coverFailed ? <Empty title="封面加载失败"><button className="button secondary" onClick={() => setCoverFailed(false)}>重试</button></Empty> : <img src={coverPreview.url} alt={`${coverPreview.title} 封面`} onError={() => setCoverFailed(true)} />}</div>
+    </Modal>}
+  </>;
 }
 
 export function UploadModal({ uploader, playlist, onClose, onLocate }: { uploader: Uploader; playlist?: UploadPlaylist; onClose: () => void; onLocate: (id: string) => void }) {
