@@ -4,7 +4,7 @@ export type Track = {
   composer?: string; lyricist?: string; comment?: string; copyright?: string; isrc?: string; bpm?: number;
   duration: number; size: number; format: string; bitrate: number; sampleRate: number;
   bitDepth: number; channels: number; originalName: string; version: string; tags: string[];
-  favorite: boolean; coverUrl: string; hasLyrics: boolean; lyricsText?: string; lyricsVersion?: string; aliases?: string[]; searchText?: string; mimeType?: string; container?: string;
+  favorite: boolean; coverUrl: string; hasLyrics: boolean; lyricsType?: 'none' | 'txt' | 'lrc'; lyricsText?: string; lyricsVersion?: string; aliases?: string[]; searchText?: string; mimeType?: string; container?: string;
   audioVersion?: string; playCount: number; playedSeconds: number; lastPlayedAt: string;
   addedAt: string; updatedAt: string; deletedAt?: string;
 };

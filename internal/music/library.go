@@ -32,7 +32,8 @@ func (s *Store) hydrate(t *Track) {
 			t.CoverURL += "?v=" + coverVersion(info)
 		}
 	}
-	t.HasLyrics = t.LyricsText != ""
+	t.LyricsType = lyricsType(t.LyricsText)
+	t.HasLyrics = t.LyricsType != "none"
 	t.LyricsVersion = fmt.Sprintf("%x", sha256.Sum256([]byte(t.LyricsText)))
 	t.SearchText = trackSearchText(*t)
 }

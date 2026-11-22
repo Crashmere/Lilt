@@ -42,6 +42,7 @@ type Track struct {
 	Favorite      bool     `json:"favorite"`
 	CoverURL      string   `json:"coverUrl"`
 	HasLyrics     bool     `json:"hasLyrics"`
+	LyricsType    string   `json:"lyricsType"`
 	LyricsText    string   `json:"lyricsText,omitempty"`
 	LyricsVersion string   `json:"lyricsVersion,omitempty"`
 	AudioVersion  string   `json:"audioVersion,omitempty"`

@@ -1,7 +1,7 @@
 import { useDeferredValue, useEffect, useEffectEvent, useId, useRef, useState, type ReactNode } from 'react';
 import { CalendarDays, Check, Disc3, FileAudio, Music2, RotateCcw } from 'lucide-react';
 import { Modal } from './components';
-import { EMPTY_FILTERS, filterCount, filterError, matchesFilters, PRESENCE_FILTERS, presenceState, RANGE_FILTERS, setPresence, TEXT_FILTERS, type LibraryFilters } from './library-filters';
+import { EMPTY_FILTERS, filterCount, filterError, LYRICS_FILTERS, matchesFilters, PRESENCE_FILTERS, presenceState, RANGE_FILTERS, setPresence, TEXT_FILTERS, type LibraryFilters } from './library-filters';
 import type { PlaylistMemberships } from './playlist-memberships';
 import type { Track } from './types';
 import { matches, normalize } from './utils';
@@ -108,7 +108,7 @@ export function LibraryFilterModal({ value, tracks, playlistMemberships, query, 
       </div></section>
       <section className="library-filter-section"><h3><Disc3 size={16} />资料状态</h3><div className="library-filter-grid">
         <Choice label="收藏" value={draft.favorite} options={[["", "不限"], ["yes", "已收藏"], ["no", "未收藏"]]} onChange={value => update('favorite', value)} />
-        <Choice label="歌词" value={draft.lyrics} options={[["", "不限"], ["yes", "有歌词"], ["no", "无歌词"]]} onChange={value => update('lyrics', value)} />
+        <Choice label="歌词" value={draft.lyrics} options={[["", "不限"], ...LYRICS_FILTERS]} onChange={value => update('lyrics', value)} />
         <Choice label="封面" value={draft.cover} options={[["", "不限"], ["yes", "有封面"], ["no", "无封面"]]} onChange={value => update('cover', value)} />
         <Choice label="歌单归属" value={draft.playlists} options={[["", "不限"], ["none", "没有"], ["one", "一个"], ["multiple", "多个"]]} onChange={value => update('playlists', value)} />
       </div></section>

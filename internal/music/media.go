@@ -127,6 +127,28 @@ func metadataValue(tags map[string]string, keys ...string) string {
 }
 
 var lyricTimestamp = regexp.MustCompile(`\[\d+:\d{2}(?:\.\d+)?\]`)
+var lyricMetadataHeader = regexp.MustCompile(`(?i)^\[(?:ar|ti|al|by|offset|length|re|ve):[^\]]*\]\s*$`)
+
+func lyricsType(text string) string {
+	if strings.TrimSpace(text) == "" {
+		return "none"
+	}
+	timed := false
+	for _, raw := range strings.Split(text, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || lyricMetadataHeader.MatchString(line) {
+			continue
+		}
+		if position := lyricTimestamp.FindStringIndex(line); position == nil || position[0] != 0 {
+			return "txt"
+		}
+		timed = true
+	}
+	if timed {
+		return "lrc"
+	}
+	return "txt"
+}
 
 func lyricMetadata(tags map[string]string) string {
 	keys := []string{"lyrics", "syncedlyrics", "unsyncedlyrics", "unsynchronised_lyrics"}

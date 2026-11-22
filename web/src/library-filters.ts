@@ -14,6 +14,8 @@ export const RANGE_FILTERS = [
   { key: 'duration', label: '时长', from: 'durationFrom', to: 'durationTo', unit: '分钟', scale: 60, step: 0.1 },
 ] as const;
 
+export const LYRICS_FILTERS = [['none', '无'], ['txt', 'TXT'], ['lrc', 'LRC']] as const;
+
 export const PRESENCE_FILTERS = [
   { key: 'genre', state: 'genreState' }, { key: 'version', state: 'versionState' },
   { key: 'composer', state: 'composerState' }, { key: 'lyricist', state: 'lyricistState' },
@@ -41,7 +43,7 @@ const FILTER_COLUMNS: FilterColumn[] = [
   { key: 'bitDepth', label: '位深', value: track => track.bitDepth ? `${track.bitDepth} bit` : '未提供' },
   { key: 'channels', label: '声道', value: track => track.channels === 1 ? '单声道' : track.channels === 2 ? '立体声' : `${track.channels} 声道` },
   { key: 'favorite', label: '收藏', value: track => track.favorite ? '已收藏' : '未收藏' },
-  { key: 'lyrics', label: '歌词', value: track => track.hasLyrics ? '有歌词' : '无歌词' },
+  { key: 'lyrics', label: '歌词', value: track => LYRICS_FILTERS.find(([type]) => type === track.lyricsType)?.[1] || (track.hasLyrics ? '有歌词' : '无') },
   { key: 'cover', label: '封面', value: track => track.coverUrl ? '有封面' : '无封面' },
   { key: 'playlists', label: '歌单归属', value: (_track, count) => `${count} 个` },
 ];
@@ -115,7 +117,8 @@ export function matchesFilters(track: Track, filters: LibraryFilters, playlistCo
   for (const key of ['sampleRate', 'bitDepth', 'channels'] as const) {
     if (!hasPresence(filters, key) && filters[key] && track[key] !== Number(filters[key])) return false;
   }
-  for (const [key, present] of [['favorite', track.favorite], ['lyrics', track.hasLyrics], ['cover', !!track.coverUrl]] as const) {
+  if (filters.lyrics && filters.lyrics !== (track.lyricsType || (track.hasLyrics ? '' : 'none'))) return false;
+  for (const [key, present] of [['favorite', track.favorite], ['cover', !!track.coverUrl]] as const) {
     if (filters[key] && present !== (filters[key] === 'yes')) return false;
   }
   if ((filters.playlists === 'none' && playlistCount !== 0) || (filters.playlists === 'one' && playlistCount !== 1) || (filters.playlists === 'multiple' && playlistCount < 2)) return false;
