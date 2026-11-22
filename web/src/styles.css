@@ -346,18 +346,25 @@
 .album-page-link{width:26px;height:26px;color:#969183;align-self:center}
 .artist-album-actions{display:flex;align-items:center;gap:7px;flex:none}
 .artist-album-actions>.icon-button{border-radius:50%;background:#ebe7de;color:var(--accent);width:34px;height:34px}
-.track-list.album-tracks{--track-columns:20px 26px minmax(0,1fr) 42px 96px}
-.album-tracks>.track-heading>.playlist-cell{display:none}
+.track-list.album-tracks{--track-columns:20px 26px minmax(0,1.5fr) minmax(110px,1fr) 42px 96px}
 .album-tracks>.track-row{padding-top:10px;padding-bottom:10px;row-gap:4px;border-bottom:1px solid var(--line);border-radius:0}
 .album-tracks>.track-row>.check-cell{grid-column:1;grid-row:1}
 .album-tracks>.track-row>.number-cell{grid-column:2;grid-row:1}
 .album-tracks>.track-row>.track-name{grid-column:3;grid-row:1}
-.album-tracks>.track-row>.time-cell{grid-column:4;grid-row:1}
-.album-tracks>.track-row>.track-actions{grid-column:5;grid-row:1}
-.album-tracks>.track-row>.playlist-cell{grid-column:3/-1;grid-row:2;padding-left:0;display:flex;align-items:center;gap:7px}
-.album-tracks>.track-row>.playlist-cell::before{content:"歌单";font-size:10px;color:#9aa08d;flex:none}
-.album-tracks .playlist-chips{flex-direction:row}
+.album-tracks>.track-row>.time-cell{grid-column:5;grid-row:1}
+.album-tracks>.track-row>.track-actions{grid-column:6;grid-row:1}
+.album-tracks>.track-row>.playlist-cell{grid-column:4;grid-row:1;padding-left:0;display:block}
+.album-tracks>.track-row>.playlist-cell::before{display:none}
+.album-tracks .playlist-chips{flex-direction:column}
 .album-tracks .selection-bar{flex-wrap:wrap;gap:7px 13px;padding:8px 10px}
+@media(max-width:900px){
+  .track-list.album-tracks{--track-columns:20px 26px minmax(0,1fr) 42px 96px}
+  .album-tracks>.track-row>.time-cell{grid-column:4}
+  .album-tracks>.track-row>.track-actions{grid-column:5}
+  .album-tracks>.track-row>.playlist-cell{grid-column:3/-1;grid-row:2;display:flex;align-items:center;gap:7px}
+  .album-tracks>.track-row>.playlist-cell::before{display:block}
+  .album-tracks .playlist-chips{flex-direction:row}
+}
 @container(max-width:700px){
   .artist-album{display:block}
   .artist-album-cover{width:140px;float:left;margin:0 20px 20px 0}
