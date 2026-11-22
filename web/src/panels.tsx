@@ -108,7 +108,6 @@ function TimedLyrics({ lines, current, content, onSeek }: { lines: LyricLine[]; 
   const bodyRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const lineRef = useRef<HTMLButtonElement>(null);
-  const currentRef = useRef<HTMLButtonElement>(null);
   const previous = useRef<{ current: number; content: string }>(undefined);
 
   useLayoutEffect(() => {
@@ -116,11 +115,10 @@ function TimedLyrics({ lines, current, content, onSeek }: { lines: LyricLine[]; 
     const scroll = scrollRef.current;
     const line = lineRef.current;
     if (!body || !scroll || !line) return;
-    const dimensions = () => [body.clientWidth, body.clientHeight, line.offsetHeight, currentRef.current?.offsetHeight].join(':');
+    const dimensions = () => [body.clientWidth, body.clientHeight, line.offsetHeight].join(':');
     let size = dimensions();
     const center = (behavior: ScrollBehavior) => {
       scroll.style.setProperty('--lyrics-edge', `${body.clientHeight / 2}px`);
-      body.style.setProperty('--lyrics-active-half', `${(currentRef.current?.offsetHeight || 0) * 1.045 / 2 + 4}px`);
       scroll.scrollTo({ top: line.offsetTop + line.offsetHeight / 2 - scroll.clientHeight / 2, behavior });
     };
     const advancing = previous.current?.content === content && previous.current.current >= 0 && current === previous.current.current + 1;
@@ -134,16 +132,13 @@ function TimedLyrics({ lines, current, content, onSeek }: { lines: LyricLine[]; 
     });
     observer.observe(body);
     observer.observe(line);
-    if (currentRef.current) observer.observe(currentRef.current);
     return () => observer.disconnect();
   }, [current, content]);
 
-  return <div className="lyrics-body timed-lyrics" ref={bodyRef} data-active={current >= 0}>
+  return <div className="lyrics-body timed-lyrics" ref={bodyRef}>
     <div className="lyrics-scroll" ref={scrollRef}>
-      {lines.map((line, index) => <button key={index} className={`lyric-line ${index === current ? 'lyric-placeholder' : ''}`} ref={index === Math.max(0, current) ? lineRef : undefined} aria-hidden={index === current || undefined} tabIndex={index === current ? -1 : undefined} onClick={() => onSeek(Math.max(0, line.time))}>{line.text || '♪'}</button>)}
+      {lines.map((line, index) => <button key={index} className={`lyric-line ${index === current ? 'active' : ''}`} ref={index === Math.max(0, current) ? lineRef : undefined} aria-current={index === current ? 'true' : undefined} onClick={() => onSeek(Math.max(0, line.time))}>{line.text || '♪'}</button>)}
     </div>
-    {/* Keep the highlighted sentence outside the scrolling and masked list. */}
-    {current >= 0 && <button className="lyric-line active lyric-current" ref={currentRef} aria-current="true" onClick={() => onSeek(Math.max(0, lines[current].time))}>{lines[current].text || '♪'}</button>}
   </div>;
 }
 
