@@ -118,22 +118,37 @@ function TimedLyrics({ lines, current, content, onSeek }: { lines: LyricLine[]; 
     if (!body || !scroll || !line) return;
     const dimensions = () => [body.clientWidth, body.clientHeight, line.offsetHeight].join(':');
     let size = dimensions();
-    const center = (behavior: ScrollBehavior) => {
+    let frame = 0;
+    const stop = () => { cancelAnimationFrame(frame); frame = 0; };
+    const center = (animate = false) => {
+      stop();
       scroll.style.setProperty('--lyrics-edge', `${body.clientHeight / 2}px`);
-      scroll.scrollTo({ top: line.offsetTop + line.offsetHeight / 2 - scroll.clientHeight / 2, behavior });
+      const top = line.offsetTop + line.offsetHeight / 2 - scroll.clientHeight / 2;
+      if (!animate) { scroll.scrollTo({ top, behavior: 'instant' }); return; }
+      const start = scroll.scrollTop;
+      const started = performance.now();
+      const advance = (now: number) => {
+        const progress = Math.min((now - started) / 360, 1);
+        const eased = progress * progress * (3 - 2 * progress);
+        scroll.scrollTo({ top: start + (top - start) * eased, behavior: 'instant' });
+        frame = progress < 1 ? requestAnimationFrame(advance) : 0;
+      };
+      frame = requestAnimationFrame(advance);
     };
     const advancing = previous.current?.content === content && previous.current.current >= 0 && current === previous.current.current + 1;
-    center(advancing && !window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'smooth' : 'instant');
+    center(advancing && !window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     previous.current = { current, content };
     const observer = new ResizeObserver(() => {
       const next = dimensions();
       if (next === size) return;
       size = next;
-      center('instant');
+      center();
     });
     observer.observe(body);
     observer.observe(line);
-    return () => observer.disconnect();
+    scroll.addEventListener('wheel', stop, { passive: true });
+    scroll.addEventListener('pointerdown', stop);
+    return () => { observer.disconnect(); stop(); scroll.removeEventListener('wheel', stop); scroll.removeEventListener('pointerdown', stop); };
   }, [current, content]);
 
   return <div className="lyrics-body timed-lyrics" ref={bodyRef}>
