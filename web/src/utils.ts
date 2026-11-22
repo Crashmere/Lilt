@@ -28,6 +28,17 @@ export function adjustLyricsOffset(text: string, seconds: number): string {
     : `${tag}${text.includes('\r\n') ? '\r\n' : '\n'}${text}`;
 }
 
+function parseLyricCredit(value: string): LyricLine | undefined {
+  if (!value.startsWith('{')) return;
+  try {
+    const credit = JSON.parse(value);
+    if (!credit || typeof credit.t !== 'number' || !Number.isFinite(credit.t) || credit.t < 0
+      || !Array.isArray(credit.c) || !credit.c.length
+      || !credit.c.every((part: { tx?: unknown } | null) => typeof part?.tx === 'string')) return;
+    return { time: credit.t / 1000, text: credit.c.map((part: { tx: string }) => part.tx).join('').trim() };
+  } catch { return; }
+}
+
 export function parseLyrics(text: string): { lines: LyricLine[]; plain: string; offset: number } {
   const lines: LyricLine[] = [];
   const plain: string[] = [];
@@ -36,6 +47,12 @@ export function parseLyrics(text: string): { lines: LyricLine[]; plain: string; 
   for (const raw of text.split(/\r?\n/)) {
     const value = raw.trim();
     if (lyricMetadataPattern.test(value)) continue;
+    const credit = parseLyricCredit(value);
+    if (credit) {
+      plain.push(credit.text);
+      lines.push({ ...credit, time: credit.time + offset });
+      continue;
+    }
     const times = [...value.matchAll(lyricTimestampPattern)];
     const body = value.replace(lyricTimestampPattern, '').replace(/<\d+:\d{2}(?:\.\d+)?>/g, '').trim();
     plain.push(body);
