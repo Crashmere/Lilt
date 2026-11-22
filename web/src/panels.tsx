@@ -127,13 +127,12 @@ export function LyricsPanel({ player, onClose, onEdit, onAdjust }: { player: Pla
 
   return <><aside className="side-panel lyrics-panel" aria-label="歌词">
     <header>
-      <div><span className="eyebrow">正在播放</span><h2>歌词</h2></div>
-      {player.track ? <div className="lyrics-track">
+      {player.track && <div className="lyrics-track">
         <button className="lyrics-cover" aria-label="查看封面大图" title="查看封面大图" aria-haspopup="dialog" disabled={!player.track.coverUrl} onClick={() => {
           setCoverPreview({ url: player.track!.coverUrl, title: player.track!.title, album: player.track!.album });
         }}><Artwork url={player.track.coverUrl} /></button>
         <div><h3 title={player.track.title}>{player.track.title}</h3><p title={player.track.artist}>{player.track.artist}</p></div>
-      </div> : <div />}
+      </div>}
       <button className="icon-button" aria-label="关闭歌词" onClick={onClose}><X size={22} /></button>
     </header>
     {player.track ? <>
