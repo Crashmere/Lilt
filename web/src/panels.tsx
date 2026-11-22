@@ -96,12 +96,19 @@ export function QueuePanel({ player, playlistMemberships, showPlaylists, onClose
   </aside>;
 }
 
+function CoverPreviewModal({ url, title, filename, onClose }: { url: string; title: string; filename: string; onClose: () => void }) {
+  const [failed, setFailed] = useState(false);
+  return <Modal title={title} className="cover-preview-modal" onClose={onClose}>
+    <div className="cover-preview-image">{failed ? <Empty title="封面加载失败"><button type="button" className="button secondary" onClick={() => setFailed(false)}>重试</button></Empty> : <img src={url} alt={`${title} 封面`} onError={() => setFailed(true)} />}</div>
+    <footer className="modal-footer"><a className="button secondary" href={url} download={filename}><Download size={16} />下载封面</a></footer>
+  </Modal>;
+}
+
 export function LyricsPanel({ player, onClose, onEdit, onAdjust }: { player: Player; onClose: () => void; onEdit: (track: Track) => void; onAdjust: (track: Track, seconds: number) => Promise<void> }) {
   const { text, loading, error, reload } = player.lyrics;
   const [savingId, setSavingId] = useState('');
   const [saveError, setSaveError] = useState<{ trackId: string; message: string }>();
   const [coverPreview, setCoverPreview] = useState<{ url: string; title: string; album: string }>();
-  const [coverFailed, setCoverFailed] = useState(false);
   const saving = useRef(false);
   const activeRef = useRef<HTMLButtonElement>(null);
   const lyrics = parseLyrics(text);
@@ -123,7 +130,6 @@ export function LyricsPanel({ player, onClose, onEdit, onAdjust }: { player: Pla
       <div><span className="eyebrow">正在播放</span><h2>歌词</h2></div>
       {player.track ? <div className="lyrics-track">
         <button className="lyrics-cover" aria-label="查看封面大图" title="查看封面大图" aria-haspopup="dialog" disabled={!player.track.coverUrl} onClick={() => {
-          setCoverFailed(false);
           setCoverPreview({ url: player.track!.coverUrl, title: player.track!.title, album: player.track!.album });
         }}><Artwork url={player.track.coverUrl} /></button>
         <div><h3 title={player.track.title}>{player.track.title}</h3><p title={player.track.artist}>{player.track.artist}</p></div>
@@ -142,10 +148,7 @@ export function LyricsPanel({ player, onClose, onEdit, onAdjust }: { player: Pla
       </footer>}
     </> : <Empty title="尚未播放" text="选择曲目后查看歌词。" />}
   </aside>
-    {coverPreview && <Modal title={coverPreview.title} className="lyrics-cover-modal" onClose={() => setCoverPreview(undefined)}>
-      <div className="lyrics-cover-preview">{coverFailed ? <Empty title="封面加载失败"><button className="button secondary" onClick={() => setCoverFailed(false)}>重试</button></Empty> : <img src={coverPreview.url} alt={`${coverPreview.title} 封面`} onError={() => setCoverFailed(true)} />}</div>
-      <footer className="modal-footer"><a className="button secondary" href={coverPreview.url} download={`${coverPreview.album || coverPreview.title} - 封面.jpg`}><Download size={16} />下载封面</a></footer>
-    </Modal>}
+    {coverPreview && <CoverPreviewModal url={coverPreview.url} title={coverPreview.title} filename={`${coverPreview.album || coverPreview.title} - 封面.jpg`} onClose={() => setCoverPreview(undefined)} />}
   </>;
 }
 
@@ -220,6 +223,7 @@ export function TrackEditor({ track, onClose, onSaved }: { track: Track; onClose
   const expectedUpdatedAt = useRef(track.updatedAt);
   const [cover, setCover] = useState<File>();
   const [preview, setPreview] = useState('');
+  const [coverOpen, setCoverOpen] = useState(false);
   const [removeCover, setRemoveCover] = useState(false);
   const [busy, setBusy] = useState(false);
   const [readingLyrics, setReadingLyrics] = useState(false);
@@ -227,6 +231,7 @@ export function TrackEditor({ track, onClose, onSaved }: { track: Track; onClose
   const coverInput = useRef<HTMLInputElement>(null);
   const lyricsInput = useRef<HTMLInputElement>(null);
   const disabled = busy || readingLyrics;
+  const coverURL = removeCover ? '' : cover ? preview : track.coverUrl;
   const dirty = JSON.stringify(data) !== initialData.current || !!cover || removeCover;
   useEffect(() => {
     if (!cover) { setPreview(''); return; }
@@ -264,9 +269,9 @@ export function TrackEditor({ track, onClose, onSaved }: { track: Track; onClose
       await onSaved(result.track); onClose();
     } catch (error) { setError(messageOf(error)); } finally { setBusy(false); }
   }
-  return <Modal title="编辑曲目" wide onClose={close}><form onSubmit={event => { event.preventDefault(); void save(); }}>
+  return <><Modal title="编辑曲目" wide onClose={close}><form onSubmit={event => { event.preventDefault(); void save(); }}>
     <div className="modal-body editor-body"><fieldset className="editor-fields" disabled={disabled}>
-      <div className="editor-cover"><Artwork url={removeCover ? undefined : preview || track.coverUrl} /><div><strong>{track.originalName}</strong><p>{track.format?.toUpperCase()} · {bytes(track.size)} · {duration(track.duration)}</p><p>{[track.sampleRate ? `${(track.sampleRate / 1000).toFixed(1)} kHz` : '', track.bitDepth ? `${track.bitDepth} bit` : '', track.bitrate ? `${Math.round(track.bitrate / 1000)} kbps` : '', track.channels ? `${track.channels} 声道` : ''].filter(Boolean).join(' · ')}</p>
+      <div className="editor-cover"><button type="button" className="editor-cover-open" aria-label="查看封面大图" title="查看封面大图" aria-haspopup="dialog" disabled={!coverURL} onClick={() => setCoverOpen(true)}><Artwork url={coverURL} /></button><div><strong>{track.originalName}</strong><p>{track.format?.toUpperCase()} · {bytes(track.size)} · {duration(track.duration)}</p><p>{[track.sampleRate ? `${(track.sampleRate / 1000).toFixed(1)} kHz` : '', track.bitDepth ? `${track.bitDepth} bit` : '', track.bitrate ? `${Math.round(track.bitrate / 1000)} kbps` : '', track.channels ? `${track.channels} 声道` : ''].filter(Boolean).join(' · ')}</p>
         <div className="editor-cover-actions"><button type="button" className="button secondary" onClick={() => coverInput.current?.click()}>更换封面</button>{(cover || track.coverUrl) && <button type="button" className="text-button" onClick={() => { if (removeCover) setRemoveCover(false); else { setCover(undefined); setRemoveCover(true); } }}>{removeCover ? '恢复封面' : '移除封面'}</button>}{cover && <button type="button" className="text-button" onClick={() => setCover(undefined)}>撤销更换</button>}</div>
         {cover && <span className="file-selected">{cover.name}</span>}<input hidden type="file" ref={coverInput} accept="image/png,image/jpeg,image/gif,image/webp" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (!file) return; setCover(file); setRemoveCover(false); setError(''); }} />
       </div></div>
@@ -280,7 +285,9 @@ export function TrackEditor({ track, onClose, onSaved }: { track: Track; onClose
       </div>
     </fieldset>{error && <p className="error-text" role="alert">{error}</p>}</div>
     <footer className="modal-footer"><a className="text-button" href={trackURL(track.id, 'download')}><Download size={16} />下载音频</a><div className="editor-footer-actions"><button className="button secondary" type="button" disabled={disabled} onClick={close}>取消</button><button className="button primary" type="submit" disabled={disabled}>{busy ? '写回中…' : '保存并写回'}</button></div></footer>
-  </form></Modal>;
+  </form></Modal>
+    {coverOpen && coverURL && <CoverPreviewModal url={coverURL} title={data.title || track.title} filename={cover?.name || `${data.album || data.title || track.title} - 封面.jpg`} onClose={() => setCoverOpen(false)} />}
+  </>;
 }
 
 const bulkFields = [['artist', '艺术家'], ['album', '专辑'], ['albumArtist', '专辑艺术家'], ['genre', '风格'], ['year', '年份']] as const;
