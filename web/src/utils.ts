@@ -17,7 +17,7 @@ export function readLocal<T>(key: string, fallback: T): T { try { return JSON.pa
 export function writeLocal(key: string, value: unknown): void { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* Storage can be unavailable in private browsing. */ } }
 export type LyricLine = { time: number; text: string };
 const lyricOffsetPattern = /\[offset:([+-]?\d+)\]/i;
-const lyricTimestampPattern = /\[(\d+):(\d{2}(?:\.\d+)?)\]/g;
+const lyricTimestampPattern = /\[(\d+):(\d{2})(?:[.:](\d+))?\]/g;
 const lyricMetadataPattern = /^\[(?:ar|ti|al|by|offset|length|re|ve):[^\]]*\]\s*$/i;
 
 export function adjustLyricsOffset(text: string, seconds: number): string {
@@ -28,14 +28,14 @@ export function adjustLyricsOffset(text: string, seconds: number): string {
     : `${tag}${text.includes('\r\n') ? '\r\n' : '\n'}${text}`;
 }
 
-function parseLyricCredit(value: string): LyricLine | undefined {
+function parseLyricCredit(value: string): { time?: number; text: string } | undefined {
   if (!value.startsWith('{')) return;
   try {
     const credit = JSON.parse(value);
-    if (!credit || typeof credit.t !== 'number' || !Number.isFinite(credit.t) || credit.t < 0
-      || !Array.isArray(credit.c) || !credit.c.length
+    if (!credit || !Array.isArray(credit.c) || !credit.c.length
       || !credit.c.every((part: { tx?: unknown } | null) => typeof part?.tx === 'string')) return;
-    return { time: credit.t / 1000, text: credit.c.map((part: { tx: string }) => part.tx).join('').trim() };
+    if (credit.t != null && (typeof credit.t !== 'number' || !Number.isFinite(credit.t))) return;
+    return { time: credit.t == null ? undefined : credit.t / 1000, text: credit.c.map((part: { tx: string }) => part.tx).join('').trim() };
   } catch { return; }
 }
 
@@ -50,14 +50,15 @@ export function parseLyrics(text: string): { lines: LyricLine[]; plain: string; 
     const credit = parseLyricCredit(value);
     if (credit) {
       plain.push(credit.text);
-      lines.push({ ...credit, time: credit.time + offset });
+      if (credit.time === undefined) fullyTimed = false;
+      else lines.push({ text: credit.text, time: credit.time + offset });
       continue;
     }
     const times = [...value.matchAll(lyricTimestampPattern)];
-    const body = value.replace(lyricTimestampPattern, '').replace(/<\d+:\d{2}(?:\.\d+)?>/g, '').trim();
+    const body = value.replace(lyricTimestampPattern, '').replace(/<\d+:\d{2}(?:[.:]\d+)?>/g, '').trim();
     plain.push(body);
     if (value && times[0]?.index !== 0) fullyTimed = false;
-    for (const time of times) lines.push({ time: Number(time[1]) * 60 + Number(time[2]) + offset, text: body });
+    for (const time of times) lines.push({ time: Number(time[1]) * 60 + Number(time[2]) + Number(`0.${time[3] || 0}`) + offset, text: body });
   }
   // A stray timestamp must not hide the rest of a plain or partially timed lyric.
   return { lines: fullyTimed ? lines.sort((a, b) => a.time - b.time) : [], plain: plain.join('\n').trim(), offset };

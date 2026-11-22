@@ -126,7 +126,7 @@ func metadataValue(tags map[string]string, keys ...string) string {
 	return ""
 }
 
-var lyricTimestamp = regexp.MustCompile(`\[\d+:\d{2}(?:\.\d+)?\]`)
+var lyricTimestamp = regexp.MustCompile(`\[\d+:\d{2}(?:[.:]\d+)?\]`)
 var lyricMetadataHeader = regexp.MustCompile(`(?i)^\[(?:ar|ti|al|by|offset|length|re|ve):[^\]]*\]\s*$`)
 
 func isLyricCredit(line string) bool {
@@ -139,7 +139,7 @@ func isLyricCredit(line string) bool {
 			Text *string `json:"tx"`
 		} `json:"c"`
 	}
-	if err := json.Unmarshal([]byte(line), &credit); err != nil || credit.Time == nil || *credit.Time < 0 || len(credit.Content) == 0 {
+	if err := json.Unmarshal([]byte(line), &credit); err != nil || credit.Time == nil || len(credit.Content) == 0 {
 		return false
 	}
 	for _, part := range credit.Content {
