@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Download, FolderUp, GripVertical, ImagePlus, ListMusic, LoaderCircle, MoreHorizontal, Music2, Pause, Play, Plus, Repeat, Repeat1, RotateCw, Shuffle, Trash2, UploadCloud, X } from 'lucide-react';
 import { ApiError, json, messageOf, request, trackURL } from './api';
 import { Artwork, Empty, Modal, TrackPlaylists } from './components';
@@ -9,7 +9,7 @@ import type { Playlist, Rules, Track, Upload } from './types';
 import type { Uploader, UploadPlaylist } from './upload';
 import { droppedFiles } from './drop-files';
 import { formatUploadRate } from './upload-rate';
-import { bytes, duration, parseLyrics } from './utils';
+import { bytes, duration, parseLyrics, type LyricLine } from './utils';
 import { useReorder } from './reorder';
 
 function PlayerGlyph({ name }: { name: 'shuffle' | 'previous' | 'play' | 'pause' | 'next' | 'repeat' | 'more' | 'lyrics' | 'queue' | 'volume' }) {
@@ -104,17 +104,58 @@ function CoverPreviewModal({ url, title, filename, onClose }: { url: string; tit
   </Modal>;
 }
 
+function TimedLyrics({ lines, current, content, onSeek }: { lines: LyricLine[]; current: number; content: string; onSeek: (seconds: number) => void }) {
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const lineRef = useRef<HTMLButtonElement>(null);
+  const currentRef = useRef<HTMLButtonElement>(null);
+  const previous = useRef<{ current: number; content: string }>(undefined);
+
+  useLayoutEffect(() => {
+    const body = bodyRef.current;
+    const scroll = scrollRef.current;
+    const line = lineRef.current;
+    if (!body || !scroll || !line) return;
+    const dimensions = () => [body.clientWidth, body.clientHeight, line.offsetHeight, currentRef.current?.offsetHeight].join(':');
+    let size = dimensions();
+    const center = (behavior: ScrollBehavior) => {
+      scroll.style.setProperty('--lyrics-edge', `${body.clientHeight / 2}px`);
+      body.style.setProperty('--lyrics-active-half', `${(currentRef.current?.offsetHeight || 0) * 1.045 / 2 + 4}px`);
+      scroll.scrollTo({ top: line.offsetTop + line.offsetHeight / 2 - scroll.clientHeight / 2, behavior });
+    };
+    const advancing = previous.current?.content === content && previous.current.current >= 0 && current === previous.current.current + 1;
+    center(advancing && !window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'smooth' : 'instant');
+    previous.current = { current, content };
+    const observer = new ResizeObserver(() => {
+      const next = dimensions();
+      if (next === size) return;
+      size = next;
+      center('instant');
+    });
+    observer.observe(body);
+    observer.observe(line);
+    if (currentRef.current) observer.observe(currentRef.current);
+    return () => observer.disconnect();
+  }, [current, content]);
+
+  return <div className="lyrics-body timed-lyrics" ref={bodyRef} data-active={current >= 0}>
+    <div className="lyrics-scroll" ref={scrollRef}>
+      {lines.map((line, index) => <button key={index} className={`lyric-line ${index === current ? 'lyric-placeholder' : ''}`} ref={index === Math.max(0, current) ? lineRef : undefined} aria-hidden={index === current || undefined} tabIndex={index === current ? -1 : undefined} onClick={() => onSeek(Math.max(0, line.time))}>{line.text || '♪'}</button>)}
+    </div>
+    {/* Keep the highlighted sentence outside the scrolling and masked list. */}
+    {current >= 0 && <button className="lyric-line active lyric-current" ref={currentRef} aria-current="true" onClick={() => onSeek(Math.max(0, lines[current].time))}>{lines[current].text || '♪'}</button>}
+  </div>;
+}
+
 export function LyricsPanel({ player, onClose, onEdit, onAdjust }: { player: Player; onClose: () => void; onEdit: (track: Track) => void; onAdjust: (track: Track, seconds: number) => Promise<void> }) {
   const { text, loading, error, reload } = player.lyrics;
   const [savingId, setSavingId] = useState('');
   const [saveError, setSaveError] = useState<{ trackId: string; message: string }>();
   const [coverPreview, setCoverPreview] = useState<{ url: string; title: string; album: string }>();
   const saving = useRef(false);
-  const activeRef = useRef<HTMLButtonElement>(null);
   const lyrics = parseLyrics(text);
   let current = -1;
   lyrics.lines.forEach((line, index) => { if (line.time <= player.position) current = index; });
-  useEffect(() => { activeRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, [current]);
 
   async function adjust(seconds: number) {
     const track = player.track;
@@ -136,7 +177,7 @@ export function LyricsPanel({ player, onClose, onEdit, onAdjust }: { player: Pla
       <button className="icon-button" aria-label="关闭歌词" onClick={onClose}><X size={22} /></button>
     </header>
     {player.track ? <>
-      <div className="lyrics-body" aria-busy={loading}>{loading ? <div className="empty-state" role="status"><div className="empty-symbol"><LoaderCircle size={32} className="spin" /></div><h3>歌词加载中…</h3></div> : error ? <Empty title="歌词加载失败" text={error}><button className="button secondary" onClick={reload}>重试</button></Empty> : lyrics.lines.length ? lyrics.lines.map((line, index) => <button key={index} className={`lyric-line ${index === current ? 'active' : ''}`} ref={index === current ? activeRef : undefined} onClick={() => player.seek(Math.max(0, line.time))}>{line.text || '♪'}</button>) : text ? <p className="plain-lyrics">{lyrics.plain}</p> : <Empty title="此曲目没有歌词"><button className="button secondary" onClick={() => onEdit(player.track!)}>添加歌词</button></Empty>}</div>
+      {!loading && !error && lyrics.lines.length ? <TimedLyrics key={player.trackId} lines={lyrics.lines} current={current} content={text} onSeek={player.seek} /> : <div className="lyrics-body" aria-busy={loading}>{loading ? <div className="empty-state" role="status"><div className="empty-symbol"><LoaderCircle size={32} className="spin" /></div><h3>歌词加载中…</h3></div> : error ? <Empty title="歌词加载失败" text={error}><button className="button secondary" onClick={reload}>重试</button></Empty> : text ? <p className="plain-lyrics">{lyrics.plain}</p> : <Empty title="此曲目没有歌词"><button className="button secondary" onClick={() => onEdit(player.track!)}>添加歌词</button></Empty>}</div>}
       {(lyrics.lines.length > 0 || saveError?.trackId === player.trackId) && <footer className="lyrics-footer">
         {saveError?.trackId === player.trackId && <p className="error-text" role="alert">{saveError.message}</p>}
         {lyrics.lines.length > 0 && <div className="lyrics-offset" aria-busy={savingId === player.trackId}>
