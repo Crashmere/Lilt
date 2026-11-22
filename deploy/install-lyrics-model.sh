@@ -18,9 +18,9 @@ printf '%s  %s\n' a4b15d5a2e75f237b5ac919fb1b9d8619d40cf06f9d13a19abdba3da45e43b
 mkdir -p "$root/SOFA" "$root/model" "$root/python"
 chmod 0755 "$root" "$root/python"
 export UV_PYTHON_INSTALL_DIR="$root/python"
-uv python install 3.11.16
+uv python install --no-bin 3.11.16
 uv venv --python 3.11.16 "$root/venv"
-uv pip sync --python "$root/venv/bin/python" --require-hashes -r "$bundle/lyrics-model.lock"
+uv pip sync --python "$root/venv/bin/python" --require-hashes "$bundle/lyrics-model.lock"
 tar -xzf "$bundle/source.tar.gz" -C "$root/SOFA" --strip-components=1
 "$root/venv/bin/python" -m zipfile -e "$bundle/model.zip" "$root/model"
 mv "$root/model/pretrained_mandarin_singing/v1.0.0_mandarin_singing.ckpt" "$root/model/model.ckpt"
