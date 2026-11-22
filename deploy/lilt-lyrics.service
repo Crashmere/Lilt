@@ -16,6 +16,8 @@ Environment=OMP_NUM_THREADS=2
 Environment=MKL_NUM_THREADS=2
 Environment=MPLCONFIGDIR=/opt/lilt/data/analysis/matplotlib
 Environment=NUMBA_CACHE_DIR=/opt/lilt/data/analysis/numba
+Environment=PYTORCH_KERNEL_CACHE_PATH=/opt/lilt/data/analysis/torch-kernels
+Environment=CUDA_CACHE_PATH=/opt/lilt/data/analysis/cuda
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=20
