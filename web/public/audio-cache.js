@@ -105,7 +105,7 @@ function audioPlan(entry) {
   if (start >= entry.size) return;
   const rate = Math.max(16 * 1024, ...current.map(state => state.rate || entry.rate));
   const fullNext = next.some(state => state.complete);
-  const nextLimit = Math.min(entry.size, Math.max(256 * 1024, entry.rate * 12) + AUDIO_FIRST);
+  const nextLimit = Math.min(entry.size, Math.max(256 * 1024, Math.ceil(entry.rate * 12)) + AUDIO_FIRST);
   if (!current.length && !editor && !fullNext && entry.received >= nextLimit) return;
   const due = Math.max(entry.retryAt, urgent || editor ? 0 : entry.paceAt);
   const length = current.length || editor ? AUDIO_CHUNK : Math.min(AUDIO_FIRST, fullNext ? AUDIO_FIRST : nextLimit - entry.received);
