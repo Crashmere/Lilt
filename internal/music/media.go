@@ -129,9 +129,9 @@ func metadataValue(tags map[string]string, keys ...string) string {
 var lyricTimestamp = regexp.MustCompile(`\[\d+:\d{2}(?:[.:]\d+)?\]`)
 var lyricMetadataHeader = regexp.MustCompile(`(?i)^\[(?:ar|ti|al|by|offset|length|re|ve):[^\]]*\]\s*$`)
 
-func isLyricCredit(line string) bool {
+func lyricCreditTiming(line string) (valid, timed bool) {
 	if !strings.HasPrefix(line, "{") {
-		return false
+		return false, false
 	}
 	var credit struct {
 		Time    *float64 `json:"t"`
@@ -139,15 +139,15 @@ func isLyricCredit(line string) bool {
 			Text *string `json:"tx"`
 		} `json:"c"`
 	}
-	if err := json.Unmarshal([]byte(line), &credit); err != nil || credit.Time == nil || len(credit.Content) == 0 {
-		return false
+	if err := json.Unmarshal([]byte(line), &credit); err != nil || len(credit.Content) == 0 {
+		return false, false
 	}
 	for _, part := range credit.Content {
 		if part.Text == nil {
-			return false
+			return false, false
 		}
 	}
-	return true
+	return true, credit.Time != nil
 }
 
 func lyricsType(text string) string {
@@ -160,10 +160,12 @@ func lyricsType(text string) string {
 		if line == "" || lyricMetadataHeader.MatchString(line) {
 			continue
 		}
+		if credit, creditTimed := lyricCreditTiming(line); credit {
+			timed = timed || creditTimed
+			continue
+		}
 		if position := lyricTimestamp.FindStringIndex(line); position == nil || position[0] != 0 {
-			if !isLyricCredit(line) {
-				return "txt"
-			}
+			return "txt"
 		}
 		timed = true
 	}

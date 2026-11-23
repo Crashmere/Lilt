@@ -51,7 +51,7 @@ export function parseLyrics(text: string): { lines: LyricLine[]; untimed: string
     const credit = parseLyricCredit(value);
     if (credit) {
       plain.push(credit.text);
-      if (credit.time === undefined) { fullyTimed = false; if (credit.text) untimed.push(credit.text); }
+      if (credit.time === undefined) { if (credit.text) untimed.push(credit.text); }
       else lines.push({ text: credit.text, time: credit.time + offset });
       continue;
     }
