@@ -120,7 +120,7 @@ export function LyricsWorkbench({ track, player, onClose, onSaved }: { track: Tr
   const baseline = useMemo(() => comparable(parseDocument(base.lyricsText)), [base.lyricsText]);
   const currentText = source ? raw : serialized;
   const dirty = (source ? raw !== base.lyricsText && raw !== baseline : serialized !== baseline) || pendingTimes.size > 0;
-  const preview = useMemo(() => parseLyrics(currentText, true), [currentText]);
+  const preview = useMemo(() => parseLyrics(currentText), [currentText]);
   const previewDoc = useMemo(() => source ? reconcileDocument(raw, doc) : doc, [source, raw, doc]);
   const chosen = doc.lines.filter(line => selected.has(line.id));
   const editing = doc.lines.find(line => line.id === editId);

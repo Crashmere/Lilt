@@ -39,8 +39,9 @@ function parseLyricCredit(value: string): { time?: number; text: string } | unde
   } catch { return; }
 }
 
-export function parseLyrics(text: string, partial = false): { lines: LyricLine[]; plain: string; offset: number; fullyTimed: boolean } {
+export function parseLyrics(text: string): { lines: LyricLine[]; untimed: string[]; plain: string; offset: number; fullyTimed: boolean } {
   const lines: LyricLine[] = [];
+  const untimed: string[] = [];
   const plain: string[] = [];
   let fullyTimed = true;
   const offset = Number(text.match(lyricOffsetPattern)?.[1] || 0) / 1000;
@@ -50,24 +51,24 @@ export function parseLyrics(text: string, partial = false): { lines: LyricLine[]
     const credit = parseLyricCredit(value);
     if (credit) {
       plain.push(credit.text);
-      if (credit.time === undefined) fullyTimed = false;
+      if (credit.time === undefined) { fullyTimed = false; if (credit.text) untimed.push(credit.text); }
       else lines.push({ text: credit.text, time: credit.time + offset });
       continue;
     }
     const times = [...value.matchAll(lyricTimestampPattern)];
     const body = value.replace(lyricTimestampPattern, '').replace(/<\d+:\d{2}(?:[.:]\d+)?>/g, '').trim();
     plain.push(body);
-    if (value && times[0]?.index !== 0) fullyTimed = false;
+    if (value && times[0]?.index !== 0) { fullyTimed = false; if (body) untimed.push(body); continue; }
     const tokens = [...value.matchAll(/<(\d+):(\d{2})(?:[.:](\d+))?>/g)];
     const words = tokens.length ? tokens.map((token, i) => ({ time: Number(token[1]) * 60 + Number(token[2]) + Number(`0.${token[3] || 0}`) + offset, text: value.slice(token.index! + token[0].length, tokens[i + 1]?.index ?? value.length) })) : undefined;
     for (const time of times) lines.push({ time: Number(time[1]) * 60 + Number(time[2]) + Number(`0.${time[3] || 0}`) + offset, text: body, words });
   }
-  // A stray timestamp must not hide the rest of a plain or partially timed lyric.
+  // Only explicit line starts join the timeline; untimed content stays available separately.
   const grouped: LyricLine[] = [];
-  if (fullyTimed || partial) for (const line of lines.sort((a, b) => a.time - b.time)) {
+  for (const line of lines.sort((a, b) => a.time - b.time)) {
     const previous = grouped.at(-1);
     if (previous?.time === line.time) previous.secondary = [...(previous.secondary || []), line.text];
     else grouped.push(line);
   }
-  return { lines: grouped, plain: plain.join('\n').trim(), offset, fullyTimed };
+  return { lines: grouped, untimed, plain: plain.join('\n').trim(), offset, fullyTimed };
 }

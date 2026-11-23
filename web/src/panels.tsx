@@ -107,7 +107,7 @@ function CoverPreviewModal({ url, title, filename, onClose }: { url: string; tit
   </Modal>;
 }
 
-function TimedLyrics({ lines, current, content, onSeek, player }: { lines: LyricLine[]; current: number; content: string; onSeek: (seconds: number) => void; player: Player }) {
+function TimedLyrics({ lines, untimed, current, content, onSeek, player }: { lines: LyricLine[]; untimed: string[]; current: number; content: string; onSeek: (seconds: number) => void; player: Player }) {
   const words = lines.flatMap(line => line.words || []);
   const currentWord = useActiveLyric(words, player.position, player.getPosition, player.playing);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -168,6 +168,7 @@ function TimedLyrics({ lines, current, content, onSeek, player }: { lines: Lyric
   return <div className="lyrics-body timed-lyrics" ref={bodyRef}>
     <div className="lyrics-scroll" ref={scrollRef}>
       <div className="lyrics-lines" ref={listRef}>
+        {untimed.length > 0 && <div className="lyrics-untimed">{untimed.map((text, index) => <p key={index}>{text}</p>)}</div>}
         {lines.map((line, index) => <button key={index} className={`lyric-line ${index === current ? 'active' : ''}`} ref={index === Math.max(0, current) ? lineRef : undefined} aria-current={index === current ? 'true' : undefined} onClick={() => onSeek(Math.max(0, line.time))}><LyricText line={line} sungThrough={index === current ? words[currentWord]?.time ?? -Infinity : -Infinity} /></button>)}
       </div>
     </div>
@@ -206,7 +207,7 @@ export function LyricsPanel({ player, onClose, onEdit, onAdjust }: { player: Pla
       </div>
     </header>
     {player.track ? <>
-      {!loading && !error && lyrics.lines.length ? <TimedLyrics key={player.trackId} lines={lyrics.lines} current={current} content={text} onSeek={player.seek} player={player} /> : <div className="lyrics-body" aria-busy={loading}>{loading ? <div className="empty-state" role="status"><div className="empty-symbol"><LoaderCircle size={32} className="spin" /></div><h3>歌词加载中…</h3></div> : error ? <Empty title="歌词加载失败" text={error}><button className="button secondary" onClick={reload}>重试</button></Empty> : text ? <p className="plain-lyrics">{lyrics.plain}</p> : <Empty title="此曲目没有歌词"><button className="button secondary" onClick={() => onEdit(player.track!)}>添加歌词</button></Empty>}</div>}
+      {!loading && !error && lyrics.lines.length ? <TimedLyrics key={player.trackId} lines={lyrics.lines} untimed={lyrics.untimed} current={current} content={text} onSeek={player.seek} player={player} /> : <div className="lyrics-body" aria-busy={loading}>{loading ? <div className="empty-state" role="status"><div className="empty-symbol"><LoaderCircle size={32} className="spin" /></div><h3>歌词加载中…</h3></div> : error ? <Empty title="歌词加载失败" text={error}><button className="button secondary" onClick={reload}>重试</button></Empty> : text ? <p className="plain-lyrics">{lyrics.plain}</p> : <Empty title="此曲目没有歌词"><button className="button secondary" onClick={() => onEdit(player.track!)}>添加歌词</button></Empty>}</div>}
       {(lyrics.lines.length > 0 || saveError?.trackId === player.trackId) && <footer className="lyrics-footer">
         {saveError?.trackId === player.trackId && <p className="error-text" role="alert">{saveError.message}</p>}
         {lyrics.lines.length > 0 && <div className="lyrics-offset" aria-busy={savingId === player.trackId}>
