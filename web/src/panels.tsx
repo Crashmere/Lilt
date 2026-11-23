@@ -199,8 +199,10 @@ export function LyricsPanel({ player, onClose, onEdit, onAdjust }: { player: Pla
         }}><Artwork url={player.track.coverUrl} /></button>
         <div><h3 title={player.track.title}>{player.track.title}</h3><p title={player.track.artist}>{player.track.artist}</p></div>
       </div>}
-      {player.track && <button className="icon-button" aria-label="编辑与校准歌词" title="歌词工作台" onClick={() => onEdit(player.track!)}><Pencil size={18} /></button>}
-      <button className="icon-button" aria-label="关闭歌词" onClick={onClose}><X size={22} /></button>
+      <div className="lyrics-header-actions">
+        {player.track && <button className="icon-button" aria-label="编辑与校准歌词" title="歌词工作台" onClick={() => onEdit(player.track!)}><Pencil size={18} /></button>}
+        <button className="icon-button" aria-label="关闭歌词" onClick={onClose}><X size={22} /></button>
+      </div>
     </header>
     {player.track ? <>
       {!loading && !error && lyrics.lines.length ? <TimedLyrics key={player.trackId} lines={lyrics.lines} current={current} content={text} onSeek={player.seek} player={player} /> : <div className="lyrics-body" aria-busy={loading}>{loading ? <div className="empty-state" role="status"><div className="empty-symbol"><LoaderCircle size={32} className="spin" /></div><h3>歌词加载中…</h3></div> : error ? <Empty title="歌词加载失败" text={error}><button className="button secondary" onClick={reload}>重试</button></Empty> : text ? <p className="plain-lyrics">{lyrics.plain}</p> : <Empty title="此曲目没有歌词"><button className="button secondary" onClick={() => onEdit(player.track!)}>添加歌词</button></Empty>}</div>}

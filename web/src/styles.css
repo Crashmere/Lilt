@@ -595,9 +595,9 @@
 @media(max-width:360px){.library-filter-grid{grid-template-columns:minmax(0,1fr)}}
 
 .lyrics-panel{padding-bottom:calc(var(--player-height) - 4px)}
-.lyrics-panel>header{display:grid;grid-template-columns:31px minmax(0,1fr) 31px;align-items:center;gap:10px;height:114px;padding:0 24px}
-.lyrics-panel>header>.icon-button{grid-column:3;grid-row:1;justify-self:end}
-.lyrics-panel .lyrics-track{grid-column:2;grid-row:1;display:flex;align-items:center;justify-self:center;gap:12px;max-width:100%;min-width:0;padding:0;text-align:left;transform:translateX(-12px)}
+.lyrics-panel>header{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;height:114px;padding:0 24px}
+.lyrics-header-actions{grid-column:2;grid-row:1;justify-self:end;display:flex;align-items:center;gap:10px}
+.lyrics-panel .lyrics-track{grid-column:1;grid-row:1;display:flex;align-items:center;justify-self:start;gap:12px;max-width:100%;min-width:0;padding:0;text-align:left}
 .lyrics-cover{flex:none;width:56px;padding:0;border-radius:6px}
 .lyrics-panel .lyrics-track .artwork{width:100%;margin:0;border-radius:6px;box-shadow:0 3px 9px #2c302714}
 .lyrics-track>div{min-width:0}
@@ -618,7 +618,7 @@
 @media(max-width:740px){
   .lyrics-panel>header{height:calc(107px + env(safe-area-inset-top,0px));padding:env(safe-area-inset-top,0px) 20px 0}
   .lyrics-cover{width:50px}
-  .lyrics-panel .lyrics-track{gap:10px;transform:translateX(-10px)}
+  .lyrics-panel .lyrics-track{gap:10px}
   .lyrics-track h3{font-size:14px}
 }
 .modal-backdrop:has(.cover-preview-modal){padding-bottom:calc(var(--player-height) + 22px)}
