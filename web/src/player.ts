@@ -235,7 +235,8 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
     audioRef.current.preload = 'auto'; lastProgress.current = Date.now();
     setLoading(audioRef.current.readyState < 3); tryPlay();
   }
-  function pause(): void { intent.current.play = false; setPlayRequested(false); setLoading(false); cancelRecovery(); audioRef.current?.pause(); releaseLease(); persist(); updatePrefetch(); }
+  // Source changes can discard the native pause event, so update playback state here.
+  function pause(): void { intent.current.play = false; setPlayRequested(false); setPlaying(false); setLoading(false); cancelRecovery(); audioRef.current?.pause(); releaseLease(); persist(); updatePrefetch(); }
   function seek(value: number): void {
     const audio = audioRef.current;
     if (!audio) return;
@@ -414,6 +415,8 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   const onPlay = useEffectEvent(() => { if (!intent.current.play) { audioRef.current?.pause(); return; } setPlaying(true); if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'; });
   const onPause = useEffectEvent(() => {
     const audio = audioRef.current;
+    // A queued pause event can arrive after playback has already resumed.
+    if (audio && !audio.paused) return;
     if (intent.current.play && !initialSeekPending.current && !audio?.error && !audio?.ended && retryTimer.current === undefined) {
       intent.current.play = false; setPlayRequested(false); setLoading(false); cancelRecovery();
     }
@@ -496,7 +499,7 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
         if (auditionToggle.current) { event.preventDefault(); if (!event.repeat) auditionToggle.current(); break; }
         if (!queue.length && !auditionRef.current) return;
         event.preventDefault();
-        if (!event.repeat) { if (playing || intent.current.play) pause(); else play(); }
+        if (!event.repeat) { if (intent.current.play) pause(); else play(); }
         break;
       case 'ArrowLeft':
       case 'ArrowRight':
