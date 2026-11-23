@@ -33,6 +33,8 @@ The offline alignment installation uses [SOFA](https://github.com/qiuqiao/SOFA),
 
 The isolated runtime includes CPython (PSF), PyTorch/torchaudio (BSD-style), Lightning (Apache-2.0), NumPy (BSD-3-Clause), librosa (ISC), numba (BSD-2-Clause), pypinyin (MIT), pandas (BSD-3-Clause) and other resolved dependencies. Exact versions, platform-specific NVIDIA dependencies and hashes are recorded in `deploy/lyrics-model.lock`; preserve each installed distribution's own notices, including NVIDIA component terms. `deploy/lyrics-model.in` owns direct pins, including the setuptools compatibility pin needed by the older librosa release. These dependencies and weights are installed only in the Lilt model root, not embedded in the Web bundle or shared with other applications.
 
+English alignment additionally uses tigermeat's `tgm_en_v100` singing checkpoint and the author's pinned `tgm_sofa_dict.txt` dictionary. [deploy/lyrics-english-NOTICE.md](../deploy/lyrics-english-NOTICE.md) records their sources, hashes, training providers, the author's public/commercial use permission statement and reported pronunciation/range limitations. Preserve it as `model/english-notice.md`. The dictionary and weights are not redistributed in this repository. English adds no Python dependencies; the SOFA code license remains separate from model, dictionary and training-data terms.
+
 ## MIT-Licensed Components
 
 React and React DOM:

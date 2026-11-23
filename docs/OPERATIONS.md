@@ -9,7 +9,7 @@ The runtime identity is `lilt`; local publication uses the restricted `lilt-depl
 | Path | Responsibility |
 | --- | --- |
 | `/opt/lilt/bin/lilt` | Static Linux amd64 Go program with embedded web assets |
-| `/opt/lilt/bin/lyrics-model/` | Optional root-owned isolated CPython runtime, pinned dependencies, SOFA source and Mandarin weights |
+| `/opt/lilt/bin/lyrics-model/` | Optional root-owned isolated CPython runtime, pinned dependencies, SOFA source and Chinese/English weights and dictionaries |
 | `/opt/lilt/bin/deploy-{ssh,release}.sh` | Root-owned fixed publication entry points |
 | `/opt/lilt/config/` | systemd unit, application Nginx location, private runtime environment, Portal declaration and source receipt |
 | `/opt/lilt/data/lilt.sqlite` | Tracks, metadata, file-hash recognition history, lyrics, playlists, uploads, listening sessions, retained legacy player snapshots and artwork ownership |
@@ -40,7 +40,7 @@ File-hash recognition uses the additive `track_fingerprints` table in the same c
 
 ## Optional Lyrics Worker
 
-The editor, preloading, browser waveform generation and native audition need no new server runtime. Server waveform fallback and model candidates use `lilt-lyrics.service` on `nas`, running the same Go executable as `lilt` with `lyrics-worker --data /opt/lilt/data --model-root /opt/lilt/bin/lyrics-model`. This is separate from the main 512 MiB Web service and from Aura/Curio's image environment. The committed unit caps CPU at two cores, memory at 4 GiB and tasks at 96, forbids network sockets, and allows writes only in Lilt data. Matplotlib, Numba, PyTorch kernel and CUDA caches use private subdirectories of `data/analysis/`, not the read-only runtime or home directory. One worker serializes jobs; inference releases its model/GPU process after each job. CUDA is selected when available, CPU otherwise; fewer than 2 GiB free CUDA memory produces a retryable error rather than competing for the remaining memory.
+The editor, preloading, browser waveform generation and native audition need no new server runtime. Server waveform fallback and model candidates use `lilt-lyrics.service` on `nas`, running the same Go executable as `lilt` with `lyrics-worker --data /opt/lilt/data --model-root /opt/lilt/bin/lyrics-model`. This is separate from the main 512 MiB Web service and from Aura/Curio's image environment. The committed unit caps CPU at two cores, memory at 4 GiB and tasks at 96, forbids network sockets, and allows writes only in Lilt data. Matplotlib, Numba, PyTorch kernel and CUDA caches use private subdirectories of `data/analysis/`, not the read-only runtime or home directory. One worker serializes jobs; inference releases its model/GPU process after each job. CUDA is selected when available, CPU otherwise; it requires at least 2 GiB free CUDA memory for a single language or 3 GiB when both experts must be loaded. Insufficient free memory produces a retryable error rather than competing for the remainder.
 
 The model service is optional and requires explicit administrator activation. Keep shared current-state aligned with actual `nas` installation; a Portal/source declaration is not evidence of an active unit. Install only after authorization, under the shared maintenance and Lilt deployment locks, without modifying shared release scripts or other applications' runtimes. Preserve existing runtime/unit paths; the installer rejects them rather than replacing them.
 
@@ -63,7 +63,21 @@ bash deploy/install-lyrics-model.sh /path/to/verified-bundle
 
 It verifies source/weight hashes, uses installed `uv` to provision CPython 3.11.16 beneath the model root, creates a dedicated venv, syncs the pinned dependencies with required hashes, and smoke-loads the checkpoint on CPU. No global Python packages, host CUDA toolkit, build runtimes or containers are installed. It installs the unit in `/opt/lilt/config/`, links it through systemd, and enables it without starting it. The next normal local Lilt release starts the worker through `lilt.service.wants`; `PartOf` and `Requires` stop/restart it with the main service. Provision before that release so the new CLI and `analysis/` directory are available when it starts.
 
-After installation, validate one synthetic job on an isolated `nas` catalog under `lilt`, verifying actual CUDA progress, sandbox access and cleanup without writing owner tracks. Then verify the production worker heartbeat with read-only requests, main health, authentication rejection and the Portal receipt. No performance or real-song accuracy claim follows merely from loading the checkpoint. If model preparation fails, preserve and inspect the partially created runtime; do not rerun initialization over it.
+Add English to the established runtime with `deploy/install-lyrics-english.sh`, under the same maintenance/deployment locks. It adds approximately 391 MiB of weights and dictionary without changing dependencies, Mandarin weights, units or other applications. Prepare these bundle files:
+
+| Bundle file | Source and SHA-256 |
+| --- | --- |
+| `english.ckpt` | [Author's tgm_en_v100 release asset](https://github.com/spicytigermeat/SOFA-Models/releases/download/v1.0.0_en/tgm_en_v100.ckpt); `6aba5f0ba3461155bf0c20190df85fad580de42409784737573309f6962449ff` |
+| `english-dictionary.txt` | [Author's dictionary at ed3218d8233b39cd1dfe7783f03a7e0eaec34597](https://raw.githubusercontent.com/spicytigermeat/SOFA-Models/ed3218d8233b39cd1dfe7783f03a7e0eaec34597/tgm_sofa_dict.txt); `1b2a52ac559169196cb7cdfd3edcfe3947d37ec6a28a6ec281abac838331439c` |
+| `lyrics-english-NOTICE.md` | Committed source, provider and permission record |
+
+```sh
+bash deploy/install-lyrics-english.sh /path/to/english-bundle
+```
+
+The installer verifies hashes, loads the checkpoint under `lilt`, checks dictionary phones and identical Chinese/English feature configurations, then publishes read-only files as `model/english.ckpt`, `model/english-dictionary.txt` and `model/english-notice.md`. Existing matching files permit a retry; different existing weights/dictionaries are preserved and rejected. The worker advertises English only when both files exist. Its network sandbox forbids any runtime model or dictionary download. The upstream generic multilingual initialization checkpoint is not used for alignment.
+
+After installation, validate synthetic English and mixed-language inference under `lilt` on `nas`, checking actual CUDA progress, sandbox access, word/text preservation, locked section boundaries and cleanup without writing owner tracks. Then verify the production worker heartbeat with read-only requests, main health, authentication rejection and the Portal receipt. No performance or real-song accuracy claim follows merely from loading the checkpoint. If model preparation fails, preserve and inspect the partially created runtime; do not rerun initialization over it.
 
 For worker diagnosis, inspect `journalctl -u lilt-lyrics` and `/api/lyrics-tools`. Stop only this worker to inspect analysis state. Running jobs become retryable errors on worker restart, queued snapshots remain processable, and cancellation kills active inference plus its FFmpeg children. Startup removes only worker-owned orphan links/staging. Do not purge `analysis/` while jobs are queued/running. Removing only the worker leaves manual editing available. When rolling back to a program without `lyrics-worker`, stop/disable the worker and remove its main-service wants link first; do not delete its runtime or any originals.
 

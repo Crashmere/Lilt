@@ -97,15 +97,19 @@ func (s *server) lyricsTools(w http.ResponseWriter, r *http.Request) {
 	status := map[string]any{"available": false, "alignment": false, "languages": []string{}, "engine": "SOFA"}
 	if s.store.db.QueryRowContext(r.Context(), "SELECT value FROM settings WHERE key='lyricsWorker'").Scan(&value) == nil {
 		var saved struct {
-			UpdatedAt string `json:"updatedAt"`
-			Alignment bool   `json:"alignment"`
+			UpdatedAt string   `json:"updatedAt"`
+			Alignment bool     `json:"alignment"`
+			Languages []string `json:"languages"`
 		}
 		if json.Unmarshal([]byte(value), &saved) == nil {
 			at, err := time.Parse(time.RFC3339Nano, saved.UpdatedAt)
 			live := err == nil && time.Since(at) < 15*time.Second
 			status["available"], status["alignment"] = live, live && saved.Alignment
 			if live && saved.Alignment {
-				status["languages"] = []string{"zh"}
+				status["languages"] = saved.Languages
+				if saved.Languages == nil {
+					status["languages"] = []string{"zh"}
+				}
 			}
 		}
 	}
@@ -170,8 +174,11 @@ func (s *server) lyricsJobs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if job.Kind == "align" {
-		if job.Language != "zh" || len(job.Lines) == 0 || len(job.Lines) > 2000 || len(job.DraftVersion) > 128 {
-			writeError(w, 400, "请选择中文歌词，或缩小校准范围")
+		if job.Language == "" {
+			job.Language = "auto"
+		}
+		if job.Language != "auto" && job.Language != "zh" && job.Language != "en" || len(job.Lines) == 0 || len(job.Lines) > 2000 || len(job.DraftVersion) > 128 {
+			writeError(w, 400, "请选择中文或英语歌词，或缩小校准范围")
 			return
 		}
 		ids, characters, previous := map[string]bool{}, 0, job.Start
@@ -312,9 +319,25 @@ func RunLyricsWorker(ctx context.Context, dir, root string) error {
 		}
 	}
 	heartbeat := func() {
-		_, modelErr := os.Stat(filepath.Join(root, "model", "model.ckpt"))
-		_, pythonErr := os.Stat(filepath.Join(root, "venv", "bin", "python"))
-		value, _ := json.Marshal(map[string]any{"updatedAt": now(), "alignment": modelErr == nil && pythonErr == nil})
+		languages := []string{}
+		installed := func(paths ...string) bool {
+			for _, path := range paths {
+				info, err := os.Stat(filepath.Join(root, path))
+				if err != nil || !info.Mode().IsRegular() {
+					return false
+				}
+			}
+			return true
+		}
+		if installed("venv/bin/python", "SOFA/modules/task/forced_alignment.py") {
+			if installed("model/model.ckpt", "SOFA/dictionary/opencpop-extension.txt") {
+				languages = append(languages, "zh")
+			}
+			if installed("model/english.ckpt", "model/english-dictionary.txt") {
+				languages = append(languages, "en")
+			}
+		}
+		value, _ := json.Marshal(map[string]any{"updatedAt": now(), "alignment": len(languages) > 0, "languages": languages})
 		db.ExecContext(ctx, "INSERT INTO settings(key,value) VALUES('lyricsWorker',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", string(value))
 	}
 	heartbeat()
