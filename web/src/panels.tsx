@@ -12,6 +12,7 @@ import { droppedFiles } from './drop-files';
 import { formatUploadRate } from './upload-rate';
 import { bytes, duration, parseLyrics, type LyricLine } from './utils';
 import { useActiveLyric } from './lyrics';
+import { LyricText } from './lyric-text';
 import { useReorder } from './reorder';
 
 function PlayerGlyph({ name }: { name: 'shuffle' | 'previous' | 'play' | 'pause' | 'next' | 'repeat' | 'more' | 'lyrics' | 'queue' | 'volume' }) {
@@ -167,7 +168,7 @@ function TimedLyrics({ lines, current, content, onSeek, player }: { lines: Lyric
   return <div className="lyrics-body timed-lyrics" ref={bodyRef}>
     <div className="lyrics-scroll" ref={scrollRef}>
       <div className="lyrics-lines" ref={listRef}>
-        {lines.map((line, index) => <button key={index} className={`lyric-line ${index === current ? 'active' : ''}`} ref={index === Math.max(0, current) ? lineRef : undefined} aria-current={index === current ? 'true' : undefined} onClick={() => onSeek(Math.max(0, line.time))}>{line.words?.length ? line.words.map((word, i) => <span key={i} className={`lyric-word ${index === current && currentWord >= 0 && word.time <= words[currentWord].time ? 'sung' : ''}`}>{word.text}</span>) : line.text || '♪'}{line.secondary?.map((text, i) => <span className="lyric-secondary" key={i}>{text}</span>)}</button>)}
+        {lines.map((line, index) => <button key={index} className={`lyric-line ${index === current ? 'active' : ''}`} ref={index === Math.max(0, current) ? lineRef : undefined} aria-current={index === current ? 'true' : undefined} onClick={() => onSeek(Math.max(0, line.time))}><LyricText line={line} sungThrough={index === current ? words[currentWord]?.time ?? -Infinity : -Infinity} /></button>)}
       </div>
     </div>
   </div>;

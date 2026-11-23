@@ -481,11 +481,15 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   const mediaBack = useEffectEvent((details: MediaSessionActionDetails) => seek(position - (details.seekOffset || 10)));
   const mediaForward = useEffectEvent((details: MediaSessionActionDetails) => seek(position + (details.seekOffset || 10)));
   const onPlaybackKey = useEffectEvent((event: KeyboardEvent) => {
-    if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (conflict || event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.ctrlKey || event.metaKey || event.altKey) return;
     const target = event.target;
     const inputs = auditionToggle.current && event.key === ' ' ? 'input:not([type="range"]):not([type="checkbox"]), textarea, select, [role="textbox"]' : 'input:not([type="range"]), textarea, select, [role="textbox"]';
     if (target instanceof HTMLElement && (target.isContentEditable || target.closest(inputs))) return;
     if (event.shiftKey && event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    if (auditionToggle.current && event.key.startsWith('Arrow')) {
+      // The workbench owns navigation keys; never seek or switch a hidden queue.
+      return;
+    }
 
     switch (event.key) {
       case ' ':

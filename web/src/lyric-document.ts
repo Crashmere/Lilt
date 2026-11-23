@@ -48,6 +48,35 @@ export function parseDocument(text: string): LyricDocument {
   doc.lines.forEach((line, i) => { if (i && line.time !== null && line.time === doc.lines[i - 1].time) line.translation = true; });
   return doc;
 }
+export function reconcileDocument(text: string, previous: LyricDocument): LyricDocument {
+  if (text === serializeDocument(previous)) return previous;
+  const parsed = parseDocument(text);
+  const used = new Set<string>();
+  // Enhanced LRC stores starts only; model interval ends must not affect row matching.
+  const rowKey = (line: EditLine) => JSON.stringify([line.text, line.time, line.words?.map(word => [word.text, word.start])]);
+  const matches = parsed.lines.map(line => {
+    const old = previous.lines.find(item => !used.has(item.id) && rowKey(item) === rowKey(line));
+    if (old) used.add(old.id);
+    return old;
+  });
+  parsed.lines = parsed.lines.map((line, index) => {
+    // Unchanged rows survive insertions/reordering; positional edits retain their identity.
+    const old = matches[index] || (parsed.lines.length === previous.lines.length && !used.has(previous.lines[index].id) ? previous.lines[index] : undefined);
+    if (!old) return line;
+    used.add(old.id);
+    const translation = line.time !== null && line.time === parsed.lines[index - 1]?.time && (old.translation ?? line.translation);
+    const sameWords = JSON.stringify(line.words?.map(word => [word.text, word.start])) === JSON.stringify(old.words?.map(word => [word.text, word.start]));
+    return { ...line, id: old.id, words: sameWords ? old.words : line.words, translation, locked: !translation && line.time !== null && old.locked, anchorBase: old.anchorBase, pronunciation: line.text === old.text ? old.pronunciation : undefined };
+  });
+  return parsed;
+}
+
+export function joinLineText(lines: EditLine[]): string {
+  return lines.reduce((text, line) => {
+    const separator = /[A-Za-z0-9]$/.test(text) && /^[A-Za-z0-9]/.test(line.text) ? ' ' : '';
+    return text + separator + line.text;
+  }, '');
+}
 export function serializeDocument(doc: LyricDocument): string {
   const lines = doc.lines.map(line => {
     if (line.original !== undefined && line.signature === signature(line)) return line.original;

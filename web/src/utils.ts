@@ -39,7 +39,7 @@ function parseLyricCredit(value: string): { time?: number; text: string } | unde
   } catch { return; }
 }
 
-export function parseLyrics(text: string): { lines: LyricLine[]; plain: string; offset: number } {
+export function parseLyrics(text: string, partial = false): { lines: LyricLine[]; plain: string; offset: number; fullyTimed: boolean } {
   const lines: LyricLine[] = [];
   const plain: string[] = [];
   let fullyTimed = true;
@@ -64,10 +64,10 @@ export function parseLyrics(text: string): { lines: LyricLine[]; plain: string; 
   }
   // A stray timestamp must not hide the rest of a plain or partially timed lyric.
   const grouped: LyricLine[] = [];
-  if (fullyTimed) for (const line of lines.sort((a, b) => a.time - b.time)) {
+  if (fullyTimed || partial) for (const line of lines.sort((a, b) => a.time - b.time)) {
     const previous = grouped.at(-1);
     if (previous?.time === line.time) previous.secondary = [...(previous.secondary || []), line.text];
     else grouped.push(line);
   }
-  return { lines: grouped, plain: plain.join('\n').trim(), offset };
+  return { lines: grouped, plain: plain.join('\n').trim(), offset, fullyTimed };
 }

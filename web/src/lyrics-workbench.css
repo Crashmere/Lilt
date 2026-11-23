@@ -36,3 +36,28 @@
 .lyric-secondary{display:block;font-size:.7em;line-height:1.7;color:#989487;margin-top:6px}.lyric-word{transition:color .12s}.lyric-word.sung{color:var(--accent)}
 @media(max-width:800px){.lyrics-workbench{width:98vw;height:94dvh}.lyrics-workbench .modal-header{padding:15px 17px}.lyrics-workbench .modal-header h2{font-size:18px}.lyric-work-top{padding:9px 13px;gap:10px}.lyric-work-body{display:flex;flex-direction:column;overflow:auto}.lyric-edit-pane{min-height:400px;flex:none;border-right:0;border-bottom:1px solid var(--line)}.lyric-row-list{max-height:370px}.lyric-calibration-pane{overflow:visible;padding:17px}.lyric-edit-tools,.lyric-structure-tools{padding:10px 12px;gap:10px}.lyric-edit-row{grid-template-columns:14px 20px 96px minmax(60px,1fr) 22px 18px;gap:5px;padding:8px 5px}.lyrics-workbench .lyric-time-input{width:96px;font-size:10px}.lyric-edit-row textarea{font-size:12px;padding:5px 4px}.lyric-notice{padding:8px 14px}.lyric-replace{padding:10px 12px}.lyric-source{height:350px;flex:none}.lyric-preview{min-height:130px}.lyrics-workbench>.modal-footer{padding:12px;font-size:10px}.lyrics-workbench>.modal-footer .button{font-size:11px;padding:8px 12px}.lyric-wave-controls>span{font-size:9px}}
 @media(prefers-reduced-motion:reduce){.lyric-word{transition:none}}
+
+.lyric-work-top{margin:0;border:0;border-bottom:1px solid var(--line);min-width:0}
+.lyrics-workbench>.lyric-transport{margin:0;padding:11px 24px;border:0;border-bottom:1px solid var(--line);min-width:0;flex:none;background:#f1ede3;flex-wrap:wrap;gap:12px}
+.lyrics-workbench .lyric-clock{font-size:21px;font-variant-numeric:tabular-nums;color:var(--ink)}
+.lyrics-workbench .lyric-play-context{font-size:11px;color:var(--muted)}
+.lyric-transport select{margin-left:auto}.lyric-volume{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted)}.lyric-volume input{width:65px}
+.lyric-mobile-tools{display:none}
+.lyric-edit-row.editing{box-shadow:inset 0 0 0 1px #b7aa8d}.lyric-edit-row.editing .lyric-row-number{color:var(--accent);font-weight:700}
+.lyric-edit-row.matched textarea{background:#f3dda955}.lyric-edit-row.playing{border-left-color:#77865e}
+.lyric-edit-tools>span,.lyric-structure-tools>span{font-size:10px;color:var(--muted)}
+.lyric-list-empty{padding:35px 15px;text-align:center;color:var(--muted);font-size:12px}
+.lyric-replace{flex-wrap:wrap;gap:9px;align-content:flex-start}.lyric-replace input{flex:1 1 130px;width:130px}.lyric-match-count{min-width:32px;font-size:10px;color:var(--muted)}.lyric-replace .text-button{font-size:10px}
+.lyric-preview small{font-size:10px;color:var(--muted)}.lyric-preview .lyric-secondary{font-size:12px;margin-top:5px}
+.lyric-model summary,.lyric-word-editor summary{display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:600;list-style:none}.lyric-model summary::-webkit-details-marker,.lyric-word-editor summary::-webkit-details-marker{display:none}.lyric-model summary:after,.lyric-word-editor summary:after{content:'+';margin-left:auto;font-weight:400;color:var(--muted)}.lyric-model[open] summary:after,.lyric-word-editor[open] summary:after{content:'-'}
+.lyric-model summary small{font-size:10px;color:var(--muted);font-weight:400}.lyric-model-review label{display:flex;align-items:center;gap:5px;font-size:10px}
+.lyric-server-copy{padding:10px 24px;flex:none;background:#f2ecdf;max-height:260px;overflow:auto;font-size:11px;border-bottom:1px solid var(--line)}.lyric-server-copy.conflict{border-left:3px solid var(--accent)}
+.lyric-server-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}.lyric-server-heading strong{font-size:12px}.lyric-version-comparison{display:grid;grid-template-columns:1fr 1fr;gap:15px;margin-top:8px}.lyric-version-comparison label{font-size:10px;color:var(--muted)}.lyric-server-copy textarea{display:block;margin:5px 0 0;height:85px;white-space:pre;font-size:11px;line-height:1.6}.lyric-server-copy>div:last-child{display:flex;flex-wrap:wrap;gap:16px}
+@media(max-width:800px){
+  .modal.lyrics-workbench{height:95dvh;max-height:95dvh}
+  .lyrics-workbench>.lyric-transport{padding:9px 13px;gap:9px}.lyrics-workbench .lyric-clock{font-size:18px}.lyrics-workbench .lyric-play-context{font-size:10px;max-width:90px}.lyric-transport .round-play{width:34px;height:34px}.lyric-transport select{margin-left:auto}.lyric-volume{display:none}.lyric-transport .text-button{font-size:10px}
+  .lyric-mobile-tools{display:flex;align-items:center;gap:12px;flex-basis:100%;font-size:10px;padding-top:6px;border-top:1px solid var(--line)}.lyric-mobile-tools>span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
+  .lyric-edit-pane{min-height:340px}.lyric-row-list{max-height:340px;min-height:140px}.lyric-edit-tools,.lyric-structure-tools{gap:9px}.lyric-edit-tools .text-button,.lyric-structure-tools .text-button{font-size:10px}
+  .lyric-calibration-pane{padding:14px}.lyric-server-copy{padding:10px 13px;max-height:240px}.lyric-version-comparison{gap:8px}.lyric-server-copy textarea{height:70px}
+  .lyric-replace{gap:8px}.lyric-replace input{flex:1 1 95px;width:95px}.lyric-range{gap:8px}.lyric-range .text-button{font-size:10px}
+}
