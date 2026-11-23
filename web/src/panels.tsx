@@ -175,7 +175,7 @@ function TimedLyrics({ lines, untimed, current, content, onSeek, player }: { lin
   </div>;
 }
 
-export function LyricsPanel({ player, onClose, onEdit, onAdjust }: { player: Player; onClose: () => void; onEdit: (track: Track) => void; onAdjust: (track: Track, seconds: number) => Promise<void> }) {
+export function LyricsPanel({ player, onClose, onEdit, onAdjust, onInstrumental }: { player: Player; onClose: () => void; onEdit: (track: Track) => void; onAdjust: (track: Track, seconds: number) => Promise<void>; onInstrumental: (track: Track) => Promise<void> }) {
   const { text, loading, error, reload } = player.lyrics;
   const [savingId, setSavingId] = useState('');
   const [saveError, setSaveError] = useState<{ trackId: string; message: string }>();
@@ -190,6 +190,14 @@ export function LyricsPanel({ player, onClose, onEdit, onAdjust }: { player: Pla
     saving.current = true; setSavingId(track.id); setSaveError(undefined);
     try { await onAdjust(track, seconds); }
     catch (error) { setSaveError({ trackId: track.id, message: `调整未确认：${messageOf(error)}` }); }
+    finally { saving.current = false; setSavingId(''); }
+  }
+  async function addInstrumental() {
+    const track = player.track;
+    if (!track || loading || error || text.trim() || saving.current) return;
+    saving.current = true; setSavingId(track.id); setSaveError(undefined);
+    try { await onInstrumental(track); }
+    catch (error) { setSaveError({ trackId: track.id, message: `添加未确认：${messageOf(error)}` }); }
     finally { saving.current = false; setSavingId(''); }
   }
 
@@ -207,7 +215,7 @@ export function LyricsPanel({ player, onClose, onEdit, onAdjust }: { player: Pla
       </div>
     </header>
     {player.track ? <>
-      {!loading && !error && lyrics.lines.length ? <TimedLyrics key={player.trackId} lines={lyrics.lines} untimed={lyrics.untimed} current={current} content={text} onSeek={player.seek} player={player} /> : <div className="lyrics-body" aria-busy={loading}>{loading ? <div className="empty-state" role="status"><div className="empty-symbol"><LoaderCircle size={32} className="spin" /></div><h3>歌词加载中…</h3></div> : error ? <Empty title="歌词加载失败" text={error}><button className="button secondary" onClick={reload}>重试</button></Empty> : text ? <p className="plain-lyrics">{lyrics.plain}</p> : <Empty title="此曲目没有歌词"><button className="button secondary" onClick={() => onEdit(player.track!)}>添加歌词</button></Empty>}</div>}
+      {!loading && !error && lyrics.lines.length ? <TimedLyrics key={player.trackId} lines={lyrics.lines} untimed={lyrics.untimed} current={current} content={text} onSeek={player.seek} player={player} /> : <div className="lyrics-body" aria-busy={loading}>{loading ? <div className="empty-state" role="status"><div className="empty-symbol"><LoaderCircle size={32} className="spin" /></div><h3>歌词加载中…</h3></div> : error ? <Empty title="歌词加载失败" text={error}><button className="button secondary" onClick={reload}>重试</button></Empty> : text.trim() ? <p className="plain-lyrics">{lyrics.plain}</p> : <Empty title="此曲目没有歌词"><div className="lyrics-empty-actions"><button className="button secondary" disabled={!!savingId} onClick={() => onEdit(player.track!)}>添加歌词</button><button className="button secondary" disabled={!!savingId} aria-busy={savingId === player.trackId} onClick={() => { void addInstrumental(); }}>{savingId === player.trackId && <LoaderCircle size={14} className="spin" />}纯音乐</button></div></Empty>}</div>}
       {(lyrics.lines.length > 0 || saveError?.trackId === player.trackId) && <footer className="lyrics-footer">
         {saveError?.trackId === player.trackId && <p className="error-text" role="alert">{saveError.message}</p>}
         {lyrics.lines.length > 0 && <div className="lyrics-offset" aria-busy={savingId === player.trackId}>

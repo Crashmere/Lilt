@@ -135,6 +135,21 @@ export default function App() {
   async function favorite(track: Track) { await run(async () => { const result = await json<{ track: Track }>(`/tracks/${encodeURIComponent(track.id)}`, 'PATCH', { favorite: !track.favorite }); setLibrary(old => ({ ...old, tracks: old.tracks.map(item => item.id === track.id ? result.track : item) })); await refresh(); }); }
   async function openEditor(track: Track) { await run(async () => { const result = await request<{ track: Track }>(`/tracks/${encodeURIComponent(track.id)}`); setEditing(result.track); setTrackActions(undefined); }); }
   async function openLyricsEditor(track: Track) { await run(async () => { const result = await request<{ track: Track }>(`/tracks/${encodeURIComponent(track.id)}`); setLyricsEditing(result.track); setTrackActions(undefined); }); }
+  async function addInstrumentalLyrics(track: Track) {
+    const path = `/tracks/${encodeURIComponent(track.id)}`;
+    try {
+      const { track: current } = await request<{ track: Track }>(path);
+      if (current.lyricsText?.trim()) throw new Error('此曲目已有歌词，请查看最新内容。');
+      const result = await json<{ track: Track }>(path, 'PATCH', {
+        lyricsText: '[00:00.000]纯音乐，请欣赏', expectedLyricsVersion: current.lyricsVersion, expectedAudioVersion: current.audioVersion,
+      });
+      setLibrary(old => ({ ...old, tracks: old.tracks.map(item => item.id === track.id ? result.track : item) }));
+      notify('纯音乐歌词已写回歌曲文件');
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) throw new Error('歌词或音频已更新，请查看最新内容后重试。');
+      throw error;
+    } finally { void refresh(); }
+  }
   async function adjustLyrics(track: Track, seconds: number) {
     const path = `/tracks/${encodeURIComponent(track.id)}`;
     const current = await request<{ lyricsText: string; updatedAt: string }>(`${path}/lyrics`);
@@ -304,7 +319,7 @@ export default function App() {
     </main>
     <PlayerBar player={player} panel={panel} onQueue={() => showPanel('queue')} onLyrics={() => showPanel('lyrics')} onMore={setTrackActions} collectionNavigation={collectionNavigation} />
     {panel === 'queue' && <QueuePanel player={player} playlistMemberships={playlistMemberships} showPlaylists={setPlaylistTrack} onClose={() => setPanel(null)} onSave={ids => setPlaylistEditor({ ids })} onMore={setTrackActions} collectionNavigation={collectionNavigation} />}
-    {panel === 'lyrics' && <LyricsPanel player={player} onClose={() => setPanel(null)} onEdit={track => { void openLyricsEditor(track); }} onAdjust={adjustLyrics} />}
+    {panel === 'lyrics' && <LyricsPanel player={player} onClose={() => setPanel(null)} onEdit={track => { void openLyricsEditor(track); }} onAdjust={adjustLyrics} onInstrumental={addInstrumentalLyrics} />}
     {lyricsEditing && <LyricsWorkbench key={lyricsEditing.id} track={lyricsEditing} player={player} onClose={() => setLyricsEditing(undefined)} onSaved={track => { setLibrary(old => ({ ...old, tracks: old.tracks.map(item => item.id === track.id ? track : item) })); void refresh(); notify('歌词已写回歌曲文件'); }} />}
     {filtersOpen && view.kind === 'library' && <LibraryFilterModal value={libraryFilters} tracks={library.tracks} playlistMemberships={playlistMemberships} query={query} onClose={() => setFiltersOpen(false)} onApply={setLibraryFilters} />}
     {uploadOpen && <UploadModal uploader={uploader} playlist={uploadPlaylist} onClose={() => setUploadOpen(false)} onLocate={id => { void locateUpload(id); }} />}
