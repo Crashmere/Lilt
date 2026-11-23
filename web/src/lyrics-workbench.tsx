@@ -264,6 +264,11 @@ export function LyricsWorkbench({ track, player, onClose, onSaved }: { track: Tr
     if (source) { const next = reconcileDocument(raw, historyRef.current.doc); if (next !== historyRef.current.doc) change(next); setSource(false); }
     else { setRaw(comparable(historyRef.current.doc)); setSource(true); }
   }
+  function formatSource() {
+    if (!flushTimes()) return;
+    setRaw(text => text.split(/\r?\n/).map(line => line.trimStart()).filter(Boolean).join(text.includes('\r\n') ? '\r\n' : '\n'));
+    setMatchIndex(-1);
+  }
   function shift(amount: number) {
     if (!flushTimes()) return;
     const current = historyRef.current.doc;
@@ -520,6 +525,7 @@ export function LyricsWorkbench({ track, player, onClose, onSaved }: { track: Tr
   return <TimeContext.Provider value={timeControls.current}><Modal title={`${track.title} · 歌词工作台`} className="lyrics-workbench" wide isolate onClose={() => void close()}>
     <fieldset className="lyric-work-top" disabled={protectedOperation}>
       <div className="lyric-mode"><button className={!source ? 'active' : ''} onClick={() => { if (source) switchSource(); }}>逐行</button><button className={source ? 'active' : ''} onClick={() => { if (!source) switchSource(); }}>源码</button></div>
+      {source && <button className="text-button" title="移除空行和行首空白" onClick={formatSource}>格式化</button>}
       <span className="muted">{timedCount} / {totalCount} 行已打点</span>
       <button className="icon-button" aria-label="撤销" disabled={source || !history.past.length} onClick={() => { if (flushTimes()) undo(); }}><Undo2 size={17} /></button><button className="icon-button" aria-label="重做" disabled={source || !history.future.length} onClick={() => { if (flushTimes()) redo(); }}><Redo2 size={17} /></button>
       <button className="text-button" onClick={() => fileInput.current?.click()}><Upload size={15} />导入</button>
