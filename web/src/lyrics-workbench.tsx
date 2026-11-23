@@ -24,7 +24,8 @@ type TimeControls = { inputs: Map<string, () => boolean>; pending: (id: string, 
 const TimeContext = createContext<TimeControls | undefined>(undefined);
 const comparable = serializeDocument;
 const activeJob = (job?: Job) => job?.status === 'queued' || job?.status === 'running';
-const isOriginal = (line: EditLine) => !line.translation && !line.credit && !!line.text.trim();
+const isStampable = (line: EditLine) => !line.translation && !line.credit;
+const isOriginal = (line: EditLine) => isStampable(line) && !!line.text.trim();
 const isTyping = (target: HTMLElement) => target.isContentEditable || !!target.closest('input:not([type="checkbox"]):not([type="range"]),textarea,select,[role="textbox"]');
 
 function TimeInput({ value, onChange, label, disabled, required = false }: { value: number | null; onChange: (time: number | null) => void; label: string; disabled?: boolean; required?: boolean }) {
@@ -61,7 +62,7 @@ export function LyricsWorkbench({ track, player, onClose, onSaved }: { track: Tr
   const [base, setBase] = useState<Base>({ lyricsText: track.lyricsText || '', lyricsVersion: track.lyricsVersion || '', audioVersion: track.audioVersion || '' });
   const [selected, setSelected] = useState<Set<string>>(() => new Set(doc.lines[0] ? [doc.lines[0].id] : []));
   const [editId, setEditId] = useState(doc.lines[0]?.id || '');
-  const [stampId, setStampId] = useState(() => doc.lines.find(line => isOriginal(line) && !line.locked)?.id || '');
+  const [stampId, setStampId] = useState(() => doc.lines.find(line => isStampable(line) && !line.locked)?.id || '');
   const stampIdRef = useRef(stampId); stampIdRef.current = stampId;
   const [autoAdvance, setAutoAdvance] = useState(false);
   const [stampIssue, setStampIssue] = useState<{ id: string; message: string }>();
@@ -124,7 +125,7 @@ export function LyricsWorkbench({ track, player, onClose, onSaved }: { track: Tr
   const chosen = doc.lines.filter(line => selected.has(line.id));
   const editing = doc.lines.find(line => line.id === editId);
   const stampTarget = doc.lines.find(line => line.id === stampId);
-  const stampUnavailable = !stampTarget ? '点击行号选择打点目标' : stampTarget.locked ? '先解锁这句锚点再打点' : stampTarget.translation ? '译文跟随原文，请选择原文打点' : stampTarget.credit ? '署名行不参与打点' : !stampTarget.text.trim() ? '先填写这句歌词再打点' : '';
+  const stampUnavailable = !stampTarget ? '点击行号选择打点目标' : stampTarget.locked ? '先解锁这句锚点再打点' : stampTarget.translation ? '译文跟随原文，请选择原文打点' : stampTarget.credit ? '署名行不参与打点' : '';
   const current = useActiveLyric(preview.lines, player.position, player.getPosition, player.playing && player.trackId === track.id);
   const words = preview.lines.flatMap(line => line.words || []);
   const currentWord = useActiveLyric(words, player.position, player.getPosition, player.playing && player.trackId === track.id);
@@ -239,13 +240,13 @@ export function LyricsWorkbench({ track, player, onClose, onSaved }: { track: Tr
     if (!line) { setNotice('点击行号选择打点目标'); return; }
     function reject(message: string) { setStampIssue({ id: line.id, message }); revealLine(line.id); }
     if (line.locked) { reject('先解锁这句锚点再打点'); return; }
-    if (!isOriginal(line)) { reject(line.translation ? '译文跟随原文，请选择原文打点' : line.credit ? '署名行不参与打点' : '先填写这句歌词再打点'); return; }
+    if (!isStampable(line)) { reject(line.translation ? '译文跟随原文，请选择原文打点' : '署名行不参与打点'); return; }
     const time = Math.round(player.getPosition() * 1000) - document.offset;
     if (time < 0) { reject('请先调整整体偏移，避免负时间'); return; }
     if (time + document.offset > audioTrack.duration * 1000) { reject('打点时间不能超过曲目时长'); return; }
-    const previous = document.lines.slice(0, start).reverse().find(item => isOriginal(item) && item.time !== null);
+    const previous = document.lines.slice(0, start).reverse().find(item => isStampable(item) && item.time !== null);
     // Pending starts may be wrong too; continuous stamping stops only at confirmed anchors.
-    const boundary = document.lines.slice(start + 1).find(item => isOriginal(item) && item.time !== null && (!autoAdvance || item.locked));
+    const boundary = document.lines.slice(start + 1).find(item => isStampable(item) && item.time !== null && (!autoAdvance || item.locked));
     if (previous && time < previous.time!) { reject(`早于第 ${document.lines.indexOf(previous) + 1} 行 ${timeLabel(previous.time! + document.offset)}，请向后试听再打点`); return; }
     if (boundary && time > boundary.time!) { reject(autoAdvance ? `超过第 ${document.lines.indexOf(boundary) + 1} 行锚点 ${timeLabel(boundary.time! + document.offset)}，请先调整锚点` : `超过第 ${document.lines.indexOf(boundary) + 1} 行 ${timeLabel(boundary.time! + document.offset)}，可开启自动下一句重打这段`); return; }
     setStampIssue(undefined); setError(''); setNotice('');
@@ -253,7 +254,7 @@ export function LyricsWorkbench({ track, player, onClose, onSaved }: { track: Tr
     setStampFlash({ id: line.id, sequence: ++stampSequence.current });
     revealLine(line.id);
     if (!autoAdvance) return;
-    const following = document.lines.slice(document.lines.indexOf(line) + 1).find(item => isOriginal(item) && !item.locked);
+    const following = document.lines.slice(document.lines.indexOf(line) + 1).find(item => isStampable(item) && !item.locked);
     setTarget(following?.id || '');
     if (following) { setEditId(following.id); if (followLyrics) revealLine(following.id); }
     else setNotice('连续打点完成，点击行号可继续校正');
@@ -442,7 +443,7 @@ export function LyricsWorkbench({ track, player, onClose, onSaved }: { track: Tr
       event.preventDefault();
       if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
         if (event.shiftKey && !source) {
-          const lines = doc.lines.filter(isOriginal), index = lines.findIndex(line => line.id === stampIdRef.current), next = lines[index + (event.key === 'ArrowLeft' ? -1 : 1)];
+          const lines = doc.lines.filter(isStampable), index = lines.findIndex(line => line.id === stampIdRef.current), next = lines[index + (event.key === 'ArrowLeft' ? -1 : 1)];
           if (next) { chooseLine(next.id, true); audition((next.time ?? 0) + doc.offset - 1500); }
         } else if (player.trackId === track.id) player.seek(player.getPosition() + (event.key === 'ArrowLeft' ? -5 : 5));
       } else if (!source) {
@@ -459,7 +460,7 @@ export function LyricsWorkbench({ track, player, onClose, onSaved }: { track: Tr
       installHistory(saved.history || { past: [], doc: saved.doc, future: [] }); setBase(saved.base); setRaw(saved.raw || ''); setSource(!!saved.source); setJob(saved.job); setWaveJob(saved.waveJob); setModelInput(saved.modelInput);
       const workspace = saved.workspace;
       setEditId(workspace?.editId || saved.doc.lines[0]?.id || ''); setSelected(new Set(workspace?.selected || (saved.doc.lines[0] ? [saved.doc.lines[0].id] : [])));
-      setTarget(workspace?.stampId ?? workspace?.editId ?? saved.doc.lines.find(line => isOriginal(line) && !line.locked)?.id ?? ''); setAutoAdvance(workspace?.autoAdvance ?? false);
+      setTarget(workspace?.stampId ?? workspace?.editId ?? saved.doc.lines.find(line => isStampable(line) && !line.locked)?.id ?? ''); setAutoAdvance(workspace?.autoAdvance ?? false);
       if (workspace) {
         updateRange(workspace.range); setRate(workspace.rate); setLoop(workspace.loop); setStep(workspace.step); setFollowLyrics(workspace.followLyrics); setWaveView(workspace.waveView); setFind(workspace.find); setReplacement(workspace.replacement); setReviewOnly(workspace.reviewOnly); scroll.current = workspace.scroll;
       }
@@ -513,17 +514,17 @@ export function LyricsWorkbench({ track, player, onClose, onSaved }: { track: Tr
   const protectedOperation = busy || !!submitting || !ready;
   const ownPlayback = player.trackId === track.id;
   const appliedCount = doc.lines.filter(line => candidate(line).result && candidate(line).applied).length;
-  const timedCount = previewDoc.lines.filter(line => line.text.trim() && line.time !== null).length;
-  const totalCount = previewDoc.lines.filter(line => line.text.trim()).length;
+  const timedCount = previewDoc.lines.filter(line => line.time !== null).length;
+  const totalCount = previewDoc.lines.filter(line => line.text.trim() || line.time !== null).length;
   const filtering = reviewOnly && job?.status === 'done';
-  return <TimeContext.Provider value={timeControls.current}><Modal title={`${track.title} · 歌词工作台`} className="lyrics-workbench" wide onClose={() => void close()}>
+  return <TimeContext.Provider value={timeControls.current}><Modal title={`${track.title} · 歌词工作台`} className="lyrics-workbench" wide isolate onClose={() => void close()}>
     <fieldset className="lyric-work-top" disabled={protectedOperation}>
       <div className="lyric-mode"><button className={!source ? 'active' : ''} onClick={() => { if (source) switchSource(); }}>逐行</button><button className={source ? 'active' : ''} onClick={() => { if (!source) switchSource(); }}>源码</button></div>
       <span className="muted">{timedCount} / {totalCount} 行已打点</span>
       <button className="icon-button" aria-label="撤销" disabled={source || !history.past.length} onClick={() => { if (flushTimes()) undo(); }}><Undo2 size={17} /></button><button className="icon-button" aria-label="重做" disabled={source || !history.future.length} onClick={() => { if (flushTimes()) redo(); }}><Redo2 size={17} /></button>
       <button className="text-button" onClick={() => fileInput.current?.click()}><Upload size={15} />导入</button>
       <button className="text-button" onClick={() => { if (flushTimes()) downloadLyrics(source ? raw : comparable(historyRef.current.doc), `${track.title}.${previewDoc.lines.some(line => line.time !== null) ? 'lrc' : 'txt'}`); }}><Download size={15} />导出</button>
-      <input ref={fileInput} type="file" hidden accept=".lrc,.txt" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void act(async () => { if (!flushTimes() || totalCount && !window.confirm('导入将替换当前歌词，可撤销。继续？')) return; const text = await importLyrics(file), next = parseDocument(text); change(next); setTarget(next.lines.find(line => isOriginal(line) && !line.locked)?.id || ''); setRaw(text); setSelected(new Set()); setReviewOnly(false); }); }} />
+      <input ref={fileInput} type="file" hidden accept=".lrc,.txt" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void act(async () => { if (!flushTimes() || totalCount && !window.confirm('导入将替换当前歌词，可撤销。继续？')) return; const text = await importLyrics(file), next = parseDocument(text); change(next); setTarget(next.lines.find(line => isStampable(line) && !line.locked)?.id || ''); setRaw(text); setSelected(new Set()); setReviewOnly(false); }); }} />
     </fieldset>
     {(error || notice) && <div className={`lyric-notice ${error ? 'error-text' : ''}`} role={error ? 'alert' : 'status'}>{error || notice}<button className="text-button" onClick={() => { setError(''); setNotice(''); }}>关闭</button></div>}
     {serverCopy && <div className={`lyric-server-copy ${conflict ? 'conflict' : ''}`}><div className="lyric-server-heading"><strong>{conflict ? serverCopy.audioVersion !== base.audioVersion ? '音频版本已变更' : '歌词版本已变更' : '服务器版本与编辑基准一致'}</strong><button className="text-button" onClick={() => setServerCopy(undefined)} disabled={conflict}>关闭对比</button></div><div className="lyric-version-comparison"><label>当前草稿<textarea readOnly aria-label="当前草稿对比" value={currentText} /></label><label>服务器歌词<textarea readOnly aria-label="服务器歌词" value={serverCopy.lyricsText || ''} /></label></div><div><button className="text-button" disabled={protectedOperation} onClick={() => void act(() => resolveServer(false))}>载入服务器版本</button><button className="text-button" disabled={protectedOperation} onClick={() => void act(() => resolveServer(true))}>保留草稿继续编辑</button><button className="text-button" disabled={protectedOperation} onClick={() => void checkServer()}>重新检查</button></div></div>}

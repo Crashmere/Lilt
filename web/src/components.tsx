@@ -1,4 +1,4 @@
-import { useState, type CSSProperties, type ReactNode } from 'react';
+import { useLayoutEffect, useState, type CSSProperties, type ReactNode, type SyntheticEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, Disc3, GripVertical, Heart, ListMusic, LoaderCircle, MoreHorizontal, Music2, Pause, Pencil, Play, Plus, Settings2, Trash2, X } from 'lucide-react';
 import type { Player } from './player';
@@ -18,8 +18,18 @@ export function Artwork({ url, title, className = '', size = 160 }: { url?: stri
   </div>;
 }
 
-export function Modal({ title, children, onClose, wide = false, className = '' }: { title: string; children: ReactNode; onClose: () => void; wide?: boolean; className?: string }) {
-  return createPortal(<div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
+export function Modal({ title, children, onClose, wide = false, className = '', isolate = false }: { title: string; children: ReactNode; onClose: () => void; wide?: boolean; className?: string; isolate?: boolean }) {
+  useLayoutEffect(() => {
+    if (!isolate) return;
+    const root = document.getElementById('root');
+    if (!root) return;
+    const inert = root.inert;
+    root.inert = true;
+    return () => { root.inert = inert; };
+  }, [isolate]);
+  // Portal events still bubble through the underlying React page.
+  const stop = isolate ? (event: SyntheticEvent) => event.stopPropagation() : undefined;
+  return createPortal(<div className={`modal-backdrop${isolate ? ' modal-backdrop-isolated' : ''}`} onClick={stop} onWheel={stop} onTouchStart={stop} onTouchMove={stop} onTouchEnd={stop} onTouchCancel={stop} onPointerDown={stop} onPointerMove={stop} onPointerUp={stop} onPointerCancel={stop} onMouseDown={event => { stop?.(event); if (event.target === event.currentTarget) onClose(); }}>
     <section className={`modal ${wide ? 'modal-wide' : ''} ${className}`} role="dialog" aria-modal="true" aria-label={title}>
       <header className="modal-header"><h2>{title}</h2><button className="icon-button" aria-label="关闭" onClick={onClose}><X size={21} /></button></header>
       {children}
