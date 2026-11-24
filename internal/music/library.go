@@ -286,7 +286,11 @@ func (s *Store) Library(ctx context.Context) (Library, error) {
 	if err = s.db.QueryRowContext(ctx, "SELECT COALESCE(SUM(h.seconds),0),COALESCE(SUM(COALESCE(m.counted,CASE WHEN h.completed=1 OR h.seconds>=MIN(30.0,json_extract(t.document,'$.duration')/2.0) THEN 1 ELSE 0 END)),0) FROM history h JOIN tracks t ON t.id=h.track_id LEFT JOIN history_metrics m ON m.session_id=h.session_id").Scan(&stats.PlayedSeconds, &stats.PlayCount); err != nil {
 		return Library{}, err
 	}
-	return Library{Tracks: tracks, Albums: albums, Artists: artists, Playlists: playlists, Tags: tags, Stats: stats}, nil
+	mvs, err := s.MVs(ctx, false)
+	if err != nil {
+		return Library{}, err
+	}
+	return Library{Tracks: tracks, MVs: mvs, Albums: albums, Artists: artists, Playlists: playlists, Tags: tags, Stats: stats}, nil
 }
 
 type TrackPatch struct {

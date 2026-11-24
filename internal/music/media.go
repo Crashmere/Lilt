@@ -26,7 +26,7 @@ import (
 	_ "golang.org/x/image/webp"
 )
 
-const allowedFormats = "aac,aiff,ape,asf,dsf,flac,matroska,webm,mov,mp3,mpeg,wav,wv,tta,ogg"
+const allowedFormats = "aac,aiff,ape,asf,avi,dsf,flac,matroska,webm,mov,mp3,mpeg,mpegts,wav,wv,tta,ogg"
 
 type probeStream struct {
 	Index         int               `json:"index"`
@@ -40,6 +40,8 @@ type probeStream struct {
 	Duration      string            `json:"duration"`
 	Width         int               `json:"width"`
 	Height        int               `json:"height"`
+	PixelFormat   string            `json:"pix_fmt"`
+	ColorTransfer string            `json:"color_transfer"`
 	Tags          map[string]string `json:"tags"`
 	Disposition   struct {
 		AttachedPic int `json:"attached_pic"`

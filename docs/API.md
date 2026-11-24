@@ -18,11 +18,13 @@ Artist groups split both `Track.artist` and `Track.albumArtist` on ASCII `/`, tr
 
 `Stats`: `totalTracks`, `totalAlbums`, `totalArtists`, `totalDuration`, `totalBytes`, `favoriteTracks`, `playedSeconds`, `playCount`. `totalBytes` sums current original-file sizes for non-deleted tracks.
 
-`Upload`: `id`, `filename`, `size`, `offset`, `fingerprint`, `status`, optional `trackId`, optional `duplicate`.
+`MV`: `id`, `title`, `artist`, `duration`, `size`, `width`, `height`, `videoCodec`, `audioCodec` (empty for silent video), `mimeType`, `originalName`, `fingerprint` (original SHA-256), `coverUrl`, `favorite`, `addedAt`, `updatedAt`, optional `deletedAt`.
+
+`Upload`: `id`, `filename`, `size`, `offset`, `fingerprint`, `status`, `kind` (`audio` or `mv`), optional `trackId` for audio, optional `mvId` for video, optional `duplicate`.
 
 ## Library and Media
 
-- `GET /api/library` returns `{ tracks, albums, artists, playlists, tags, stats }` for non-deleted tracks. It supports `HEAD` and conditional `If-None-Match` requests with a complete-response ETag; unchanged responses return 304 without JSON. Gzip negotiation uses `Vary: Accept-Encoding` and a distinct representation ETag; explicit `gzip;q=0` disables it, and Range requests address uncompressed JSON. Responses use `private, no-cache`, so every online reuse checks the authenticated server. The validator covers listening statistics and resolved smart playlists as well as track and playlist metadata.
+- `GET /api/library` returns `{ tracks, mvs, albums, artists, playlists, tags, stats }` for non-deleted songs and MVs. It supports `HEAD` and conditional `If-None-Match` requests with a complete-response ETag; unchanged responses return 304 without JSON. Gzip negotiation uses `Vary: Accept-Encoding` and a distinct representation ETag; explicit `gzip;q=0` disables it, and Range requests address uncompressed JSON. Responses use `private, no-cache`, so every online reuse checks the authenticated server. The validator covers listening statistics and resolved smart playlists as well as song, MV and playlist metadata.
 - `GET /api/tracks` returns `{ tracks }`, with optional `q`, `favorite`, `tag`, `album`, `artist`, `trash` filters. With `trash=true` or `trash=1`, it also returns `playlists`: non-smart playlists with `trackIds` resolved against all trashed tracks, preserving their retained membership. Smart playlists apply only to the active library and are omitted from this field.
 - `GET /api/tracks/{id}` returns `{ track }`, including `lyricsText`.
 - `GET /api/tracks/{id}/lyrics` returns `{ lyricsText, updatedAt, lyricsVersion }` directly from the catalog without waiting for the audio/upload write lock or probing legacy audio tags. Empty lyrics return an empty string; a missing track returns 404. `lyricsVersion` changes only with the text, independently of favorites or other metadata.
@@ -33,11 +35,22 @@ Artist groups split both `Track.artist` and `Track.albumArtist` on ASCII `/`, tr
 - `GET /api/tracks/{id}/cover` serves safe cover artwork. `POST` accepts a multipart file field `file` without a file-size or input-pixel ceiling and optional JSON text field `metadata` (at most 2 MiB) containing the same track patch. Supported images are JPEG, PNG, GIF and WebP. The server validates and proportionally downsizes artwork to at most 1600 pixels per side, applies image orientation, and does not upscale small images. Animated images supply their first frame. Both artwork and metadata are validated and written together; `removeCover` cannot accompany a replacement file. The cover becomes an embedded JPEG and a display derivative, without a separate retained upload copy. Uploads retain the 600-second body deadline; image normalization has a 90-second processing deadline.
 - `GET /api/albums/{id}` returns `{ album, tracks }`.
 - `GET /api/artists/{id}` returns `{ artist, tracks, albums }`.
-- `GET /api/export` downloads catalog metadata, playlists and listening history as JSON; it is a portability export, not a backup/restore service.
+- `GET /api/export` downloads song and MV metadata, playlists and listening history as JSON; it is a portability export, not a backup/restore service.
 
 Import extracts attached artwork without an input-pixel ceiling and uses the same bounded libvips normalization as cover uploads. Its display derivative does not rewrite the uploaded audio or embedded picture.
 
 Cover URLs include an independent `v` derived from the display file's nanosecond modification time and size. Optional `size=160|480` selects a non-upscaled JPEG thumbnail for small rows or larger artwork; omitting it retains the display image. Thumbnails use the installed single-threaded libvips runtime and a 16 MiB process-memory cache without adding persistent files or catalog records. GET/HEAD responses carry a version-and-size ETag. A matching `v` permits one day of private HTTP caching; missing or outdated versions require revalidation. Favorites and metadata edits that preserve the display file preserve its URL.
+
+## MVs
+
+- `GET /api/mvs` returns `{ mvs }` for active videos; `?trash=true` selects trash. The library response also contains active `mvs`, covered by its ETag. Song albums, artists, playlists and statistics remain audio-only.
+- `GET /api/mvs/{id}` returns `{ mv }`, including trash state.
+- `PATCH /api/mvs/{id}` accepts optional `title`, `artist`, `favorite` and `expectedUpdatedAt`; returns `{ mv }`. A title cannot be empty; stale timestamps return 409. These edits update only the catalog and preserve the original video bytes.
+- `DELETE /api/mvs/{id}` moves an MV to trash; `POST /api/mvs/{id}/restore` restores it. Neither removes its original or derivatives.
+- `GET /api/mvs/{id}/cover` serves the initial decoded frame as JPEG, with HEAD, ETag and authenticated revalidation.
+- `GET /api/mvs/{id}/stream?quality=original|compatible` supports HEAD and byte ranges. Original is the default and preserves supplied bytes/MIME. Compatible serves a prepared H.264/AAC MP4; missing preparation returns 409. `v=<fingerprint>` is a browser version key, not a historical-file selector. `X-Lilt-Quality` identifies the representation; compatible output also reports `X-Lilt-Engine`.
+- `GET /api/mvs/{id}/download` downloads the untouched original using its supplied filename. Trashed MV streams/downloads return 404.
+- `POST /api/mvs/{id}/playback` starts or reuses compatible preparation; `GET` reads its status. Responses contain `status` (`missing`, `processing`, `ready`, `error`), and optional `url`, `engine`, `fallback`, `error`. Processing returns 202; other status reads return 200. Only one MV job can run at a time; another source returns 409 on start. GPU decode/scale/NVENC is preferred, with software-decode/GPU-encode and CPU fallbacks. HDR tone mapping is CPU-based. Output stays within 1920 by 1080, keeps aspect ratio and optional audio, and is validated before becoming ready. Preparation has a 20-minute deadline, shares the audio encode budget and stops during service shutdown. Successful files survive restart; failed/interrupted work can be retried with POST.
 
 ## Lyrics Analysis
 
@@ -59,7 +72,9 @@ Job progress and terminal updates cannot overwrite a cancellation. Worker restar
 
 Content-fingerprinted build assets use one year of private immutable HTTP caching. HTML, the service worker, fonts and the shell manifest require revalidation; exact public brand assets retain their existing access exceptions and also require revalidation. Missing asset files return 404 rather than application HTML.
 
-## Resumable Audio Uploads
+## Resumable Media Uploads
+
+The same session routes accept audio and video. `POST /api/uploads` adds optional `kind: "audio" | "mv"`; omitted kind retains the existing audio contract. Session replies always identify the kind and return `trackId` or `mvId` accordingly. MV completion returns `{ mv, duplicate }`; MV duplicates use exact current original hashes, including trash, and preserve existing metadata. Video completion verifies the complete hash and a decoded frame before publication. `replaceTrackId` applies only to audio. MV records do not receive audio lyrics/artwork sidecars or playlist destinations. The browser recognizes common MP4/MOV/MKV/WebM/AVI/WMV/MPEG/TS files and video MIME types; a typeless WebM uses the selected upload view or retained session kind.
 
 - `GET /api/uploads` returns `{ uploads }` for retained incomplete sessions.
 - `POST /api/uploads` accepts `{ filename, size, fingerprint, relativePath?, replaceTrackId? }`. The fingerprint is the complete SHA-256 hex. A known current or pre-edit file hash, including a track in trash, returns an upload with `duplicate: true` and the existing `trackId` without transferring audio. An active track is preferred; within the same visibility state, a current-file match precedes a historical match. Duplicate uploads preserve the current audio and edited metadata, skip supplied cover/lyrics sidecars, and do not restore a trashed track or create a second logical copy. Historical hashes retain their own file sizes for validation, not old audio copies. Retained incomplete sessions return the authoritative offset. Supplying `replaceTrackId` prepares an explicit replacement using current-file matches only, so a removed historical file does not prevent transferring the selected replacement bytes.

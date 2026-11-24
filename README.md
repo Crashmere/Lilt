@@ -1,6 +1,6 @@
 # Lilt
 
-Lilt is a personal music library and player for ordinary desktop and mobile browsers. The owner supplies all audio, artwork and lyrics; the service has no external music catalog, runtime metadata lookup or social features.
+Lilt is a personal music and MV library and player for ordinary desktop and mobile browsers. The owner supplies all audio, videos, artwork and lyrics; the service has no external music catalog, runtime metadata lookup or social features.
 
 The application target is `nas`. Authenticated entrances on `ali` and `vps` reach the same library through the existing ServerPortal device authentication.
 
@@ -10,12 +10,13 @@ The application target is `nas`. Authenticated entrances on `ali` and `vps` reac
 - Track metadata, composition credits, lyrics and artwork written back into audio without re-encoding or edit copies; Chinese pinyin and alias search, album/disc ordering, favorites and tags.
 - Manual and rule-based playlists, an independent playback queue and explicit continuation from another browser.
 - Original audio or separately generated standard/compact AAC playback, with Range-capable streams and original downloads.
+- A separate MV library with resumable video uploads, preserved originals, favorites, metadata editing and reversible trash; native or compatible MP4 playback with seeking, speed, volume, fullscreen and supported Picture-in-Picture controls.
 - Owner-supplied covers and plain-text or timestamped lyrics, listening history and portable metadata/playlist exports.
 - Lyrics workbench with millisecond editing, waveform-assisted timing, linked translations, local drafts and optional offline Mandarin singing alignment with candidate review.
 - Reversible trash and explicit track replacement that retains the logical track's collection state.
 - Home Screen branding and supported system media controls.
 
-Audio playback requires a server connection; audio downloads remain available for use outside Lilt. Background playback depends on the browser and operating system. Restoring a saved queue never starts audible playback automatically.
+Audio and MV playback require a server connection; original downloads remain available for use outside Lilt. Background playback depends on the browser and operating system. Restoring a saved queue or MV position never starts audible playback automatically.
 
 ## Local Use
 

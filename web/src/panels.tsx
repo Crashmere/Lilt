@@ -6,7 +6,7 @@ import { TrackCredits, type CollectionNavigation } from './track-links';
 import type { Player } from './player';
 import type { PlaylistMemberships } from './playlist-memberships';
 import { PLAYLIST_KINDS, PLAYLIST_LABELS } from './playlist-kinds';
-import type { Playlist, Rules, Track, Upload } from './types';
+import type { MediaKind, Playlist, Rules, Track, Upload } from './types';
 import type { Uploader, UploadPlaylist } from './upload';
 import { droppedFiles } from './drop-files';
 import { formatUploadRate } from './upload-rate';
@@ -230,7 +230,7 @@ export function LyricsPanel({ player, onClose, onEdit, onAdjust, onInstrumental 
   </>;
 }
 
-export function UploadModal({ uploader, playlist, onClose, onLocate }: { uploader: Uploader; playlist?: UploadPlaylist; onClose: () => void; onLocate: (id: string) => void }) {
+export function UploadModal({ uploader, playlist, kind = 'audio', onClose, onLocate }: { uploader: Uploader; playlist?: UploadPlaylist; kind?: MediaKind; onClose: () => void; onLocate: (id: string, kind?: MediaKind) => void }) {
   const fileInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
@@ -249,7 +249,7 @@ export function UploadModal({ uploader, playlist, onClose, onLocate }: { uploade
   function pick(resume?: Upload) { resumeTarget.current = resume; if (fileInput.current) { fileInput.current.multiple = !resume; fileInput.current.click(); } }
   async function drop(transfer: DataTransfer) {
     setReading(true); setDropError('');
-    try { uploader.add(await droppedFiles(transfer), undefined, playlist); }
+    try { uploader.add(await droppedFiles(transfer), undefined, playlist, kind); }
     catch { setDropError('文件夹读取失败，请使用「选择文件夹」重试。'); }
     finally { setReading(false); }
   }
@@ -261,12 +261,12 @@ export function UploadModal({ uploader, playlist, onClose, onLocate }: { uploade
   }
   const resumable = uploader.items.some(item => ['paused', 'error'].includes(item.phase));
   const busy = reading || discardBusy;
-  return <Modal title={playlist ? `上传音乐 · ${playlist.name}` : '上传音乐'} wide onClose={() => { if (!busy) onClose(); }}><div className="modal-body upload-body">
+  return <Modal title={playlist ? `上传音乐 · ${playlist.name}` : kind === 'mv' ? '上传 MV' : '上传音乐 / MV'} wide onClose={() => { if (!busy) onClose(); }}><div className="modal-body upload-body">
     <div className={`dropzone ${dragging ? 'dragging' : ''}`} onDragEnter={event => { event.preventDefault(); dragDepth.current++; setDragging(true); }} onDragOver={event => { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; }} onDragLeave={() => { if (--dragDepth.current <= 0) { dragDepth.current = 0; setDragging(false); } }} onDrop={event => { event.preventDefault(); dragDepth.current = 0; setDragging(false); if (!busy) void drop(event.dataTransfer); }}>
-      {reading ? <LoaderCircle size={35} className="spinning" /> : <UploadCloud size={35} strokeWidth={1.25} />}<h3>{reading ? '正在读取文件夹' : '拖入音乐或文件夹'}</h3><p>同名歌词、封面和文件夹中的 cover 图片会一起导入。</p>
+      {reading ? <LoaderCircle size={35} className="spinning" /> : <UploadCloud size={35} strokeWidth={1.25} />}<h3>{reading ? '正在读取文件夹' : kind === 'mv' ? '拖入 MV 或文件夹' : '拖入音乐、MV 或文件夹'}</h3>{kind === 'audio' && <p>音乐的同名歌词、封面会一起导入。</p>}
       <div><button className="button primary" disabled={busy} onClick={() => pick()}><Music2 size={17} />选择文件</button><button className="button secondary" disabled={busy} onClick={() => folderInput.current?.click()}><FolderUp size={17} />选择文件夹</button></div>
-      <input ref={fileInput} type="file" multiple hidden accept="audio/*,.mp3,.m4a,.aac,.flac,.wav,.ogg,.opus,.aiff,.aif,.wma,.webm,.ape,.wv,.tta,.dsf,.lrc,.txt,.jpg,.jpeg,.png,.webp" onChange={event => { uploader.add(Array.from(event.target.files || []), resumeTarget.current, playlist); resumeTarget.current = undefined; event.target.value = ''; }} />
-      <input ref={folderInput} type="file" multiple hidden {...{ webkitdirectory: '' }} onChange={event => { uploader.add(Array.from(event.target.files || []), undefined, playlist); event.target.value = ''; }} />
+      <input ref={fileInput} type="file" multiple hidden accept="audio/*,video/*,.mp3,.m4a,.aac,.flac,.wav,.ogg,.opus,.aiff,.aif,.wma,.webm,.ape,.wv,.tta,.dsf,.mp4,.m4v,.mov,.mkv,.avi,.wmv,.mpg,.mpeg,.ts,.mts,.m2ts,.lrc,.txt,.jpg,.jpeg,.png,.webp" onChange={event => { uploader.add(Array.from(event.target.files || []), resumeTarget.current, playlist, kind); resumeTarget.current = undefined; event.target.value = ''; }} />
+      <input ref={folderInput} type="file" multiple hidden {...{ webkitdirectory: '' }} onChange={event => { uploader.add(Array.from(event.target.files || []), undefined, playlist, kind); event.target.value = ''; }} />
     </div>
     {dropError && <p className="error-text" role="alert">{dropError}</p>}
     {uploader.inspectError && <div className="upload-notice" role="alert"><span>{uploader.inspectError}</span><button className="text-button" onClick={() => { void uploader.inspect(); }}>重新加载</button></div>}
@@ -276,15 +276,16 @@ export function UploadModal({ uploader, playlist, onClose, onLocate }: { uploade
       <div className="upload-items">{items.map(item => {
         const done = ['done', 'duplicate'].includes(item.phase);
         const active = ['hashing', 'uploading', 'verifying', 'joining', 'applying'].includes(item.phase);
-        const status = item.retrying ? '连接中断，正在重试' : item.awaitingAck ? '等待服务器确认' : item.phase === 'duplicate' && item.track?.deletedAt ? '回收站中已有' : phases[item.phase];
+        const status = item.retrying ? '连接中断，正在重试' : item.awaitingAck ? '等待服务器确认' : item.phase === 'duplicate' && (item.track?.deletedAt || item.mv?.deletedAt) ? '回收站中已有' : phases[item.phase];
         return <article className={`upload-item ${item.phase}`} key={item.key}>
           <div className="upload-state-icon">{item.phase === 'done' ? <Check size={19} /> : item.phase === 'duplicate' ? <CheckCheck size={19} /> : item.phase === 'error' ? <CircleAlert size={19} /> : active ? <LoaderCircle size={19} className="spinning" /> : item.phase === 'paused' ? <Pause size={18} /> : <Music2 size={19} />}</div>
           <div className="upload-description"><div className="upload-item-top"><strong title={item.path}>{item.file.name}</strong><span>{status}</span></div>
             {item.path !== item.file.name && <p className="upload-path" title={item.path}>{item.path}</p>}
-            <div className="upload-meta"><span>{bytes(item.file.size)}</span>{item.playlist && <span>歌单：{item.playlist.name}</span>}{item.lyrics && <span>歌词</span>}{item.cover && <span>封面</span>}{!done && <span>{Math.min(99, Math.floor(item.progress * 100))}%</span>}</div>
+            <div className="upload-meta"><span>{item.kind === 'mv' ? 'MV' : '音乐'}</span><span>{bytes(item.file.size)}</span>{item.playlist && <span>歌单：{item.playlist.name}</span>}{item.lyrics && <span>歌词</span>}{item.cover && <span>封面</span>}{!done && <span>{Math.min(99, Math.floor(item.progress * 100))}%</span>}</div>
             {!done && <><div className={`upload-meter ${['verifying', 'joining', 'applying'].includes(item.phase) ? 'processing' : ''}`} role="progressbar" aria-label={`${item.file.name} 上传进度`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.floor(item.progress * 100)}><i style={{ width: `${item.progress * 100}%` }} /></div>{item.uploadId && <p className="upload-confirmed">服务器已确认 {bytes(item.uploadedBytes)} / {bytes(item.file.size)}</p>}</>}
             {item.error && <p className="error-text" role="alert">{item.error}</p>}
             {item.trackId && <button className="text-button upload-locate" onClick={() => onLocate(item.trackId!)}>{item.track?.deletedAt ? '查看回收站曲目' : item.phase === 'duplicate' ? '查看已有曲目' : '查看曲目'}</button>}
+            {item.mvId && <button className="text-button upload-locate" onClick={() => onLocate(item.mvId!, 'mv')}>{item.mv?.deletedAt ? '查看回收站 MV' : '查看 MV'}</button>}
           </div>
           <div className="upload-row-actions">{!done && (['paused', 'error'].includes(item.phase) ? <button className="icon-button" disabled={busy} aria-label={`${item.phase === 'error' ? '重试' : '继续'} ${item.file.name}`} title={item.phase === 'error' ? '仅重试此文件' : '仅继续此文件'} onClick={() => uploader.start(item.key)}>{item.phase === 'error' ? <RotateCw size={16} /> : <Play size={16} />}</button> : <button className="icon-button" disabled={busy} aria-label={`暂停 ${item.file.name}`} onClick={() => uploader.pause(item.key)}><Pause size={16} /></button>)}<button className="icon-button" disabled={busy} aria-label={`移出列表 ${item.file.name}`} title={done ? '只移出列表，不删除音乐' : '移出队列，保留已确认的分片'} onClick={() => { uploader.remove(item.key); void uploader.inspect(); }}><X size={16} /></button></div>
         </article>;

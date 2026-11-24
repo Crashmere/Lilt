@@ -26,6 +26,11 @@ type Store struct {
 	mu              sync.Mutex
 	encodeMu        sync.Mutex
 	libraryRevision atomic.Uint64
+	mvJobsMu        sync.Mutex
+	mvJobs          map[string]*mvPlaybackJob
+	mvCancel        context.CancelFunc
+	mvContext       context.Context
+	mvWorkers       sync.WaitGroup
 }
 
 func (s *Store) invalidateLibrary() { s.libraryRevision.Add(1) }
@@ -57,6 +62,13 @@ CREATE TABLE IF NOT EXISTS uploads (
  duplicate INTEGER NOT NULL DEFAULT 0, relative_path TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS uploads_fingerprint ON uploads(fingerprint,size,status);
+CREATE TABLE IF NOT EXISTS upload_media (
+ upload_id TEXT PRIMARY KEY REFERENCES uploads(id) ON DELETE CASCADE, kind TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS mvs (
+ id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL UNIQUE, original_path TEXT NOT NULL,
+ document TEXT NOT NULL, deleted_at TEXT
+);
 CREATE TABLE IF NOT EXISTS playlists (id TEXT PRIMARY KEY, document TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS history (
  session_id TEXT PRIMARY KEY, track_id TEXT NOT NULL REFERENCES tracks(id),
@@ -143,11 +155,17 @@ UPDATE history_metrics SET counted=1 WHERE counted=0 AND EXISTS (
 		return nil, err
 	}
 	s := &Store{db: db, dir: abs, prefix: prefix}
+	s.mvContext, s.mvCancel = context.WithCancel(context.Background())
+	s.mvJobs = map[string]*mvPlaybackJob{}
 	if err = s.finishMetadataWrite(); err != nil {
 		db.Close()
 		return nil, err
 	}
 	if err = s.removeMetadataTemps(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err = s.removeMVTemps(); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -158,7 +176,11 @@ UPDATE history_metrics SET counted=1 WHERE counted=0 AND EXISTS (
 	return s, nil
 }
 
-func (s *Store) Close() error { return s.db.Close() }
+func (s *Store) Close() error {
+	s.mvCancel()
+	s.mvWorkers.Wait()
+	return s.db.Close()
+}
 
 func Check(ctx context.Context, dir string) (map[string]any, error) {
 	abs, err := filepath.Abs(dir)
@@ -224,7 +246,37 @@ func Check(ctx context.Context, dir string) (map[string]any, error) {
 	if err = rows.Err(); err != nil {
 		return nil, err
 	}
-	return map[string]any{"status": "ok", "db": "ok", "schemaVersion": version, "tracks": count}, nil
+	rows.Close()
+	var hasMVs int
+	if err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='mvs'").Scan(&hasMVs); err != nil {
+		return nil, err
+	}
+	mvCount := 0
+	if hasMVs != 0 {
+		rows, err = db.QueryContext(ctx, "SELECT document,original_path,fingerprint,deleted_at FROM mvs")
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			mv, relative, err := scanMV(rows)
+			if err != nil {
+				return nil, err
+			}
+			if !safeRelative(relative) {
+				return nil, fmt.Errorf("invalid MV original path")
+			}
+			info, err := os.Stat(filepath.Join(abs, relative))
+			if err != nil || !info.Mode().IsRegular() || info.Size() != mv.Size {
+				return nil, fmt.Errorf("missing or inconsistent MV original for %s", mv.ID)
+			}
+			mvCount++
+		}
+		if err = rows.Err(); err != nil {
+			return nil, err
+		}
+	}
+	return map[string]any{"status": "ok", "db": "ok", "schemaVersion": version, "tracks": count, "mvs": mvCount}, nil
 }
 
 func (s *Store) Health(ctx context.Context) error { return s.db.PingContext(ctx) }

@@ -1,5 +1,5 @@
 import { startTransition, useDeferredValue, useEffect, useEffectEvent, useRef, useState } from 'react';
-import { ArrowLeft, BarChart3, Check, ChevronRight, Clock3, Disc3, Download, Heart, House, LibraryBig, ListMusic, LoaderCircle, Menu, MoreHorizontal, Music2, Play, Plus, RefreshCw, Search, Settings2, SlidersHorizontal, Trash2, Upload, UsersRound, WifiOff, X } from 'lucide-react';
+import { ArrowLeft, BarChart3, Check, ChevronRight, Clock3, Disc3, Download, Heart, House, LibraryBig, ListMusic, LoaderCircle, Menu, MoreHorizontal, Music2, Play, Plus, RefreshCw, Search, Settings2, SlidersHorizontal, Trash2, Upload, UsersRound, Video, WifiOff, X } from 'lucide-react';
 import { ApiError, json, messageOf, readLibrary, request, trackURL, API } from './api';
 import { AlbumCards, Artwork, Empty, Modal, Pill, PlaylistCards, TrackPlaylists, TrackTable, type BulkTrackAction } from './components';
 import { ArtistBrowser } from './artists';
@@ -8,18 +8,20 @@ import { activeFilterColumns, EMPTY_FILTERS, matchesFilters, type LibraryFilters
 import { BulkEditor, LyricsPanel, PlayerBar, PlaylistEditor, QueuePanel, TrackEditor, UploadModal } from './panels';
 import { usePlayer } from './player';
 import { LyricsWorkbench } from './lyrics-workbench';
+import { MVEditor, MVLibrary, MVPlayer } from './mvs';
 import type { Reorder } from './reorder';
 import { indexPlaylistMemberships } from './playlist-memberships';
 import { PLAYLIST_LABELS } from './playlist-kinds';
 import { TrackCredits, type CollectionNavigation } from './track-links';
 import { flushHistory, loadLibrary, saveLibrary } from './storage';
-import type { Album, Artist, HistoryEntry, Library, Playlist, Track, View } from './types';
+import type { Album, Artist, HistoryEntry, Library, MediaKind, MV, Playlist, Track, View } from './types';
 import { useUploads, type UploadPlaylist } from './upload';
 import { adjustLyricsOffset, bytes, date, duration, longDuration, matches, parseLyrics, readLocal, writeLocal } from './utils';
 
 const EMPTY_LIBRARY: Library = { tracks: [], albums: [], artists: [], playlists: [], tags: [], stats: { totalTracks: 0, totalAlbums: 0, totalArtists: 0, totalDuration: 0, totalBytes: 0, favoriteTracks: 0, playedSeconds: 0, playCount: 0 } };
 const navigation = [
   { kind: 'home', label: '首页', icon: House }, { kind: 'library', label: '音乐库', icon: LibraryBig },
+  { kind: 'mvs', label: 'MV', icon: Video },
   { kind: 'albums', label: '专辑', icon: Disc3 }, { kind: 'artists', label: '艺术家', icon: UsersRound },
   { kind: 'favorites', label: '收藏', icon: Heart }, { kind: 'playlists', label: '歌单', icon: ListMusic },
   { kind: 'history', label: '最近播放', icon: Clock3 }, { kind: 'stats', label: '听歌统计', icon: BarChart3 },
@@ -50,6 +52,10 @@ export default function App() {
   const [sort, setSort] = useState('added');
   const [sidebar, setSidebar] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [uploadKind, setUploadKind] = useState<MediaKind>('audio');
+  const [mvPlaying, setMVPlaying] = useState<MV>();
+  const [mvEditing, setMVEditing] = useState<MV>();
+  const [trashMVs, setTrashMVs] = useState<MV[]>([]);
   const [uploadPlaylist, setUploadPlaylist] = useState<UploadPlaylist>();
   const [panel, setPanel] = useState<'queue' | 'lyrics' | null>(null);
   const [editing, setEditing] = useState<Track>();
@@ -104,6 +110,7 @@ export default function App() {
   function openUpload() {
     const target = view.kind === 'playlist' ? library.playlists.find(item => item.id === view.id && item.kind !== 'smart') : undefined;
     setUploadPlaylist(target ? { id: target.id, name: target.name } : undefined);
+    setUploadKind(view.kind === 'mvs' ? 'mv' : 'audio');
     setUploadOpen(true);
   }
   function navigate(next: View) { setView(next); location.hash = `${next.kind}${next.id ? `/${encodeURIComponent(next.id)}` : ''}`; setSidebar(false); setQuery(''); setSelectedTag(''); setFiltersOpen(false); }
@@ -128,8 +135,20 @@ export default function App() {
     }
   }, [view.kind]);
   useEffect(() => {
-    if (view.kind === 'trash') void request<{ tracks: Track[]; playlists: Playlist[] }>('/tracks?trash=true').then(result => { setTrash(result.tracks || []); setTrashPlaylists(result.playlists || []); }).catch(error => notify(messageOf(error)));
+    if (view.kind === 'trash') {
+      const abort = new AbortController();
+      void Promise.all([request<{ tracks: Track[]; playlists: Playlist[] }>('/tracks?trash=true', { signal: abort.signal }), request<{ mvs: MV[] }>('/mvs?trash=true', { signal: abort.signal })]).then(([result, videos]) => { setTrash(result.tracks || []); setTrashPlaylists(result.playlists || []); setTrashMVs(videos.mvs || []); }).catch(error => { if (!abort.signal.aborted) notify(messageOf(error)); });
+      return () => abort.abort();
+    }
   }, [view.kind, library.playlists]);
+
+  function saveMV(mv: MV) { setLibrary(old => ({ ...old, mvs: (old.mvs || []).map(item => item.id === mv.id ? mv : item) })); setMVEditing(undefined); void refresh(); }
+  async function favoriteMV(mv: MV) { await run(async () => { const result = await json<{ mv: MV }>(`/mvs/${encodeURIComponent(mv.id)}`, 'PATCH', { favorite: !mv.favorite }); saveMV(result.mv); }); }
+  async function trashMV(mv: MV) {
+    if (!window.confirm(`将 MV「${mv.title}」移入回收站？可在回收站恢复。`)) return;
+    await run(async () => { await request(`/mvs/${encodeURIComponent(mv.id)}`, { method: 'DELETE' }); if (mvPlaying?.id === mv.id) setMVPlaying(undefined); await refresh(); notify('MV 已移入回收站'); });
+  }
+  async function restoreMV(mv: MV) { await run(async () => { await json(`/mvs/${encodeURIComponent(mv.id)}/restore`, 'POST'); setTrashMVs(old => old.filter(item => item.id !== mv.id)); await refresh(); notify('已恢复 MV'); }); }
 
   async function run(action: () => Promise<void>) { try { await action(); } catch (error) { notify(messageOf(error)); } }
   async function favorite(track: Track) { await run(async () => { const result = await json<{ track: Track }>(`/tracks/${encodeURIComponent(track.id)}`, 'PATCH', { favorite: !track.favorite }); setLibrary(old => ({ ...old, tracks: old.tracks.map(item => item.id === track.id ? result.track : item) })); await refresh(); }); }
@@ -164,8 +183,14 @@ export default function App() {
     void refresh();
     notify('歌词调整已写回歌曲文件');
   }
-  async function locateUpload(id: string) {
+  async function locateUpload(id: string, kind: MediaKind = 'audio') {
     await run(async () => {
+      if (kind === 'mv') {
+        const mv = (library.mvs || []).find(item => item.id === id) || (await request<{ mv: MV }>(`/mvs/${encodeURIComponent(id)}`)).mv;
+        setUploadOpen(false); navigate({ kind: mv.deletedAt ? 'trash' : 'mvs' });
+        if (!mv.deletedAt) { await refresh(); setQuery(mv.title); }
+        return;
+      }
       const track = library.tracks.find(item => item.id === id) || (await request<{ track: Track }>(`/tracks/${encodeURIComponent(id)}`)).track;
       setUploadOpen(false);
       navigate({ kind: track.deletedAt ? 'trash' : 'library' });
@@ -276,9 +301,9 @@ export default function App() {
         <nav>{navigation.map((item, index) => <button key={item.kind} className={`${view.kind === item.kind || view.kind === 'album' && item.kind === 'albums' || view.kind === 'artist' && item.kind === 'artists' || view.kind === 'playlist' && item.kind === 'playlists' ? 'active' : ''} ${index === 6 ? 'nav-separated' : ''}`} onClick={() => navigate({ kind: item.kind })}><item.icon size={19} strokeWidth={1.6} /><span>{item.label}</span>{item.kind === 'favorites' && library.stats.favoriteTracks > 0 && <small>{library.stats.favoriteTracks}</small>}</button>)}</nav>
         <div className="sidebar-playlists"><div><span>我的歌单</span><button aria-label="新建歌单" className="icon-button" onClick={() => setPlaylistEditor({})}><Plus size={17} /></button></div>{library.playlists.filter(item => item.kind === 'manual' || item.kind === 'smart').slice(0, 8).map(item => <button key={item.id} className={view.id === item.id ? 'active' : ''} onClick={() => navigate({ kind: 'playlist', id: item.id })}>{item.kind === 'smart' ? <Settings2 size={14} /> : <ListMusic size={14} />}<span>{item.name}</span></button>)}</div>
       </div>
-      <div className="sidebar-bottom"><span className="connection-dot" data-online={online} title={online ? '在线' : '离线'} /><span>{library.stats.totalTracks} 首音乐</span><span className="sidebar-size" title="音乐库原文件总大小">{bytes(library.stats.totalBytes)}</span></div>
+      <div className="sidebar-bottom"><span className="connection-dot" data-online={online} title={online ? '在线' : '离线'} /><span>{library.stats.totalTracks} 首{(library.mvs || []).length > 0 && ` · ${library.mvs!.length} MV`}</span><span className="sidebar-size" title="音乐与 MV 原文件总大小">{bytes(library.stats.totalBytes + (library.mvs || []).reduce((sum, mv) => sum + mv.size, 0))}</span></div>
     </aside>
-    <main className={`main-content ${isArtistView ? 'artist-main' : ''}`}><header className="topbar"><button className="icon-button mobile-menu" aria-label="打开导航" onClick={() => setSidebar(true)}><Menu size={23} /></button><div className="breadcrumb"><span>Lilt</span><ChevronRight size={13} /><span>{pageName}</span></div><div className="search-box"><Search size={18} /><input ref={searchRef} aria-label="搜索音乐" placeholder="搜索曲名、艺术家、专辑" value={query} onChange={event => { setQuery(event.target.value); if (view.kind === 'home' || view.kind === 'stats' || view.kind === 'history' || view.kind === 'trash') { setView({ kind: 'library' }); location.hash = 'library'; } }} />{query && <button className="icon-button" aria-label="清除搜索" onClick={() => setQuery('')}><X size={15} /></button>}</div><button className="button primary upload-button" onClick={openUpload}><Upload size={16} /><span>上传音乐</span>{uploader.running && <LoaderCircle className="spin" size={15} />}</button></header>
+    <main className={`main-content ${isArtistView ? 'artist-main' : ''}`}><header className="topbar"><button className="icon-button mobile-menu" aria-label="打开导航" onClick={() => setSidebar(true)}><Menu size={23} /></button><div className="breadcrumb"><span>Lilt</span><ChevronRight size={13} /><span>{pageName}</span></div><div className="search-box"><Search size={18} /><input ref={searchRef} aria-label={view.kind === 'mvs' ? '搜索 MV' : '搜索音乐'} placeholder={view.kind === 'mvs' ? '搜索 MV 名称、艺术家' : '搜索曲名、艺术家、专辑'} value={query} onChange={event => { setQuery(event.target.value); if (view.kind === 'home' || view.kind === 'stats' || view.kind === 'history' || view.kind === 'trash') { setView({ kind: 'library' }); location.hash = 'library'; } }} />{query && <button className="icon-button" aria-label="清除搜索" onClick={() => setQuery('')}><X size={15} /></button>}</div><button className="button primary upload-button" onClick={openUpload}><Upload size={16} /><span>{view.kind === 'mvs' ? '上传 MV' : '上传音乐'}</span>{uploader.running && <LoaderCircle className="spin" size={15} />}</button></header>
       {error && <div className={`status-banner ${online ? 'warning' : ''}`}><WifiOff size={16} /><span>{error}</span><button onClick={() => { void refresh(); }} disabled={loading}>重试</button></div>}
       {!loaded && loading ? <div className="loading-state"><LoaderCircle size={28} className="spin" /><span>正在载入音乐库</span></div> : !loaded ? <Empty title="音乐库暂时无法载入"><button className="button secondary" onClick={() => { void refresh(); }}>重试</button></Empty> : <div className={`page-content ${isArtistView ? 'artist-page' : ''}`} key={isArtistView ? 'artists' : `${view.kind}-${view.id || ''}`}>
       {!isArtistView && !['album', 'playlist'].includes(view.kind) && <div className="page-heading"><div><h1>{view.kind === 'home' ? '音乐' : pageName}</h1>{view.kind === 'library' && <p>{activeFilterCount || deferredQuery ? `${visibleTracks.length} / ${library.tracks.length}` : library.tracks.length} 首 · {longDuration(library.stats.totalDuration)}</p>}{view.kind === 'favorites' && <p>{library.stats.favoriteTracks} 首</p>}</div><div className="heading-actions">{view.kind === 'library' && <button className={`button secondary library-filter-trigger ${activeFilterCount ? 'active' : ''}`} aria-haspopup="dialog" aria-expanded={filtersOpen} onClick={() => setFiltersOpen(true)}><SlidersHorizontal size={16} /><span>筛选</span>{activeFilterCount > 0 && <small>{activeFilterCount}</small>}</button>}{isTrackView && visibleTracks.length > 0 && <button className="button primary" onClick={() => playTracks(visibleTracks)}><Play size={17} fill="currentColor" />播放</button>}{view.kind === 'playlists' && <button className="button primary" onClick={() => setPlaylistEditor({})}><Plus size={17} />新建歌单</button>}{view.kind === 'stats' && <a className="button secondary" href={`${API}/export`}><Download size={16} />导出收藏数据</a>}<button className="icon-button" aria-label="刷新音乐库" onClick={() => { void refresh(); }} disabled={loading}><RefreshCw size={18} className={loading ? 'spin' : ''} /></button></div></div>}
@@ -289,6 +314,7 @@ export default function App() {
         <section className="home-section"><div className="section-heading"><h2>最近曲目</h2><button className="text-button" onClick={() => navigate({ kind: 'library' })}>音乐库<ChevronRight size={15} /></button></div>{table([...library.tracks].sort((a, b) => new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime()).slice(0, 8), true)}</section>
       </>)}
       {view.kind === 'albums' && (library.albums.length ? <AlbumCards albums={library.albums.filter(item => !deferredQuery || item.trackIds.some(id => library.tracks.some(track => track.id === id && matches(track, deferredQuery))))} onOpen={openedAlbum} onPlay={playTracks} /> : <Empty title="没有专辑" />)}
+      {view.kind === 'mvs' && <MVLibrary mvs={library.mvs || []} query={deferredQuery} onPlay={mv => { playerRef.current.pause(); setPanel(null); setMVPlaying(mv); }} onEdit={setMVEditing} onFavorite={mv => { void favoriteMV(mv); }} onTrash={mv => { void trashMV(mv); }} onUpload={openUpload} />}
       {isArtistView && <ArtistBrowser library={library} artistId={view.kind === 'artist' ? view.id : undefined} query={deferredQuery} tag={tag} loading={loading} onSelect={item => { startTransition(() => setView({ kind: 'artist', id: item.id })); location.hash = `artist/${encodeURIComponent(item.id)}`; }} onTag={setTag} onRefresh={() => { void refresh(); }} onPlay={playTracks} onEnqueue={ids => player.enqueue(ids)} onOpenAlbum={openedAlbum} onAlbumActions={setAlbumActions} renderTracks={tracks => table(tracks, false, undefined, true)} />}
       {view.kind === 'playlists' && <PlaylistCards playlists={library.playlists.filter(item => !deferredQuery || item.name.toLocaleLowerCase().includes(deferredQuery.toLocaleLowerCase()))} onOpen={item => navigate({ kind: 'playlist', id: item.id })} empty={deferredQuery ? '没有匹配的歌单，请调整搜索' : undefined} />}
       {['album', 'playlist'].includes(view.kind) && <><button className="back-button" onClick={() => navigate({ kind: view.kind === 'album' ? 'albums' : 'playlists' })}><ArrowLeft size={16} />{pageName}</button>{(album && view.kind === 'album' || playlist && view.kind === 'playlist') ? <div className="collection-header"><Artwork url={view.kind === 'album' ? album?.coverUrl : playlist?.coverUrl} size={480} /><div><span className="eyebrow">{view.kind === 'playlist' && playlist ? PLAYLIST_LABELS[playlist.kind] : pageName}</span><h1>{view.kind === 'album' ? album?.title : playlist?.name}</h1><p>{view.kind === 'album' ? `${album?.artist} · ${album?.year ? `${album.year} · ` : ''}` : ''}{visibleTracks.length} 首 · {longDuration(visibleTracks.reduce((sum, item) => sum + item.duration, 0))}</p>{playlist?.description && view.kind === 'playlist' && <p>{playlist.description}</p>}<div className="collection-actions"><button className="button primary" disabled={!visibleTracks.length} onClick={() => playTracks(visibleTracks)}><Play size={17} fill="currentColor" />播放</button><button className="button secondary" disabled={!visibleTracks.length} onClick={() => player.enqueue(visibleTracks.map(item => item.id))}><ListMusic size={17} />加入队列</button>{playlist && view.kind === 'playlist' && <><button className="button secondary" onClick={() => setPlaylistEditor({ playlist })}>编辑歌单</button><a className="icon-button" aria-label="导出歌单" href={`${API}/playlists/${encodeURIComponent(playlist.id)}/export`}><Download size={19} /></a><button className="icon-button" aria-label="删除歌单" onClick={() => { if (window.confirm(`删除歌单「${playlist.name}」？音乐文件不会删除。`)) void run(async () => { await request(`/playlists/${encodeURIComponent(playlist.id)}`, { method: 'DELETE' }); await refresh(); navigate({ kind: 'playlists' }); notify('已删除歌单'); }); }}><Trash2 size={18} /></button></>}</div></div></div> : <Empty title="此收藏已不存在" />}</>}
@@ -307,22 +333,24 @@ export default function App() {
         })}
       </div> : <Empty title="还没有听歌记录" />)}
       {view.kind === 'stats' && <><div className="stats-grid"><article><span>音乐收藏</span><strong>{library.stats.totalTracks}<small> 首</small></strong><p>{library.stats.totalAlbums} 张专辑 · {library.stats.totalArtists} 位艺术家</p></article><article><span>累计聆听</span><strong>{(library.stats.playedSeconds / 3600).toFixed(1)}<small> 小时</small></strong><p>{library.stats.playCount} 次播放</p></article><article><span>收藏时长</span><strong>{(library.stats.totalDuration / 3600).toFixed(1)}<small> 小时</small></strong><p>原文件 {bytes(library.stats.totalBytes)}</p></article><article><span>喜欢的音乐</span><strong>{library.stats.favoriteTracks}<small> 首</small></strong></article></div><section className="home-section"><div className="section-heading"><h2>常听艺术家</h2></div>{topArtists.length ? <div className="artist-ranking">{topArtists.map((item, index) => <button key={item.id} onClick={() => openedArtist(item)}><span>{String(index + 1).padStart(2, '0')}</span><Artwork url={item.coverUrl} className="round" /><div><strong>{item.name}</strong><div className="ranking-bar"><i style={{ width: `${item.count / topArtists[0].count * 100}%` }} /></div></div><small>{item.count} 次</small></button>)}</div> : <Empty title="还没有听歌统计" />}</section></>}
-      {view.kind === 'trash' && (trash.length ? <div className="trash-list">
+      {view.kind === 'trash' && (trash.length || trashMVs.length ? <><div className="trash-list">
         <div className="trash-heading"><span>曲目</span><span className="playlist-cell">歌单</span><span /></div>
         {trash.map(track => <article key={track.id}>
           <Artwork url={track.coverUrl} /><div className="trash-track"><strong>{track.title}</strong><p>{track.artist} · {track.album}</p><small>{date(track.deletedAt || '')} 移入</small></div>
           <div className="playlist-cell" aria-label="歌单"><TrackPlaylists playlists={trashMemberships.get(track.id)} onOpen={() => setPlaylistTrack(track)} /></div>
           <button className="button secondary" onClick={() => { void restoreTrack(track); }}>恢复</button>
         </article>)}
-      </div> : <Empty title="回收站为空" />)}
+      </div>{trashMVs.length > 0 && <><h2 className="mv-trash-heading">MV</h2><div className="trash-list">{trashMVs.map(mv => <article key={mv.id}><Artwork url={mv.coverUrl} /><div className="trash-track"><strong>{mv.title}</strong><p>{mv.artist || '未知艺术家'} · {duration(mv.duration)}</p><small>{date(mv.deletedAt || '')} 移入</small></div><button className="button secondary" onClick={() => { void restoreMV(mv); }}>恢复</button></article>)}</div></>}</> : <Empty title="回收站为空" />)}
       </div>}
     </main>
     <PlayerBar player={player} panel={panel} onQueue={() => showPanel('queue')} onLyrics={() => showPanel('lyrics')} onMore={setTrackActions} collectionNavigation={collectionNavigation} />
+    {mvPlaying && <MVPlayer key={mvPlaying.id} mv={(library.mvs || []).find(mv => mv.id === mvPlaying.id) || mvPlaying} onClose={() => setMVPlaying(undefined)} />}
+    {mvEditing && <MVEditor key={mvEditing.id} mv={mvEditing} onClose={() => setMVEditing(undefined)} onSaved={saveMV} />}
     {panel === 'queue' && <QueuePanel player={player} playlistMemberships={playlistMemberships} showPlaylists={setPlaylistTrack} onClose={() => setPanel(null)} onSave={ids => setPlaylistEditor({ ids })} onMore={setTrackActions} collectionNavigation={collectionNavigation} />}
     {panel === 'lyrics' && <LyricsPanel player={player} onClose={() => setPanel(null)} onEdit={track => { void openLyricsEditor(track); }} onAdjust={adjustLyrics} onInstrumental={addInstrumentalLyrics} />}
     {lyricsEditing && <LyricsWorkbench key={lyricsEditing.id} track={lyricsEditing} player={player} onClose={() => setLyricsEditing(undefined)} onSaved={track => { setLibrary(old => ({ ...old, tracks: old.tracks.map(item => item.id === track.id ? track : item) })); void refresh(); notify('歌词已写回歌曲文件'); }} />}
     {filtersOpen && view.kind === 'library' && <LibraryFilterModal value={libraryFilters} tracks={library.tracks} playlistMemberships={playlistMemberships} query={query} onClose={() => setFiltersOpen(false)} onApply={setLibraryFilters} />}
-    {uploadOpen && <UploadModal uploader={uploader} playlist={uploadPlaylist} onClose={() => setUploadOpen(false)} onLocate={id => { void locateUpload(id); }} />}
+    {uploadOpen && <UploadModal uploader={uploader} playlist={uploadPlaylist} kind={uploadKind} onClose={() => setUploadOpen(false)} onLocate={(id, kind) => { void locateUpload(id, kind); }} />}
     {editing && <TrackEditor key={editing.id} track={editing} onClose={() => setEditing(undefined)} onSaved={async track => { setLibrary(old => ({ ...old, tracks: old.tracks.map(item => item.id === track.id ? track : item) })); await refresh(); notify('已写回音频文件'); }} />}
     {bulkEditing && <BulkEditor tracks={bulkEditing} onClose={() => setBulkEditing(undefined)} onRefresh={refresh} onSaved={() => notify(`已更新 ${bulkEditing.length} 首曲目`)} />}
     {playlistEditor && <PlaylistEditor playlist={playlistEditor.playlist} initialIds={playlistEditor.ids} onClose={() => setPlaylistEditor(undefined)} onSaved={async playlist => { await refresh(); navigate({ kind: 'playlist', id: playlist.id }); notify('歌单已保存'); }} />}

@@ -166,6 +166,7 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   }
 
   function claim(takeover = false): boolean {
+    window.dispatchEvent(new Event('lilt-audio-claim'));
     const lease = readLocal<Lease | null>('lilt.playback-lease', null);
     if (!takeover && lease && lease.tabId !== tabId.current && lease.playing && Date.now() - lease.updatedAt < 9000) { setConflict(true); return false; }
     writeLocal('lilt.playback-lease', { tabId: tabId.current, updatedAt: Date.now(), playing: true });
@@ -484,6 +485,7 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
   const mediaBack = useEffectEvent((details: MediaSessionActionDetails) => seek(position - (details.seekOffset || 10)));
   const mediaForward = useEffectEvent((details: MediaSessionActionDetails) => seek(position + (details.seekOffset || 10)));
   const onPlaybackKey = useEffectEvent((event: KeyboardEvent) => {
+    if (document.querySelector('.mv-player')) return;
     if (conflict || event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.ctrlKey || event.metaKey || event.altKey) return;
     const target = event.target;
     const inputs = auditionToggle.current && event.key === ' ' ? 'input:not([type="range"]):not([type="checkbox"]), textarea, select, [role="textbox"]' : 'input:not([type="range"]), textarea, select, [role="textbox"]';
@@ -543,6 +545,7 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
     if (lease?.playing && lease.tabId !== tabId.current) { pause(); notify('已在另一个标签页继续播放'); }
   });
   const leave = useEffectEvent(() => { finish(); pause(); });
+  const videoClaim = useEffectEvent(() => pause());
   const reconnect = useEffectEvent(() => { if (intent.current.play && audioRef.current && (audioRef.current.error || audioRef.current.readyState < 3)) { retries.current = 0; retryPlayback(true); } });
   const visible = useEffectEvent(() => { lastProgress.current = Date.now(); syncPosition(); });
   useEffect(() => {
@@ -554,11 +557,12 @@ export function usePlayer(tracks: Track[], notify: (text: string) => void) {
     const tick = setInterval(heartbeat, 2000);
     const historyTick = setInterval(historyHeartbeat, 15000);
     window.addEventListener('storage', onStorage);
+    window.addEventListener('lilt-video-claim', videoClaim);
     window.addEventListener('pagehide', leave);
     window.addEventListener('pageshow', visible);
     window.addEventListener('online', reconnect);
     document.addEventListener('visibilitychange', visible);
-    return () => { cancelRecovery(); clearInterval(tick); clearInterval(historyTick); window.removeEventListener('storage', onStorage); window.removeEventListener('pagehide', leave); window.removeEventListener('pageshow', visible); window.removeEventListener('online', reconnect); document.removeEventListener('visibilitychange', visible); navigator.serviceWorker?.removeEventListener('message', workerReady); navigator.serviceWorker?.removeEventListener('controllerchange', ping); };
+    return () => { cancelRecovery(); clearInterval(tick); clearInterval(historyTick); window.removeEventListener('storage', onStorage); window.removeEventListener('lilt-video-claim', videoClaim); window.removeEventListener('pagehide', leave); window.removeEventListener('pageshow', visible); window.removeEventListener('online', reconnect); document.removeEventListener('visibilitychange', visible); navigator.serviceWorker?.removeEventListener('message', workerReady); navigator.serviceWorker?.removeEventListener('controllerchange', ping); };
   }, []);
   useEffect(() => { persist(); }, [snapshot]);
   useEffect(() => {

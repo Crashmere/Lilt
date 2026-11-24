@@ -18,6 +18,7 @@ import (
 const MaxChunkSize int64 = 32 << 20
 
 type UploadInput struct {
+	Kind           string `json:"kind,omitempty"`
 	Filename       string `json:"filename"`
 	Size           int64  `json:"size"`
 	Fingerprint    string `json:"fingerprint"`
@@ -31,14 +32,18 @@ func (e *OffsetError) Error() string { return "上传进度已变化，请按服
 
 func scanUpload(row interface{ Scan(...any) error }) (Upload, error) {
 	var u Upload
-	err := row.Scan(&u.ID, &u.Filename, &u.Size, &u.Offset, &u.Fingerprint, &u.Status, &u.TrackID, &u.Duplicate, &u.RelativePath)
+	err := row.Scan(&u.ID, &u.Filename, &u.Size, &u.Offset, &u.Fingerprint, &u.Status, &u.TrackID, &u.Duplicate, &u.RelativePath, &u.Kind)
+	if u.Kind == "mv" {
+		u.MVID, u.TrackID = u.TrackID, ""
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		err = ErrNotFound
 	}
 	return u, err
 }
 
-const uploadColumns = "id,filename,size,offset,fingerprint,status,track_id,duplicate,relative_path"
+const uploadKind = "COALESCE((SELECT kind FROM upload_media WHERE upload_id=uploads.id),'audio')"
+const uploadColumns = "id,filename,size,offset,fingerprint,status,track_id,duplicate,relative_path," + uploadKind
 
 func (s *Store) upload(ctx context.Context, id string) (Upload, error) {
 	return scanUpload(s.db.QueryRowContext(ctx, "SELECT "+uploadColumns+" FROM uploads WHERE id=?", id))
@@ -122,6 +127,12 @@ func (s *Store) Uploads(ctx context.Context) ([]Upload, error) {
 }
 
 func (s *Store) StartUpload(ctx context.Context, in UploadInput) (Upload, error) {
+	if in.Kind == "" {
+		in.Kind = "audio"
+	}
+	if in.Kind != "audio" && in.Kind != "mv" || in.Kind == "mv" && in.ReplaceTrackID != "" {
+		return Upload{}, ErrInvalid
+	}
 	in.Filename = tidy(filepath.Base(strings.ReplaceAll(in.Filename, "\\", "/")), 512)
 	in.Fingerprint = strings.ToLower(strings.TrimSpace(in.Fingerprint))
 	decoded, err := hex.DecodeString(in.Fingerprint)
@@ -141,12 +152,17 @@ func (s *Store) StartUpload(ctx context.Context, in UploadInput) (Upload, error)
 		return Upload{}, err
 	}
 	// Explicit replacement needs the supplied bytes, not a historical hash whose file was removed.
-	duplicateID, err := s.duplicateTrack(ctx, in.Fingerprint, in.Size, in.ReplaceTrackID == "")
+	var duplicateID string
+	if in.Kind == "mv" {
+		duplicateID, err = s.duplicateMV(ctx, in.Fingerprint, in.Size)
+	} else {
+		duplicateID, err = s.duplicateTrack(ctx, in.Fingerprint, in.Size, in.ReplaceTrackID == "")
+	}
 	if err != nil {
 		return Upload{}, err
 	}
 	if duplicateID == "" {
-		u, e := scanUpload(s.db.QueryRowContext(ctx, "SELECT "+uploadColumns+" FROM uploads WHERE fingerprint=? AND size=? AND status='uploading' ORDER BY created_at LIMIT 1", in.Fingerprint, in.Size))
+		u, e := scanUpload(s.db.QueryRowContext(ctx, "SELECT "+uploadColumns+" FROM uploads WHERE fingerprint=? AND size=? AND status='uploading' AND "+uploadKind+"=? ORDER BY created_at LIMIT 1", in.Fingerprint, in.Size, in.Kind))
 		if e == nil {
 			return u, nil
 		}
@@ -158,7 +174,7 @@ func (s *Store) StartUpload(ctx context.Context, in UploadInput) (Upload, error)
 	if err != nil {
 		return Upload{}, err
 	}
-	u := Upload{ID: id, Filename: in.Filename, Size: in.Size, Fingerprint: in.Fingerprint, Status: "uploading", RelativePath: in.RelativePath}
+	u := Upload{ID: id, Filename: in.Filename, Size: in.Size, Fingerprint: in.Fingerprint, Status: "uploading", RelativePath: in.RelativePath, Kind: in.Kind}
 	if duplicateID != "" {
 		u.Offset = u.Size
 		u.TrackID = duplicateID
@@ -179,12 +195,25 @@ func (s *Store) StartUpload(ctx context.Context, in UploadInput) (Upload, error)
 			return Upload{}, err
 		}
 	}
-	_, err = s.db.ExecContext(ctx, "INSERT INTO uploads (id,filename,size,offset,fingerprint,status,track_id,duplicate,relative_path,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)", u.ID, u.Filename, u.Size, u.Offset, u.Fingerprint, u.Status, u.TrackID, u.Duplicate, u.RelativePath, now())
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err == nil {
+		defer tx.Rollback()
+		_, err = tx.ExecContext(ctx, "INSERT INTO uploads (id,filename,size,offset,fingerprint,status,track_id,duplicate,relative_path,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)", u.ID, u.Filename, u.Size, u.Offset, u.Fingerprint, u.Status, u.TrackID, u.Duplicate, u.RelativePath, now())
+		if err == nil && in.Kind == "mv" {
+			_, err = tx.ExecContext(ctx, "INSERT INTO upload_media (upload_id,kind) VALUES (?,?)", id, in.Kind)
+		}
+		if err == nil {
+			err = tx.Commit()
+		}
+	}
 	if err != nil {
 		if !u.Duplicate {
 			os.Remove(s.uploadPath(id))
 		}
 		return Upload{}, err
+	}
+	if u.Kind == "mv" {
+		u.MVID, u.TrackID = u.TrackID, ""
 	}
 	return u, nil
 }
@@ -263,7 +292,11 @@ func fileFingerprint(path string) (string, int64, error) {
 }
 
 func (s *Store) preserveAudio(source, fingerprint string, size int64) (string, error) {
-	relative := filepath.Join("originals", fingerprint[:2], fingerprint+".audio")
+	return s.preserveOriginal(source, fingerprint, size, "originals", ".audio")
+}
+
+func (s *Store) preserveOriginal(source, fingerprint string, size int64, directory, extension string) (string, error) {
+	relative := filepath.Join(directory, fingerprint[:2], fingerprint+extension)
 	path := filepath.Join(s.dir, relative)
 	if _, err := os.Stat(path); err == nil {
 		h, n, e := fileFingerprint(path)
@@ -320,6 +353,9 @@ func (s *Store) CompleteUpload(ctx context.Context, id, replaceID string) (Track
 	u, err := s.upload(ctx, id)
 	if err != nil {
 		return Track{}, false, err
+	}
+	if u.Kind != "audio" {
+		return Track{}, false, ErrInvalid
 	}
 	if replaceID != "" && !validID(replaceID) {
 		return Track{}, false, ErrInvalid

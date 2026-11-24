@@ -12,17 +12,20 @@ The runtime identity is `lilt`; local publication uses the restricted `lilt-depl
 | `/opt/lilt/bin/lyrics-model/` | Optional root-owned isolated CPython runtime, pinned dependencies, SOFA source and Chinese/English weights and dictionaries |
 | `/opt/lilt/bin/deploy-{ssh,release}.sh` | Root-owned fixed publication entry points |
 | `/opt/lilt/config/` | systemd unit, application Nginx location, private runtime environment, Portal declaration and source receipt |
-| `/opt/lilt/data/lilt.sqlite` | Tracks, metadata, file-hash recognition history, lyrics, playlists, uploads, listening sessions, retained legacy player snapshots and artwork ownership |
+| `/opt/lilt/data/lilt.sqlite` | Tracks, MV records, metadata, file-hash recognition history, lyrics, playlists, media upload sessions and kinds, listening sessions, retained legacy player snapshots and artwork ownership |
 | `/opt/lilt/data/originals/` | Current SHA-256-addressed audio, retained explicit upload replacements and transient journal-owned metadata staging |
 | `/opt/lilt/data/originals/artwork/` | Legacy manually uploaded artwork retained by existing ownership records; new edits embed artwork in audio |
-| `/opt/lilt/data/uploads/` | Durable incomplete audio upload files |
-| `/opt/lilt/data/covers/` | Sanitized static JPEG artwork, including extracted embedded covers |
-| `/opt/lilt/data/playback/` | Source/quality-addressed compatible AAC/M4A files and descriptors |
+| `/opt/lilt/data/originals/videos/` | Immutable SHA-256-addressed MV originals, including trash |
+| `/opt/lilt/data/uploads/` | Durable incomplete audio and MV upload files |
+| `/opt/lilt/data/covers/` | Sanitized static JPEG artwork and initial-frame MV posters |
+| `/opt/lilt/data/playback/` | Source/quality-addressed compatible AAC/M4A files and descriptors; `mv/` holds validated H.264/AAC MP4s and engine receipts |
 | `/opt/lilt/data/analysis/` | Disposable lyrics-job audio links, owned inference staging, worker lock and model runtime caches; receipts remain in SQLite settings |
 | `/opt/lilt/releases/` | Uploaded programs, previous programs, hashes, acceptance and rollback records |
 | `/opt/lilt/docs/` | Controlled maintenance documentation and provenance |
 
-Production reuses NAS's installed FFmpeg, FFprobe and libvips CLI (`vips`). Go, Node/npm and icon-generation tools are maintenance-computer build dependencies only. The service performs bounded CPU audio encoding and single-threaded libvips cover normalization for both uploaded and embedded artwork; it does not select Aura/Curio's NVIDIA image runtime. FFmpeg copies compressed embedded images into temporary files rather than decoding them. The CPU cover path retains codec-aware shrink/sequential loading, orientation and color handling without introducing the NVIDIA/Python worker into Lilt's 512 MiB unit. `lilt.service` permits writes to Lilt's private data directory and allows 128 tasks. It creates no backup, purge or retention timer.
+Production reuses NAS's installed FFmpeg, FFprobe and libvips CLI (`vips`). Go, Node/npm and icon-generation tools are maintenance-computer build dependencies only. Audio encoding remains CPU-based, and uploaded/embedded artwork uses single-threaded libvips. MV derivatives prefer FFmpeg CUDA decode/scale and NVENC encoding, with software decode/GPU encode and CPU fallbacks. Lilt does not select Aura/Curio's NVIDIA image environment. FFmpeg copies compressed embedded audio artwork into temporary files rather than decoding it. The CPU cover path retains codec-aware shrink/sequential loading, orientation and color handling without introducing the NVIDIA/Python image worker into Lilt's 512 MiB unit. `lilt.service` permits writes to Lilt's private data directory and allows 128 tasks. It creates no backup, purge or retention timer.
+
+The additive `mvs` and `upload_media` tables keep video records and upload kinds in the same schema-version-1 catalog without rewriting existing songs or sessions. Unqualified upload sessions remain audio. Originals are immutable; MV metadata and trash only update catalog rows. Compatibility jobs are request-triggered, single-source, deadline-bounded background work sharing the audio encode mutex. Ready MP4s and descriptors persist under `playback/mv/`; service shutdown cancels unfinished work. Startup removes only owned MV preparation staging. Program rollback does not remove MV data, but older programs cannot display MVs or manage video upload sessions.
 
 The unit runs:
 
@@ -87,7 +90,7 @@ Full `nas` recovery captures the complete SQLite catalog and application data tr
 
 Raw upload chunks contain at most 32 MiB; exact upload-session paths have a 33 MiB Nginx request limit. Exact track-cover paths have no configured request-size ceiling. Both paths disable request buffering and retain a 600-second application body deadline and 660-second Nginx body/upstream idle timeouts. Covers stream into request-scoped temporary files rather than an upload-sized memory buffer; production's existing `PrivateTmp` isolates these files, and normal completion or failure removes them. Uploaded JPEG, PNG, GIF and WebP covers have no configured input-pixel ceiling: libvips proportionally downsizes them to at most 1600 pixels per side, applies orientation and does not upscale small images. One normalization runs at a time under the existing metadata-write lock, with one libvips thread, disabled operation caching, 16 MiB cache/disc thresholds and a 90-second processing deadline. The server fully decodes the bounded output JPEG before publication. Multipart metadata remains limited to 2 MiB. Ordinary application requests retain a 2 MiB proxy limit.
 
-Audio stream and original-download responses disable Nginx response buffering and support Range/HEAD. Standard/compact files are separate nominal 192/96 kbit/s AAC/M4A derivatives with at most two channels and 48 kHz output. The first compatible request may encode before returning media. Preserve originals and stored derivatives during ordinary releases; no automatic file purge is installed.
+Audio/MV stream and original-download responses disable Nginx response buffering and support Range/HEAD. Standard/compact audio files are separate nominal 192/96 kbit/s AAC/M4A derivatives with at most two channels and 48 kHz output. The first compatible audio request may encode before returning media; MV preparation uses asynchronous status polling. Preserve originals and stored derivatives during ordinary releases; no automatic file purge is installed.
 
 The same application-owned Nginx source is installed on `nas`, `ali` and `vps`. It preserves `/lilt/`, full `$http_host`, forwarded protocol and inherited ServerPortal authentication/renewal headers. No application `add_header` overrides are used. The shared HTTPS receive-buffer policy remains unchanged.
 
@@ -147,7 +150,7 @@ SYNC_HOST=nas ~/agent-config/skills/server-operations/scripts/sync-docs.sh Lilt
 
 ## Recovery and Diagnosis
 
-Full `nas`/`vps` external backup and recovery belong exclusively to the server-operations agent. Lilt's complete scope includes all SQLite records and the entire original, artwork, durable upload, cover and playback trees, even when derivatives have a cache display label. Browser-local data has a separate lifetime and is not captured by NAS backups. No web backup controls or internal backup schedules are added.
+Full `nas`/`vps` external backup and recovery belong exclusively to the server-operations agent. Lilt's complete scope includes all SQLite records and the entire audio/MV original, artwork, durable media upload, cover/poster and playback trees, including `originals/videos/` and `playback/mv/`, even when derivatives have a cache display label. Browser-local queues and MV positions have a separate lifetime and are not captured by NAS backups. No web backup controls or internal backup schedules are added.
 
 Choose and verify a real recovery point through the shared [backup and recovery runbook](https://github.com/Crashmere/agent-config/blob/main/skills/server-operations/references/backup-recovery.md). Restore into an isolated path first, validate the complete database and original mapping, then obtain confirmation before production replacement. Metadata JSON and M3U exports are portability tools, not complete recovery packages.
 

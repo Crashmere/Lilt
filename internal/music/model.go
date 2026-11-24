@@ -111,6 +111,7 @@ type Stats struct {
 
 type Library struct {
 	Tracks    []Track    `json:"tracks"`
+	MVs       []MV       `json:"mvs"`
 	Albums    []Album    `json:"albums"`
 	Artists   []Artist   `json:"artists"`
 	Playlists []Playlist `json:"playlists"`
@@ -126,6 +127,8 @@ type Upload struct {
 	Fingerprint  string `json:"fingerprint"`
 	Status       string `json:"status"`
 	TrackID      string `json:"trackId,omitempty"`
+	MVID         string `json:"mvId,omitempty"`
+	Kind         string `json:"kind"`
 	Duplicate    bool   `json:"duplicate,omitempty"`
 	RelativePath string `json:"-"`
 }

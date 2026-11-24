@@ -1,0 +1,52 @@
+.mv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 30px 24px; }
+.mv-card { min-width: 0; }
+.mv-poster { position: relative; width: 100%; padding: 0; display: block; overflow: hidden; border-radius: 10px; background: #282b28; }
+.mv-poster .artwork { width: 100%; aspect-ratio: 16 / 9; border-radius: 0; }
+.mv-poster .artwork img { width: 100%; height: 100%; object-fit: cover; }
+.mv-poster small { position: absolute; bottom: 10px; right: 10px; color: #fff; background: #141714b8; border-radius: 4px; padding: 3px 6px; font-variant-numeric: tabular-nums; }
+.mv-card-play { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; background: #15181530; opacity: 0; transition: opacity .15s; }
+.mv-poster:hover .mv-card-play { opacity: 1; }
+.mv-card-title { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.mv-card-title > button:first-child { min-width: 0; padding: 0; text-align: left; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.mv-card > p { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mv-card footer { display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: var(--muted); }
+.mv-card footer > div { display: flex; }
+.mv-player.modal { width: min(1120px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; }
+.mv-player .modal-header h2 { white-space: nowrap; text-overflow: ellipsis; overflow: hidden; font-family: inherit; font-size: 16px; letter-spacing: 0; }
+.mv-stage { background: radial-gradient(ellipse at center, #222722, #080b08); position: relative; aspect-ratio: 16 / 9; width: 100%; overflow: hidden; color: #fff; }
+.mv-stage video { display: block; width: 100%; height: 100%; object-fit: contain; outline: none; cursor: pointer; }
+.mv-stage:fullscreen { aspect-ratio: auto; height: 100%; }
+.mv-center-play { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 72px; height: 72px; display: grid; place-items: center; border-radius: 50%; background: #202520a0; color: #fff; backdrop-filter: blur(10px); }
+.mv-center-play:disabled { opacity: 1; }
+.mv-preparing { position: absolute; top: calc(50% + 50px); width: 100%; text-align: center; font-size: 13px; }
+.mv-controls { position: absolute; bottom: 0; left: 0; width: 100%; padding: 42px 20px 14px; background: linear-gradient(transparent, #070a07cf); transition: opacity .2s; }
+.controls-hidden .mv-controls { opacity: 0; pointer-events: none; }
+.controls-hidden video { cursor: none; }
+.mv-control-row { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
+.mv-control-row .icon-button { color: #fff; }
+.mv-control-row .icon-button:hover { background: #ffffff20; color: #fff; }
+.mv-control-row select { background: #ffffff17; color: #fff; border: 0; padding: 5px 6px; font-size: 12px; }
+.mv-control-row option { background: #222722; color: #fff; }
+.mv-seek { width: 100%; --accent: #e0a17d; }
+.mv-volume { width: 65px; --accent: #fff; }
+.mv-clock { font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mv-control-spacer { flex: 1; }
+.mv-player-footer { display: flex; align-items: center; gap: 18px; padding: 14px 20px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+.mv-player-footer > span:first-child { color: var(--ink); }
+.mv-player-footer > .text-button:first-of-type { margin-left: auto; }
+.mv-player-error { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: max-content; max-width: calc(100% - 30px); text-align: center; background: #101710ec; border-radius: 10px; padding: 18px; font-size: 13px; }
+.mv-player-error p { margin-bottom: 12px; }
+.mv-player-error .button { margin: 0 4px; }
+.mv-trash-heading { margin: 28px 0 16px; }
+@media (max-width: 740px) {
+  .mv-grid { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 24px 16px; }
+  .mv-player.modal { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); }
+  .mv-stage { aspect-ratio: 4 / 3; }
+  .mv-controls { padding: 32px 10px 10px; }
+  .mv-control-row { gap: 3px; flex-wrap: wrap; }
+  .mv-control-row .icon-button { width: 28px; height: 28px; }
+  .mv-volume, .mv-skip { display: none !important; }
+  .mv-clock { font-size: 10px; }
+  .mv-player-footer { padding: 12px; gap: 10px; font-size: 11px; }
+}
+@media (prefers-reduced-motion: reduce) { .mv-controls, .mv-card-play { transition: none; } }

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { API, ApiError, messageOf, request } from './api';
-import type { Playlist, Track, Upload } from './types';
+import type { MediaKind, MV, Playlist, Track, Upload } from './types';
 import { UploadRateMeter } from './upload-rate';
 import { identity } from './utils';
 
@@ -11,9 +11,18 @@ export type UploadItem = {
   fingerprint?: string; expectedFingerprint?: string; uploadId?: string; track?: Track; trackId?: string; error?: string;
   lyrics?: File; cover?: File; lyricsApplied?: boolean; coverApplied?: boolean; duplicate?: boolean; retrying?: boolean; awaitingAck?: boolean;
   playlist?: UploadPlaylist; playlistApplied?: boolean;
+  kind: MediaKind; mv?: MV; mvId?: string;
 };
 const CHUNK_SIZE = 32 * 1024 * 1024;
 const audioPattern = /\.(mp3|m4a|aac|flac|wav|ogg|opus|aif|aiff|wma|webm|ape|wv|tta|dsf)$/i;
+const videoPattern = /\.(mp4|m4v|mov|mkv|webm|avi|wmv|mpg|mpeg|ts|mts|m2ts)$/i;
+function mediaKind(file: File, preferred: MediaKind): MediaKind | undefined {
+  if (/^video\//.test(file.type)) return 'mv';
+  if (/^audio\//.test(file.type)) return 'audio';
+  if (/\.webm$/i.test(file.name)) return preferred;
+  if (videoPattern.test(file.name)) return 'mv';
+  if (audioPattern.test(file.name)) return 'audio';
+}
 const pathOf = (file: File) => file.webkitRelativePath || file.name;
 const stem = (path: string) => path.replace(/\.[^.]+$/, '').toLocaleLowerCase();
 const finished = (item: UploadItem) => ['done', 'duplicate'].includes(item.phase);
@@ -83,6 +92,7 @@ function sendChunk(item: UploadItem, offset: number, signal: AbortSignal, update
 
 function validate(upload: Upload, item: UploadItem): void {
   if (!upload || !upload.id || upload.size !== item.file.size || upload.fingerprint !== item.fingerprint || !['uploading', 'complete'].includes(upload.status)
+    || (upload.kind || 'audio') !== item.kind
     || !Number.isInteger(upload.offset) || upload.offset < 0 || upload.offset > item.file.size) throw new Error('服务器返回了无效的续传信息。');
 }
 
@@ -114,9 +124,9 @@ export function useUploads(refresh: () => Promise<void>, notify: (text: string) 
     return () => { window.removeEventListener('beforeunload', unload); stopped.current = true; current.current?.abort.abort(); };
   }, []);
 
-  function add(files: File[], resume?: Upload, playlist?: UploadPlaylist): void {
-    const audio = files.filter(file => audioPattern.test(file.name) || /^audio\//.test(file.type));
-    if (resume && (audio.length !== 1 || audio[0].size !== resume.size)) { notify('请选择与未完成上传大小相同的原音频文件。'); return; }
+  function add(files: File[], resume?: Upload, playlist?: UploadPlaylist, preferred: MediaKind = 'audio'): void {
+    const audio = files.filter(file => mediaKind(file, resume?.kind || preferred));
+    if (resume && (audio.length !== 1 || audio[0].size !== resume.size || mediaKind(audio[0], resume.kind || preferred) !== (resume.kind || 'audio'))) { notify('请选择与未完成上传类型、大小相同的原文件。'); return; }
     const covers = files.filter(file => /\.(png|jpe?g|webp)$/i.test(file.name));
     const lyrics = files.filter(file => /\.(lrc|txt)$/i.test(file.name));
     const seen = new Set(queue.current.map(item => JSON.stringify([item.path, item.file.size, item.file.lastModified, item.expectedFingerprint, item.playlist?.id])));
@@ -124,19 +134,21 @@ export function useUploads(refresh: () => Promise<void>, notify: (text: string) 
     for (const file of audio) {
       if (!file.size || file.size > 64 * 1024 ** 3) { skipped++; continue; }
       const path = pathOf(file);
-      const key = JSON.stringify([path, file.size, file.lastModified, resume?.fingerprint, playlist?.id]);
+      const kind = mediaKind(file, resume?.kind || preferred)!;
+      const destination = kind === 'audio' ? playlist : undefined;
+      const key = JSON.stringify([path, file.size, file.lastModified, resume?.fingerprint, destination?.id]);
       if (seen.has(key)) continue;
-      queue.current.push({ key: identity(), file, path, phase: stopped.current ? 'paused' : 'waiting', progress: 0, uploadedBytes: 0, bytesPerSecond: 0, expectedFingerprint: resume?.fingerprint, playlist });
+      queue.current.push({ key: identity(), file, path, kind, phase: stopped.current ? 'paused' : 'waiting', progress: 0, uploadedBytes: 0, bytesPerSecond: 0, expectedFingerprint: resume?.fingerprint, playlist: destination });
       seen.add(key);
     }
-    for (const item of queue.current.filter(item => !finished(item) && !item.trackId && current.current?.key !== item.key)) {
+    for (const item of queue.current.filter(item => item.kind === 'audio' && !finished(item) && !item.trackId && current.current?.key !== item.key)) {
       const directory = item.path.slice(0, item.path.lastIndexOf('/') + 1);
       item.lyrics = lyrics.find(file => stem(pathOf(file)) === stem(item.path)) || item.lyrics;
       item.cover = covers.find(file => stem(pathOf(file)) === stem(item.path)) || covers.find(file => pathOf(file).slice(0, pathOf(file).lastIndexOf('/') + 1) === directory && /^(cover|folder|front)\./i.test(file.name)) || item.cover;
     }
     publish();
-    if (skipped) notify(`已跳过 ${skipped} 个空文件或超过 64 GiB 的音频。`);
-    else if (!audio.length && !covers.length && !lyrics.length) notify('请选择音频文件，或包含音频的文件夹。');
+    if (skipped) notify(`已跳过 ${skipped} 个空文件或超过 64 GiB 的媒体。`);
+    else if (!audio.length && !covers.length && !lyrics.length) notify('请选择音乐、MV 或包含媒体的文件夹。');
   }
   async function inspect(): Promise<void> {
     try { setRetained((await request<{ uploads: Upload[] }>('/uploads')).uploads || []); setInspectError(''); }
@@ -158,20 +170,25 @@ export function useUploads(refresh: () => Promise<void>, notify: (text: string) 
       signal.throwIfAborted();
       change({ fingerprint });
     }
-    if (item.expectedFingerprint && item.expectedFingerprint !== item.fingerprint) throw new Error('所选文件与待续传音频不同，请移出此项后选择正确的原文件。');
+    if (item.expectedFingerprint && item.expectedFingerprint !== item.fingerprint) throw new Error('所选文件与待续传媒体不同，请移出此项后选择正确的原文件。');
     const prepare = async () => {
-      const { upload } = await json<{ upload: Upload }>('/uploads', 'POST', { filename: item.file.name, relativePath: item.path, size: item.file.size, fingerprint: item.fingerprint });
+      const { upload } = await json<{ upload: Upload }>('/uploads', 'POST', { kind: item.kind, filename: item.file.name, relativePath: item.path, size: item.file.size, fingerprint: item.fingerprint });
       validate(upload, item);
       change({ uploadId: upload.id, uploadedBytes: upload.offset, progress: transferProgress(upload.offset, item.file.size) });
       return upload;
     };
     // Keep publication receipts so playlist or sidecar retries do not reupload audio.
-    if (!item.trackId) {
+    if (!item.trackId && !item.mvId) {
       if (!item.uploadId || item.uploadedBytes < item.file.size) {
         let upload = await prepare();
         if (upload.duplicate) {
-          const result = await request<{ track: Track }>(`/tracks/${encodeURIComponent(upload.trackId!)}`, { signal });
-          change({ trackId: upload.trackId, track: result.track, duplicate: true });
+          if (item.kind === 'mv') {
+            const result = await request<{ mv: MV }>(`/mvs/${encodeURIComponent(upload.mvId!)}`, { signal });
+            change({ mvId: upload.mvId, mv: result.mv, duplicate: true });
+          } else {
+            const result = await request<{ track: Track }>(`/tracks/${encodeURIComponent(upload.trackId!)}`, { signal });
+            change({ trackId: upload.trackId, track: result.track, duplicate: true });
+          }
         } else {
           validateSidecars(item);
           change({ phase: 'uploading' });
@@ -201,12 +218,18 @@ export function useUploads(refresh: () => Promise<void>, notify: (text: string) 
           }
         }
       }
-      if (!item.trackId) {
+      if (!item.trackId && !item.mvId) {
         signal.throwIfAborted();
         change({ phase: 'verifying', progress: 0.95, awaitingAck: false, retrying: false });
-        const result = await json<{ track: Track; duplicate: boolean }>(`/uploads/${encodeURIComponent(item.uploadId!)}/complete`, 'POST', {});
-        change({ track: result.track, trackId: result.track.id, duplicate: result.duplicate });
+        const result = await json<{ track?: Track; mv?: MV; duplicate: boolean }>(`/uploads/${encodeURIComponent(item.uploadId!)}/complete`, 'POST', {});
+        if (item.kind === 'mv' && result.mv) change({ mv: result.mv, mvId: result.mv.id, duplicate: result.duplicate });
+        else if (item.kind === 'audio' && result.track) change({ track: result.track, trackId: result.track.id, duplicate: result.duplicate });
+        else throw new Error('入库响应不完整，请重试。');
       }
+    }
+    if (item.kind === 'mv') {
+      change({ phase: item.duplicate ? 'duplicate' : 'done', progress: 1, bytesPerSecond: 0 });
+      return;
     }
     if (item.playlist && !item.playlistApplied && !item.track?.deletedAt) {
       signal.throwIfAborted();

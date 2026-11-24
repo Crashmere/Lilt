@@ -75,6 +75,16 @@ func NewHandler(store *Store, cfg ServerConfig) (http.Handler, error) {
 	mux.HandleFunc("GET "+prefix+"healthz", s.health)
 	base := prefix + "api"
 	mux.HandleFunc("GET "+base+"/library", s.library)
+	mux.HandleFunc("GET "+base+"/mvs", s.mvs)
+	mux.HandleFunc("GET "+base+"/mvs/{id}", s.getMV)
+	mux.HandleFunc("PATCH "+base+"/mvs/{id}", s.patchMV)
+	mux.HandleFunc("DELETE "+base+"/mvs/{id}", s.deleteMV)
+	mux.HandleFunc("POST "+base+"/mvs/{id}/restore", s.restoreMV)
+	mux.HandleFunc("GET "+base+"/mvs/{id}/cover", s.mvCover)
+	mux.HandleFunc("GET "+base+"/mvs/{id}/stream", s.mvStream)
+	mux.HandleFunc("GET "+base+"/mvs/{id}/download", s.mvDownload)
+	mux.HandleFunc("GET "+base+"/mvs/{id}/playback", s.mvPlayback)
+	mux.HandleFunc("POST "+base+"/mvs/{id}/playback", s.mvPlayback)
 	mux.HandleFunc("GET "+base+"/tracks", s.tracks)
 	mux.HandleFunc("GET "+base+"/tracks/{id}", s.getTrack)
 	mux.HandleFunc("GET "+base+"/tracks/{id}/lyrics", s.lyrics)
@@ -687,7 +697,17 @@ func (s *server) export(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Disposition", `attachment; filename="lilt-catalog.json"`)
-	writeJSON(w, http.StatusOK, map[string]any{"version": 1, "exportedAt": now(), "tracks": tracks, "playlists": playlists, "history": history})
+	mvs, err := s.store.MVs(r.Context(), false)
+	if err != nil {
+		apiError(w, err)
+		return
+	}
+	trashedMVs, err := s.store.MVs(r.Context(), true)
+	if err != nil {
+		apiError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"version": 1, "exportedAt": now(), "tracks": tracks, "mvs": append(mvs, trashedMVs...), "playlists": playlists, "history": history})
 }
 
 func (s *server) uploads(w http.ResponseWriter, r *http.Request) {
@@ -750,6 +770,24 @@ func (s *server) completeUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := decodeJSON(w, r, &in, true); err != nil {
 		apiError(w, err)
+		return
+	}
+	upload, err := s.store.upload(r.Context(), r.PathValue("id"))
+	if err != nil {
+		apiError(w, err)
+		return
+	}
+	if upload.Kind == "mv" {
+		if in.ReplaceTrackID != "" {
+			apiError(w, ErrInvalid)
+			return
+		}
+		mv, duplicate, err := s.store.CompleteMVUpload(r.Context(), upload.ID)
+		if err != nil {
+			apiError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"mv": mv, "duplicate": duplicate})
 		return
 	}
 	track, duplicate, err := s.store.CompleteUpload(r.Context(), r.PathValue("id"), in.ReplaceTrackID)

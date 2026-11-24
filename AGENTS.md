@@ -1,11 +1,12 @@
 # Lilt Maintenance Entry Point
 
-Lilt is a single-user, browser-only music library and player. All music, artwork, lyrics and descriptive content are supplied by the owner. The application runs on `nas`; `ali` and `vps` are authenticated gateways to the same data. The brand and source repository are `Lilt`; application paths, runtime identities and units use `lilt`.
+Lilt is a single-user, browser-only music and MV library and player. All music, videos, artwork, lyrics and descriptive content are supplied by the owner. The application runs on `nas`; `ali` and `vps` are authenticated gateways to the same data. The brand and source repository are `Lilt`; application paths, runtime identities and units use `lilt`.
 
 Read `docs/README.md`, `docs/API.md` and `docs/OPERATIONS.md` as relevant. Use server-operations and explicitly read the target host's remote `/opt/AGENTS.md` before server work. Production activation is recorded in server-operations current-state.
 
 - Metadata edits write tags, lyrics and artwork back into the current audio without re-encoding its sound or retaining edit revisions. Validate staged output before publication, recover interrupted publication and remove only superseded unreferenced audio. Display covers and compatible playback remain derivatives. Do not fetch music, artwork, lyrics, fonts or descriptive data from external services at runtime.
 - Keep duplicate files separate from musical versions. Replacement is explicit and preserves the logical track's favorites, playlist membership and history.
+- Keep MVs separate from songs, playlists and listening statistics. Preserve video originals byte-for-byte; MV metadata edits update only the catalog. Compatible MP4s and posters are derivatives. Reuse NAS CUDA/NVENC where supported, with bounded CPU fallbacks. Music and MV playback share the same local playback lease; switching preserves the music queue.
 - Use one SQLite catalog and application-owned data directories. Keep resumable uploads durable, reconcile authoritative offsets and verify the complete SHA-256 before publication.
 - Keep the global player mounted during navigation and data updates. Playlists describe collections; the current queue is an independent snapshot. Restore browser state without automatic audible playback.
 - Share library data and playlists across authorized devices; retain queues and progress in each browser. Same-origin tabs coordinate playback locally.
