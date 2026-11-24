@@ -609,6 +609,7 @@
 .lyrics-scroll{position:absolute;inset:0;overflow:auto;padding:var(--lyrics-edge,50vh) 30px;scrollbar-width:none;overflow-anchor:none;overscroll-behavior:contain}
 .lyrics-scroll::-webkit-scrollbar{display:none}
 .lyrics-lines{position:relative;display:flow-root}
+.lyrics-follow{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);font-size:12px;padding:7px 14px;white-space:nowrap}
 .lyrics-untimed{margin-bottom:24px;color:var(--muted)}
 .lyrics-untimed p{font-size:12px;line-height:1.8;white-space:pre-wrap;overflow-wrap:anywhere}
 .lyrics-empty-actions{display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap}

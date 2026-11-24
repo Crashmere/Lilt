@@ -108,6 +108,7 @@ function CoverPreviewModal({ url, title, filename, onClose }: { url: string; tit
 }
 
 function TimedLyrics({ lines, untimed, current, content, onSeek, player }: { lines: LyricLine[]; untimed: string[]; current: number; content: string; onSeek: (seconds: number) => void; player: Player }) {
+  const [following, setFollowing] = useState(true);
   const words = lines.flatMap(line => line.words || []);
   const currentWord = useActiveLyric(words, player.position, player.getPosition, player.playing);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -135,6 +136,7 @@ function TimedLyrics({ lines, untimed, current, content, onSeek, player }: { lin
       scroll.scrollTo({ top: scroll.scrollTop - shift, behavior: 'instant' });
     };
     const center = (animate = false) => {
+      if (!following) return;
       stop();
       scroll.style.setProperty('--lyrics-edge', `${body.clientHeight / 2}px`);
       const start = scroll.scrollTop;
@@ -160,18 +162,21 @@ function TimedLyrics({ lines, untimed, current, content, onSeek, player }: { lin
     });
     observer.observe(body);
     observer.observe(line);
-    scroll.addEventListener('wheel', stop, { passive: true });
+    const browse = () => { stop(); setFollowing(false); };
+    scroll.addEventListener('wheel', browse, { passive: true });
+    scroll.addEventListener('touchmove', browse, { passive: true });
     scroll.addEventListener('pointerdown', stop);
-    return () => { observer.disconnect(); stop(); scroll.removeEventListener('wheel', stop); scroll.removeEventListener('pointerdown', stop); };
-  }, [current, content]);
+    return () => { observer.disconnect(); stop(); scroll.removeEventListener('wheel', browse); scroll.removeEventListener('touchmove', browse); scroll.removeEventListener('pointerdown', stop); };
+  }, [current, content, following]);
 
   return <div className="lyrics-body timed-lyrics" ref={bodyRef}>
     <div className="lyrics-scroll" ref={scrollRef}>
       <div className="lyrics-lines" ref={listRef}>
         {untimed.length > 0 && <div className="lyrics-untimed">{untimed.map((text, index) => <p key={index}>{text}</p>)}</div>}
-        {lines.map((line, index) => <button key={index} className={`lyric-line ${index === current ? 'active' : ''}`} ref={index === Math.max(0, current) ? lineRef : undefined} aria-current={index === current ? 'true' : undefined} onClick={() => onSeek(Math.max(0, line.time))}><LyricText line={line} sungThrough={index === current ? words[currentWord]?.time ?? -Infinity : -Infinity} /></button>)}
+        {lines.map((line, index) => <button key={index} className={`lyric-line ${index === current ? 'active' : ''}`} ref={index === Math.max(0, current) ? lineRef : undefined} aria-current={index === current ? 'true' : undefined} onClick={() => { onSeek(Math.max(0, line.time)); setFollowing(true); }}><LyricText line={line} sungThrough={index === current ? words[currentWord]?.time ?? -Infinity : -Infinity} /></button>)}
       </div>
     </div>
+    {!following && <button className="button secondary lyrics-follow" onClick={() => setFollowing(true)}>回到当前</button>}
   </div>;
 }
 
