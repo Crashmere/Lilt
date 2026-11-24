@@ -170,4 +170,6 @@ Restart Lilt before releasing the locks, including when repair fails. This offli
 
 For quantified-ID route validation failures on `nas`, `ali` or `vps`, see the shared [Nginx regex quantifier quoting issue](https://github.com/Crashmere/agent-config/blob/main/skills/server-operations/references/common-issues.md#nginx-location-regex-quantifiers-require-quoting).
 
+For recurring `database is locked (517)` writes despite healthy reads on `nas`, follow [SQLite snapshot-lock recovery](https://github.com/Crashmere/agent-config/blob/main/skills/server-operations/references/common-issues.md#persistent-sqlite-snapshot-locks-with-healthy-reads).
+
 After publication, verify Portal declaration activation, anonymous business/media rejection, direct/prefixed health, representative upload/resume and audio Range behavior. Run shared `scripts/check-site-icons.py` against direct HTML and the selected authenticated entrance's public brand assets. Do not represent command-line acceptance as actual iPhone Home Screen or lock-screen acceptance.
