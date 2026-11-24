@@ -28,6 +28,7 @@ type Store struct {
 	libraryRevision atomic.Uint64
 	mvJobsMu        sync.Mutex
 	mvJobs          map[string]*mvPlaybackJob
+	mvAudioJobs     map[string]*mvAudioJob
 	mvCancel        context.CancelFunc
 	mvContext       context.Context
 	mvWorkers       sync.WaitGroup
@@ -157,6 +158,7 @@ UPDATE history_metrics SET counted=1 WHERE counted=0 AND EXISTS (
 	s := &Store{db: db, dir: abs, prefix: prefix}
 	s.mvContext, s.mvCancel = context.WithCancel(context.Background())
 	s.mvJobs = map[string]*mvPlaybackJob{}
+	s.mvAudioJobs = map[string]*mvAudioJob{}
 	if err = s.finishMetadataWrite(); err != nil {
 		db.Close()
 		return nil, err

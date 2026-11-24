@@ -8,7 +8,7 @@ import { activeFilterColumns, EMPTY_FILTERS, matchesFilters, type LibraryFilters
 import { BulkEditor, LyricsPanel, PlayerBar, PlaylistEditor, QueuePanel, TrackEditor, UploadModal } from './panels';
 import { usePlayer } from './player';
 import { LyricsWorkbench } from './lyrics-workbench';
-import { MVEditor, MVLibrary, MVPlayer } from './mvs';
+import { MVAudioExtractor, MVEditor, MVLibrary, MVPlayer } from './mvs';
 import type { Reorder } from './reorder';
 import { indexPlaylistMemberships } from './playlist-memberships';
 import { PLAYLIST_LABELS } from './playlist-kinds';
@@ -55,6 +55,9 @@ export default function App() {
   const [uploadKind, setUploadKind] = useState<MediaKind>('audio');
   const [mvPlaying, setMVPlaying] = useState<MV>();
   const [mvEditing, setMVEditing] = useState<MV>();
+  const [mvExtracting, setMVExtracting] = useState<MV>();
+  const [mvExtractorOpen, setMVExtractorOpen] = useState(false);
+  const [mvExtractionBusy, setMVExtractionBusy] = useState(false);
   const [trashMVs, setTrashMVs] = useState<MV[]>([]);
   const [uploadPlaylist, setUploadPlaylist] = useState<UploadPlaylist>();
   const [panel, setPanel] = useState<'queue' | 'lyrics' | null>(null);
@@ -101,7 +104,7 @@ export default function App() {
       void saveLibrary(next, response.etag).catch(() => undefined);
     } catch (error) {
       if (abort.signal.aborted) return;
-      if (error instanceof ApiError && error.status === 401) { cacheAllowed.current = false; hasLibrary.current = false; libraryEtag.current = ''; setMVPlaying(undefined); setMVEditing(undefined); setLibrary(EMPTY_LIBRARY); setLoaded(false); setError(messageOf(error)); }
+      if (error instanceof ApiError && error.status === 401) { cacheAllowed.current = false; hasLibrary.current = false; libraryEtag.current = ''; setMVPlaying(undefined); setMVEditing(undefined); setMVExtracting(undefined); setLibrary(EMPTY_LIBRARY); setLoaded(false); setError(messageOf(error)); }
       else {
         setError(hasLibrary.current ? '当前无法连接，已保留音乐库，请重试。' : messageOf(error));
       }
@@ -144,6 +147,10 @@ export default function App() {
   }, [view.kind, library.playlists]);
 
   function saveMV(mv: MV) { setLibrary(old => ({ ...old, mvs: (old.mvs || []).map(item => item.id === mv.id ? mv : item) })); setMVEditing(undefined); void refresh(); }
+  function extractMV(mv: MV) {
+    if (mvExtractionBusy && mvExtracting && mvExtracting.id !== mv.id) { notify('另一个 MV 正在提取音频，请稍后重试'); setMVExtractorOpen(true); return; }
+    setMVExtracting(mv); setMVExtractorOpen(true);
+  }
   async function favoriteMV(mv: MV) { await run(async () => { const result = await json<{ mv: MV }>(`/mvs/${encodeURIComponent(mv.id)}`, 'PATCH', { favorite: !mv.favorite }); saveMV(result.mv); }); }
   async function trashMV(mv: MV) {
     if (!window.confirm(`将 MV「${mv.title}」移入回收站？可在回收站恢复。`)) return;
@@ -315,7 +322,7 @@ export default function App() {
         <section className="home-section"><div className="section-heading"><h2>最近曲目</h2><button className="text-button" onClick={() => navigate({ kind: 'library' })}>音乐库<ChevronRight size={15} /></button></div>{table([...library.tracks].sort((a, b) => new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime()).slice(0, 8), true)}</section>
       </>)}
       {view.kind === 'albums' && (library.albums.length ? <AlbumCards albums={library.albums.filter(item => !deferredQuery || item.trackIds.some(id => library.tracks.some(track => track.id === id && matches(track, deferredQuery))))} onOpen={openedAlbum} onPlay={playTracks} /> : <Empty title="没有专辑" />)}
-      {view.kind === 'mvs' && <MVLibrary mvs={library.mvs || []} query={deferredQuery} onPlay={mv => { playerRef.current.pause(); setPanel(null); setMVPlaying(mv); }} onEdit={setMVEditing} onFavorite={mv => { void favoriteMV(mv); }} onTrash={mv => { void trashMV(mv); }} onUpload={openUpload} />}
+      {view.kind === 'mvs' && <MVLibrary mvs={library.mvs || []} query={deferredQuery} onPlay={mv => { playerRef.current.pause(); setPanel(null); setMVPlaying(mv); }} onEdit={setMVEditing} onExtract={extractMV} onFavorite={mv => { void favoriteMV(mv); }} onTrash={mv => { void trashMV(mv); }} onUpload={openUpload} />}
       {isArtistView && <ArtistBrowser library={library} artistId={view.kind === 'artist' ? view.id : undefined} query={deferredQuery} tag={tag} loading={loading} onSelect={item => { startTransition(() => setView({ kind: 'artist', id: item.id })); location.hash = `artist/${encodeURIComponent(item.id)}`; }} onTag={setTag} onRefresh={() => { void refresh(); }} onPlay={playTracks} onEnqueue={ids => player.enqueue(ids)} onOpenAlbum={openedAlbum} onAlbumActions={setAlbumActions} renderTracks={tracks => table(tracks, false, undefined, true)} />}
       {view.kind === 'playlists' && <PlaylistCards playlists={library.playlists.filter(item => !deferredQuery || item.name.toLocaleLowerCase().includes(deferredQuery.toLocaleLowerCase()))} onOpen={item => navigate({ kind: 'playlist', id: item.id })} empty={deferredQuery ? '没有匹配的歌单，请调整搜索' : undefined} />}
       {['album', 'playlist'].includes(view.kind) && <><button className="back-button" onClick={() => navigate({ kind: view.kind === 'album' ? 'albums' : 'playlists' })}><ArrowLeft size={16} />{pageName}</button>{(album && view.kind === 'album' || playlist && view.kind === 'playlist') ? <div className="collection-header"><Artwork url={view.kind === 'album' ? album?.coverUrl : playlist?.coverUrl} size={480} /><div><span className="eyebrow">{view.kind === 'playlist' && playlist ? PLAYLIST_LABELS[playlist.kind] : pageName}</span><h1>{view.kind === 'album' ? album?.title : playlist?.name}</h1><p>{view.kind === 'album' ? `${album?.artist} · ${album?.year ? `${album.year} · ` : ''}` : ''}{visibleTracks.length} 首 · {longDuration(visibleTracks.reduce((sum, item) => sum + item.duration, 0))}</p>{playlist?.description && view.kind === 'playlist' && <p>{playlist.description}</p>}<div className="collection-actions"><button className="button primary" disabled={!visibleTracks.length} onClick={() => playTracks(visibleTracks)}><Play size={17} fill="currentColor" />播放</button><button className="button secondary" disabled={!visibleTracks.length} onClick={() => player.enqueue(visibleTracks.map(item => item.id))}><ListMusic size={17} />加入队列</button>{playlist && view.kind === 'playlist' && <><button className="button secondary" onClick={() => setPlaylistEditor({ playlist })}>编辑歌单</button><a className="icon-button" aria-label="导出歌单" href={`${API}/playlists/${encodeURIComponent(playlist.id)}/export`}><Download size={19} /></a><button className="icon-button" aria-label="删除歌单" onClick={() => { if (window.confirm(`删除歌单「${playlist.name}」？音乐文件不会删除。`)) void run(async () => { await request(`/playlists/${encodeURIComponent(playlist.id)}`, { method: 'DELETE' }); await refresh(); navigate({ kind: 'playlists' }); notify('已删除歌单'); }); }}><Trash2 size={18} /></button></>}</div></div></div> : <Empty title="此收藏已不存在" />}</>}
@@ -345,8 +352,9 @@ export default function App() {
       </div>}
     </main>
     <PlayerBar player={player} panel={panel} onQueue={() => showPanel('queue')} onLyrics={() => showPanel('lyrics')} onMore={setTrackActions} collectionNavigation={collectionNavigation} />
-    {mvPlaying && <MVPlayer key={mvPlaying.id} mv={(library.mvs || []).find(mv => mv.id === mvPlaying.id) || mvPlaying} onClose={() => setMVPlaying(undefined)} />}
+    {mvPlaying && <MVPlayer key={mvPlaying.id} mv={(library.mvs || []).find(mv => mv.id === mvPlaying.id) || mvPlaying} onClose={() => setMVPlaying(undefined)} onExtract={extractMV} />}
     {mvEditing && <MVEditor key={mvEditing.id} mv={mvEditing} onClose={() => setMVEditing(undefined)} onSaved={saveMV} />}
+    {mvExtracting && <MVAudioExtractor key={`mv-audio:${mvExtracting.id}`} mv={mvExtracting} visible={mvExtractorOpen} onClose={() => setMVExtractorOpen(false)} onCreated={() => { void refresh(); if (!mvExtractorOpen) notify('音频提取已完成'); }} onProcessing={setMVExtractionBusy} onEdit={track => { setMVExtractorOpen(false); void openEditor(track); }} />}
     {panel === 'queue' && <QueuePanel player={player} playlistMemberships={playlistMemberships} showPlaylists={setPlaylistTrack} onClose={() => setPanel(null)} onSave={ids => setPlaylistEditor({ ids })} onMore={setTrackActions} collectionNavigation={collectionNavigation} />}
     {panel === 'lyrics' && <LyricsPanel player={player} onClose={() => setPanel(null)} onEdit={track => { void openLyricsEditor(track); }} onAdjust={adjustLyrics} onInstrumental={addInstrumentalLyrics} />}
     {lyricsEditing && <LyricsWorkbench key={lyricsEditing.id} track={lyricsEditing} player={player} onClose={() => setLyricsEditing(undefined)} onSaved={track => { setLibrary(old => ({ ...old, tracks: old.tracks.map(item => item.id === track.id ? track : item) })); void refresh(); notify('歌词已写回歌曲文件'); }} />}

@@ -27,7 +27,7 @@ func (s *Store) mvPlaybackPath(hash string) string {
 }
 
 func (s *Store) removeMVTemps() error {
-	for _, directory := range []string{filepath.Join(s.dir, "covers"), filepath.Join(s.dir, "playback", "mv")} {
+	for _, directory := range []string{filepath.Join(s.dir, "covers"), filepath.Join(s.dir, "playback", "mv"), filepath.Join(s.dir, "uploads")} {
 		entries, err := os.ReadDir(directory)
 		if os.IsNotExist(err) {
 			continue
@@ -36,6 +36,11 @@ func (s *Store) removeMVTemps() error {
 			return err
 		}
 		for _, entry := range entries {
+			if entry.IsDir() && strings.HasPrefix(entry.Name(), ".mv-audio-") {
+				if err = os.RemoveAll(filepath.Join(directory, entry.Name())); err != nil {
+					return err
+				}
+			}
 			if entry.Type().IsRegular() && strings.HasPrefix(entry.Name(), ".mv-") {
 				if err = os.Remove(filepath.Join(directory, entry.Name())); err != nil {
 					return err

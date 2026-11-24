@@ -126,6 +126,8 @@
     {"method": "GET", "path": "/lilt/api/mvs/{id}/download", "description": "下载不变的 MV 原件"},
     {"method": "GET", "path": "/lilt/api/mvs/{id}/playback", "description": "读取兼容视频准备状态与处理引擎"},
     {"method": "POST", "path": "/lilt/api/mvs/{id}/playback", "description": "异步准备或复用兼容 MP4，优先 CUDA/NVENC"},
+    {"method": "GET", "path": "/lilt/api/mvs/{id}/audio", "description": "读取完整音频提取状态与生成的歌曲"},
+    {"method": "POST", "path": "/lilt/api/mvs/{id}/audio", "description": "从 MV 原件提取完整首条音轨并创建歌曲，保留 MV 原件"},
     {"method": "GET", "path": "/lilt/api/tracks", "description": "按关键词、收藏、标签、专辑、歌手或回收站查询歌曲"},
     {"method": "GET", "path": "/lilt/api/tracks/{id}", "description": "读取歌曲详情与歌词"},
     {"method": "GET", "path": "/lilt/api/tracks/{id}/lyrics", "description": "读取歌词正文与独立内容版本"},

@@ -16,7 +16,7 @@ The runtime identity is `lilt`; local publication uses the restricted `lilt-depl
 | `/opt/lilt/data/originals/` | Current SHA-256-addressed audio, retained explicit upload replacements and transient journal-owned metadata staging |
 | `/opt/lilt/data/originals/artwork/` | Legacy manually uploaded artwork retained by existing ownership records; new edits embed artwork in audio |
 | `/opt/lilt/data/originals/videos/` | Immutable SHA-256-addressed MV originals, including trash |
-| `/opt/lilt/data/uploads/` | Durable incomplete audio and MV upload files |
+| `/opt/lilt/data/uploads/` | Durable incomplete audio and MV upload files, plus disposable `.mv-audio-*` extraction staging |
 | `/opt/lilt/data/covers/` | Sanitized static JPEG artwork and initial-frame MV posters |
 | `/opt/lilt/data/playback/` | Source/quality-addressed compatible AAC/M4A files and descriptors; `mv/` holds validated H.264/AAC MP4s and engine receipts |
 | `/opt/lilt/data/analysis/` | Disposable lyrics-job audio links, owned inference staging, worker lock and model runtime caches; receipts remain in SQLite settings |
@@ -26,6 +26,8 @@ The runtime identity is `lilt`; local publication uses the restricted `lilt-depl
 Production reuses NAS's installed FFmpeg, FFprobe and libvips CLI (`vips`). Go, Node/npm and icon-generation tools are maintenance-computer build dependencies only. Audio encoding remains CPU-based, and uploaded/embedded artwork uses single-threaded libvips. MV derivatives prefer FFmpeg CUDA decode/scale and NVENC encoding, with software decode/GPU encode and CPU fallbacks. Lilt does not select Aura/Curio's NVIDIA image environment. FFmpeg copies compressed embedded audio artwork into temporary files rather than decoding it. The CPU cover path retains codec-aware shrink/sequential loading, orientation and color handling without introducing the NVIDIA/Python image worker into Lilt's 512 MiB unit. `lilt.service` permits writes to Lilt's private data directory and allows 128 tasks. It creates no backup, purge or retention timer.
 
 The additive `mvs` and `upload_media` tables keep video records and upload kinds in the same schema-version-1 catalog without rewriting existing songs or sessions. Unqualified upload sessions remain audio. Originals are immutable; MV metadata and trash only update catalog rows. Compatibility jobs are request-triggered, single-source, deadline-bounded background work sharing the audio encode mutex. Ready MP4s and descriptors persist under `playback/mv/`; service shutdown cancels unfinished work. Startup removes only owned MV preparation staging. Program rollback does not remove MV data, but older programs cannot display MVs or manage video upload sessions.
+
+Full-audio extraction reuses the installed FFmpeg runtime and existing song-import path without a schema, unit or permission change. Common codecs use stream copy; other codecs use single-threaded CPU FLAC conversion, preserving source sample rate and channels. One extraction job runs at a time under the shared encode budget with a 20-minute deadline. The main service cancels and joins extraction workers on shutdown. Job receipts are in memory; startup removes only `.mv-audio-*` staging beneath `uploads/`, and retry checks song hashes before publication. Created songs use the existing originals, covers and SQLite resource/backup scope. Originals and published songs are never removed by extraction staging cleanup.
 
 The unit runs:
 

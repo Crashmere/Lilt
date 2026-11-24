@@ -381,16 +381,24 @@ func (s *Store) CompleteUpload(ctx context.Context, id, replaceID string) (Track
 	if h != u.Fingerprint || size != u.Size {
 		return Track{}, false, fmt.Errorf("完整文件 SHA-256 校验失败，请取消后重新上传：%w", ErrInvalid)
 	}
+	return s.importAudio(ctx, u, replaceID, source)
+}
+
+// Call with the write lock held and a verified, application-owned source.
+func (s *Store) importAudio(ctx context.Context, u Upload, replaceID, source string) (Track, bool, error) {
+	h, size := u.Fingerprint, u.Size
 	if replaceID == "" {
 		existingID, err := s.duplicateTrack(ctx, h, size, true)
 		if err != nil {
 			return Track{}, false, err
 		}
 		if existingID != "" {
-			if _, err = s.db.ExecContext(ctx, "UPDATE uploads SET status='complete',track_id=?,duplicate=1 WHERE id=?", existingID, id); err != nil {
-				return Track{}, false, err
+			if u.ID != "" {
+				if _, err = s.db.ExecContext(ctx, "UPDATE uploads SET status='complete',track_id=?,duplicate=1 WHERE id=?", existingID, u.ID); err != nil {
+					return Track{}, false, err
+				}
+				os.Remove(s.uploadPath(u.ID))
 			}
-			os.Remove(s.uploadPath(id))
 			t, _, _, err := s.track(ctx, existingID)
 			return t, true, err
 		}
@@ -478,14 +486,18 @@ func (s *Store) CompleteUpload(ctx context.Context, id, replaceID string) (Track
 	if _, err = tx.ExecContext(ctx, "INSERT OR IGNORE INTO track_fingerprints (fingerprint,track_id,size) VALUES (?,?,?)", h, t.ID, size); err != nil {
 		return Track{}, false, err
 	}
-	if _, err = tx.ExecContext(ctx, "UPDATE uploads SET status='complete',track_id=?,duplicate=? WHERE id=?", t.ID, u.Duplicate, id); err != nil {
-		return Track{}, false, err
+	if u.ID != "" {
+		if _, err = tx.ExecContext(ctx, "UPDATE uploads SET status='complete',track_id=?,duplicate=? WHERE id=?", t.ID, u.Duplicate, u.ID); err != nil {
+			return Track{}, false, err
+		}
 	}
 	if err = tx.Commit(); err != nil {
 		return Track{}, false, err
 	}
 	s.invalidateLibrary()
-	os.Remove(s.uploadPath(id))
+	if u.ID != "" {
+		os.Remove(s.uploadPath(u.ID))
+	}
 	t, _, _, err = s.track(ctx, t.ID)
 	return t, u.Duplicate, err
 }

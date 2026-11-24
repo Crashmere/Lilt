@@ -1,18 +1,20 @@
 import { useEffect, useEffectEvent, useRef, useState, type CSSProperties } from 'react';
-import { Download, Heart, LoaderCircle, Maximize, Pause, Pencil, PictureInPicture2, Play, RotateCcw, SkipBack, SkipForward, Trash2, Video, Volume2, VolumeX } from 'lucide-react';
+import { Download, Heart, LoaderCircle, Maximize, Music2, Pause, Pencil, PictureInPicture2, Play, RotateCcw, SkipBack, SkipForward, Trash2, Video, Volume2, VolumeX } from 'lucide-react';
 import { API, json, messageOf, request } from './api';
 import { Artwork, Empty, Modal } from './components';
-import type { MV } from './types';
+import type { MV, Track } from './types';
 import { bytes, duration, identity, readLocal, writeLocal } from './utils';
 import './mvs.css';
 
 type Lease = { tabId: string; updatedAt: number; playing: boolean };
 type Playback = { status: 'missing' | 'processing' | 'ready' | 'error'; url?: string; error?: string };
+type AudioExtraction = { status: Playback['status']; track?: Track; duplicate?: boolean; error?: string };
 type VideoElement = HTMLVideoElement & { webkitEnterFullscreen?: () => void };
 const url = (mv: MV, suffix: string) => `${API}/mvs/${encodeURIComponent(mv.id)}/${suffix}`;
 
-export function MVLibrary({ mvs, query, onPlay, onEdit, onFavorite, onTrash, onUpload }: {
+export function MVLibrary({ mvs, query, onPlay, onEdit, onExtract, onFavorite, onTrash, onUpload }: {
   mvs: MV[]; query: string; onPlay: (mv: MV) => void; onEdit: (mv: MV) => void;
+  onExtract: (mv: MV) => void;
   onFavorite: (mv: MV) => void; onTrash: (mv: MV) => void; onUpload: () => void;
 }) {
   const [favorites, setFavorites] = useState(false);
@@ -21,9 +23,61 @@ export function MVLibrary({ mvs, query, onPlay, onEdit, onFavorite, onTrash, onU
     {visible.length ? <div className="mv-grid">{visible.map(mv => <article className="mv-card" key={mv.id}>
       <button className="mv-poster" onClick={() => onPlay(mv)} aria-label={`播放 MV ${mv.title}`}><Artwork url={mv.coverUrl} title={mv.title} /><span className="mv-card-play"><Play size={25} fill="currentColor" /></span><small>{duration(mv.duration)}</small></button>
       <div className="mv-card-title"><button onClick={() => onPlay(mv)} title={mv.title}>{mv.title}</button><button className={`icon-button ${mv.favorite ? 'accent' : ''}`} aria-label={mv.favorite ? '取消收藏 MV' : '收藏 MV'} onClick={() => onFavorite(mv)}><Heart size={16} fill={mv.favorite ? 'currentColor' : 'none'} /></button></div>
-      <p>{mv.artist || '未知艺术家'}</p><footer><span>{mv.width} × {mv.height}</span><div><button className="icon-button" aria-label={`编辑 MV ${mv.title}`} onClick={() => onEdit(mv)}><Pencil size={15} /></button><a className="icon-button" aria-label={`下载 MV ${mv.title}`} href={url(mv, 'download')}><Download size={15} /></a><button className="icon-button" aria-label={`移除 MV ${mv.title}`} onClick={() => onTrash(mv)}><Trash2 size={15} /></button></div></footer>
+      <p>{mv.artist || '未知艺术家'}</p><footer><button className="text-button" disabled={!mv.audioCodec} title={mv.audioCodec ? '提取完整音频并创建新歌' : '此 MV 没有音轨'} onClick={() => onExtract(mv)}><Music2 size={15} />提取音频</button><div><button className="icon-button" aria-label={`编辑 MV ${mv.title}`} onClick={() => onEdit(mv)}><Pencil size={15} /></button><a className="icon-button" aria-label={`下载 MV ${mv.title}`} href={url(mv, 'download')}><Download size={15} /></a><button className="icon-button" aria-label={`移除 MV ${mv.title}`} onClick={() => onTrash(mv)}><Trash2 size={15} /></button></div></footer>
     </article>)}</div> : <Empty title={query || favorites ? '没有匹配的 MV' : '还没有 MV'}>{!query && !favorites && <button className="button primary" onClick={onUpload}><Video size={16} />上传 MV</button>}</Empty>}
   </>;
+}
+
+export function MVAudioExtractor({ mv, visible, onClose, onCreated, onProcessing, onEdit }: { mv: MV; visible: boolean; onClose: () => void; onCreated: () => void; onProcessing: (processing: boolean) => void; onEdit: (track: Track) => void }) {
+  const [job, setJob] = useState<AudioExtraction>();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [retry, setRetry] = useState(0);
+  const delivered = useRef(false);
+  const mounted = useRef(true);
+  const path = `/mvs/${encodeURIComponent(mv.id)}/audio`;
+  const receive = useEffectEvent((result: AudioExtraction) => {
+    setJob(result); setError(result.error || '');
+    if (result.status === 'ready' && !delivered.current) { delivered.current = true; onCreated(); }
+  });
+  useEffect(() => {
+    mounted.current = true;
+    const abort = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    async function read() {
+      try {
+        const result = await request<AudioExtraction>(path, { signal: abort.signal });
+        if (abort.signal.aborted) return;
+        receive(result);
+        if (result.status === 'processing') timer = setTimeout(() => { void read(); }, 1000);
+      } catch (error) { if (!abort.signal.aborted) setError(messageOf(error)); }
+    }
+    void read();
+    return () => { mounted.current = false; abort.abort(); clearTimeout(timer); };
+  }, [path, retry]);
+  async function start() {
+    if (busy || job?.status === 'processing') return;
+    setBusy(true); setError('');
+    try {
+      const result = await request<AudioExtraction>(path, { method: 'POST' });
+      if (!mounted.current) return;
+      setJob(result); setRetry(old => old + 1);
+    } catch (error) { if (mounted.current) setError(messageOf(error)); }
+    finally { if (mounted.current) setBusy(false); }
+  }
+  const processing = busy || job?.status === 'processing';
+  const reportProcessing = useEffectEvent(onProcessing);
+  useEffect(() => { reportProcessing(processing); }, [processing]);
+  const track = job?.track;
+  if (!visible) return null;
+  return <Modal title="提取音频" className="mv-audio-extractor" onClose={onClose}><div className="modal-body">
+    <div className="mv-audio-source"><Artwork url={mv.coverUrl} title={mv.title} /><div><strong>{mv.title}</strong><p className="muted">{mv.artist || '未知艺术家'}</p><p className="muted">MV 时长 · {duration(mv.duration)}</p></div></div>
+    {processing && <p className="mv-audio-status" role="status"><LoaderCircle size={17} className="spin" />正在提取完整音频并创建歌曲…</p>}
+    {track && <p role="status">{track.deletedAt ? '歌曲已在回收站，请先恢复。' : job.duplicate ? `歌曲已存在：${track.title}` : `已创建歌曲：${track.title}`}</p>}
+    {error && <p className="error-text" role="alert">{error}</p>}
+  </div><footer className="modal-footer"><button className="button secondary" onClick={onClose}>{track ? '完成' : '关闭'}</button>
+    {track ? !track.deletedAt && <button className="button primary" onClick={() => onEdit(track)}><Pencil size={15} />编辑歌曲</button> : error && job?.status !== 'error' ? <button className="button primary" disabled={busy} onClick={() => { setError(''); setRetry(old => old + 1); }}>查询状态</button> : <button className="button primary" disabled={!job || processing || !mv.audioCodec} onClick={() => { void start(); }}><Music2 size={16} />{processing ? '提取中…' : job?.status === 'error' ? '重试提取' : '提取并创建新歌'}</button>}
+  </footer></Modal>;
 }
 
 export function MVEditor({ mv, onClose, onSaved }: { mv: MV; onClose: () => void; onSaved: (mv: MV) => void }) {
@@ -42,7 +96,7 @@ export function MVEditor({ mv, onClose, onSaved }: { mv: MV; onClose: () => void
   return <Modal title="编辑 MV" onClose={close}><form onSubmit={event => { event.preventDefault(); void save(); }}><div className="modal-body"><label className="field">名称<input value={title} disabled={busy} required onChange={event => setTitle(event.target.value)} /></label><label className="field">艺术家<input value={artist} disabled={busy} onChange={event => setArtist(event.target.value)} /></label>{error && <p className="error-text" role="alert">{error}</p>}</div><footer className="modal-footer"><button type="button" className="button secondary" disabled={busy} onClick={close}>取消</button><button className="button primary" disabled={busy}>{busy ? '保存中…' : '保存'}</button></footer></form></Modal>;
 }
 
-export function MVPlayer({ mv, onClose }: { mv: MV; onClose: () => void }) {
+export function MVPlayer({ mv, onClose, onExtract }: { mv: MV; onClose: () => void; onExtract: (mv: MV) => void }) {
   const videoRef = useRef<VideoElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const [mode, setMode] = useState<'original' | 'compatible'>('original');
@@ -212,5 +266,5 @@ export function MVPlayer({ mv, onClose }: { mv: MV; onClose: () => void }) {
         {document.pictureInPictureEnabled && <button className="icon-button" aria-label="MV 画中画" disabled={!sourceURL} onClick={() => { void pip(); }}><PictureInPicture2 size={19} /></button>}<button className="icon-button" aria-label="MV 全屏" onClick={() => { void fullscreen(); }}><Maximize size={19} /></button>
       </div>
     </div>
-  </div><footer className="mv-player-footer"><span>{mv.artist || '未知艺术家'}</span><span>{mv.width} × {mv.height} · {bytes(mv.size)}</span><button className="text-button" onClick={() => seek(0)}><RotateCcw size={14} />从头播放</button><a className="text-button" href={url(mv, 'download')}><Download size={15} />下载原件</a></footer></Modal>;
+  </div><footer className="mv-player-footer"><span>{mv.artist || '未知艺术家'}</span><span>{mv.width} × {mv.height} · {bytes(mv.size)}</span><button className="text-button" onClick={() => seek(0)}><RotateCcw size={14} />从头播放</button><button className="text-button" disabled={!mv.audioCodec} onClick={() => onExtract(mv)}><Music2 size={15} />提取音频</button><a className="text-button" href={url(mv, 'download')}><Download size={15} />下载原件</a></footer></Modal>;
 }

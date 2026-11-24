@@ -136,3 +136,16 @@ func (s *server) mvPlayback(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, status, job)
 }
+
+func (s *server) mvAudio(w http.ResponseWriter, r *http.Request) {
+	job, err := s.store.MVAudio(r.Context(), r.PathValue("id"), r.Method == "POST")
+	if err != nil {
+		apiError(w, err)
+		return
+	}
+	status := http.StatusOK
+	if job.Status == "processing" {
+		status = http.StatusAccepted
+	}
+	writeJSON(w, status, job)
+}

@@ -85,6 +85,8 @@ func NewHandler(store *Store, cfg ServerConfig) (http.Handler, error) {
 	mux.HandleFunc("GET "+base+"/mvs/{id}/download", s.mvDownload)
 	mux.HandleFunc("GET "+base+"/mvs/{id}/playback", s.mvPlayback)
 	mux.HandleFunc("POST "+base+"/mvs/{id}/playback", s.mvPlayback)
+	mux.HandleFunc("GET "+base+"/mvs/{id}/audio", s.mvAudio)
+	mux.HandleFunc("POST "+base+"/mvs/{id}/audio", s.mvAudio)
 	mux.HandleFunc("GET "+base+"/tracks", s.tracks)
 	mux.HandleFunc("GET "+base+"/tracks/{id}", s.getTrack)
 	mux.HandleFunc("GET "+base+"/tracks/{id}/lyrics", s.lyrics)
