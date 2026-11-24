@@ -15,7 +15,7 @@ export type UploadItem = {
 };
 const CHUNK_SIZE = 32 * 1024 * 1024;
 const audioPattern = /\.(mp3|m4a|aac|flac|wav|ogg|opus|aif|aiff|wma|webm|ape|wv|tta|dsf)$/i;
-const videoPattern = /\.(mp4|m4v|mov|mkv|webm|avi|wmv|mpg|mpeg|ts|mts|m2ts)$/i;
+const videoPattern = /\.(mp4|m4v|mov|mkv|webm|flv|avi|wmv|mpg|mpeg|ts|mts|m2ts)$/i;
 function mediaKind(file: File, preferred: MediaKind): MediaKind | undefined {
   if (/^video\//.test(file.type)) return 'mv';
   if (/^audio\//.test(file.type)) return 'audio';
@@ -268,7 +268,7 @@ export function useUploads(refresh: () => Promise<void>, notify: (text: string) 
         catch (error) {
           if (!['paused', 'waiting'].includes(item.phase)) update(item, { phase: abort.signal.aborted ? 'paused' : 'error', error: abort.signal.aborted ? undefined : item.trackId ? `音频已入库，${item.phase === 'joining' ? '加入歌单' : '歌词或封面'}未完成：${messageOf(error)}` : messageOf(error) });
         } finally {
-          if (item.trackId) changed = true;
+          if (item.trackId || item.mvId) changed = true;
           update(item, { bytesPerSecond: 0, retrying: false, awaitingAck: false });
           current.current = null;
         }

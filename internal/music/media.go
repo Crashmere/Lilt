@@ -26,7 +26,7 @@ import (
 	_ "golang.org/x/image/webp"
 )
 
-const allowedFormats = "aac,aiff,ape,asf,avi,dsf,flac,matroska,webm,mov,mp3,mpeg,mpegts,wav,wv,tta,ogg"
+const allowedFormats = "aac,aiff,ape,asf,avi,dsf,flac,flv,matroska,webm,mov,mp3,mpeg,mpegts,wav,wv,tta,ogg"
 
 type probeStream struct {
 	Index         int               `json:"index"`

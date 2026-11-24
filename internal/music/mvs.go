@@ -122,6 +122,8 @@ func videoType(format, filename string) string {
 		return "video/x-matroska"
 	case format == "avi":
 		return "video/x-msvideo"
+	case format == "flv":
+		return "video/x-flv"
 	case format == "mpegts":
 		return "video/mp2t"
 	case format == "asf":
