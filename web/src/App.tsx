@@ -94,13 +94,14 @@ export default function App() {
       const result = response.library;
       if (!Array.isArray(result.tracks)) throw new TypeError('音乐库响应不完整，请重试。');
       const next = { ...result, tracks: result.tracks || [], albums: result.albums || [], artists: result.artists || [], playlists: result.playlists || [], tags: result.tags || [] };
+      setMVPlaying(current => current && next.mvs?.some(mv => mv.id === current.id) ? current : undefined);
       hasLibrary.current = true;
       libraryEtag.current = response.etag;
       startTransition(() => setLibrary(next)); setError(''); setLoaded(true);
       void saveLibrary(next, response.etag).catch(() => undefined);
     } catch (error) {
       if (abort.signal.aborted) return;
-      if (error instanceof ApiError && error.status === 401) { cacheAllowed.current = false; hasLibrary.current = false; libraryEtag.current = ''; setLibrary(EMPTY_LIBRARY); setLoaded(false); setError(messageOf(error)); }
+      if (error instanceof ApiError && error.status === 401) { cacheAllowed.current = false; hasLibrary.current = false; libraryEtag.current = ''; setMVPlaying(undefined); setMVEditing(undefined); setLibrary(EMPTY_LIBRARY); setLoaded(false); setError(messageOf(error)); }
       else {
         setError(hasLibrary.current ? '当前无法连接，已保留音乐库，请重试。' : messageOf(error));
       }
