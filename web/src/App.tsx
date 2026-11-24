@@ -8,6 +8,7 @@ import { activeFilterColumns, EMPTY_FILTERS, matchesFilters, type LibraryFilters
 import { BulkEditor, LyricsPanel, PlayerBar, PlaylistEditor, QueuePanel, TrackEditor, UploadModal } from './panels';
 import { usePlayer } from './player';
 import { LyricsWorkbench } from './lyrics-workbench';
+import { TrackSyncModal, type TrackPair } from './track-sync-modal';
 import { MVAudioExtractor, MVEditor, MVLibrary, MVPlayer } from './mvs';
 import type { Reorder } from './reorder';
 import { indexPlaylistMemberships } from './playlist-memberships';
@@ -64,6 +65,7 @@ export default function App() {
   const [editing, setEditing] = useState<Track>();
   const [lyricsEditing, setLyricsEditing] = useState<Track>();
   const [bulkEditing, setBulkEditing] = useState<Track[]>();
+  const [syncing, setSyncing] = useState<TrackPair>();
   const [trackActions, setTrackActions] = useState<Track>();
   const [albumActions, setAlbumActions] = useState<Album>();
   const [playlistEditor, setPlaylistEditor] = useState<{ playlist?: Playlist; ids?: string[] }>();
@@ -289,7 +291,7 @@ export default function App() {
   if (!['album', 'playlist'].includes(view.kind)) visibleTracks = [...visibleTracks].sort((a, b) => sort === 'title' ? a.title.localeCompare(b.title, 'zh-CN') : sort === 'artist' ? a.artist.localeCompare(b.artist, 'zh-CN') : sort === 'album' ? a.album.localeCompare(b.album, 'zh-CN') : sort === 'played' ? b.playCount - a.playCount : sort === 'duration' ? b.duration - a.duration : new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime());
   const table = (tracks: Track[], compact = false, onReorder?: Reorder, albumTracks = false) => {
     if (!tracks.length && view.kind === 'library' && activeFilterCount) return <Empty title="没有匹配的曲目"><button className="button secondary" onClick={() => setFiltersOpen(true)}><SlidersHorizontal size={16} />调整筛选</button></Empty>;
-    return <TrackTable key={`${view.kind}-${view.id || ''}`} tracks={tracks} player={player} favorite={track => { void favorite(track); }} edit={track => { void openEditor(track); }} actions={setTrackActions} playlistMemberships={playlistMemberships} showPlaylists={setPlaylistTrack} addToPlaylist={setAddPlaylistIds} bulkEdit={setBulkEditing} selectionAction={bulkTrackAction} removeFromPlaylist={removePlaylistTracks} collectionNavigation={collectionNavigation} filterColumns={view.kind === 'library' ? libraryFilterColumns : undefined} compact={compact} albumTracks={albumTracks} onReorder={onReorder} empty={deferredQuery || tag ? '没有匹配的曲目' : '没有曲目'} />;
+    return <TrackTable key={`${view.kind}-${view.id || ''}`} tracks={tracks} player={player} favorite={track => { void favorite(track); }} edit={track => { void openEditor(track); }} actions={setTrackActions} playlistMemberships={playlistMemberships} showPlaylists={setPlaylistTrack} addToPlaylist={setAddPlaylistIds} bulkEdit={setBulkEditing} sync={setSyncing} selectionAction={bulkTrackAction} removeFromPlaylist={removePlaylistTracks} collectionNavigation={collectionNavigation} filterColumns={view.kind === 'library' ? libraryFilterColumns : undefined} compact={compact} albumTracks={albumTracks} onReorder={onReorder} empty={deferredQuery || tag ? '没有匹配的曲目' : '没有曲目'} />;
   };
   const openedAlbum = (item: Album) => navigate({ kind: 'album', id: item.id });
   const openedArtist = (item: Artist) => navigate({ kind: 'artist', id: item.id });
@@ -362,6 +364,7 @@ export default function App() {
     {uploadOpen && <UploadModal uploader={uploader} playlist={uploadPlaylist} kind={uploadKind} onClose={() => setUploadOpen(false)} onLocate={(id, kind) => { void locateUpload(id, kind); }} />}
     {editing && <TrackEditor key={editing.id} track={editing} onClose={() => setEditing(undefined)} onSaved={async track => { setLibrary(old => ({ ...old, tracks: old.tracks.map(item => item.id === track.id ? track : item) })); await refresh(); notify('已写回音频文件'); }} />}
     {bulkEditing && <BulkEditor tracks={bulkEditing} onClose={() => setBulkEditing(undefined)} onRefresh={refresh} onSaved={() => notify(`已更新 ${bulkEditing.length} 首曲目`)} />}
+    {syncing && <TrackSyncModal tracks={syncing} onClose={() => setSyncing(undefined)} onSaved={track => { setLibrary(old => ({ ...old, tracks: old.tracks.map(item => item.id === track.id ? track : item) })); void refresh(); notify('已同步并写回歌曲文件'); }} />}
     {playlistEditor && <PlaylistEditor playlist={playlistEditor.playlist} initialIds={playlistEditor.ids} onClose={() => setPlaylistEditor(undefined)} onSaved={async playlist => { await refresh(); navigate({ kind: 'playlist', id: playlist.id }); notify('歌单已保存'); }} />}
     {albumActions && <Modal title={`${albumActions.title} · 专辑操作`} onClose={() => setAlbumActions(undefined)}><div className="modal-body track-action-menu">
       <button disabled={!albumActionTracks.length} onClick={() => { player.enqueue(albumActionTracks.map(track => track.id), true); setAlbumActions(undefined); }}><Play size={18} />接下来播放</button>

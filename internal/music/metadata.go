@@ -34,6 +34,10 @@ type metadataWrite struct {
 func (s *Store) editTrack(ctx context.Context, id string, p TrackPatch, cover io.Reader) (Track, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.editTrackLocked(ctx, id, p, cover)
+}
+
+func (s *Store) editTrackLocked(ctx context.Context, id string, p TrackPatch, cover io.Reader) (Track, error) {
 	if err := s.finishMetadataWrite(); err != nil {
 		return Track{}, err
 	}

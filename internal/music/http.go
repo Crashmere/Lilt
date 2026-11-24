@@ -96,6 +96,7 @@ func NewHandler(store *Store, cfg ServerConfig) (http.Handler, error) {
 	mux.HandleFunc("GET "+base+"/lyrics-jobs/{job}", s.lyricsJob)
 	mux.HandleFunc("DELETE "+base+"/lyrics-jobs/{job}", s.lyricsJob)
 	mux.HandleFunc("PATCH "+base+"/tracks/{id}", s.updateTrack)
+	mux.HandleFunc("POST "+base+"/tracks/{id}/sync", s.syncTrack)
 	mux.HandleFunc("DELETE "+base+"/tracks/{id}", s.deleteTrack)
 	mux.HandleFunc("POST "+base+"/tracks/{id}/restore", s.restoreTrack)
 	mux.HandleFunc("GET "+base+"/tracks/{id}/stream", s.stream)
@@ -347,6 +348,20 @@ func (s *server) updateTrack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	track, err := s.store.UpdateTrack(r.Context(), r.PathValue("id"), patch)
+	if err != nil {
+		apiError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"track": track})
+}
+
+func (s *server) syncTrack(w http.ResponseWriter, r *http.Request) {
+	var request TrackSync
+	if err := decodeJSON(w, r, &request, false); err != nil {
+		apiError(w, err)
+		return
+	}
+	track, err := s.store.SyncTrack(r.Context(), r.PathValue("id"), request)
 	if err != nil {
 		apiError(w, err)
 		return

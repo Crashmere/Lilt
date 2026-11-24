@@ -137,6 +137,7 @@
     {"method": "GET", "path": "/lilt/api/lyrics-jobs/{job}", "description": "读取歌词分析进度、候选字词时间或波形"},
     {"method": "DELETE", "path": "/lilt/api/lyrics-jobs/{job}", "description": "取消未完成的歌词分析与所选临时材料"},
     {"method": "PATCH", "path": "/lilt/api/tracks/{id}", "description": "将资料、制作信息、版本、别名、标签、歌词和封面移除写回音频；收藏仅更新资料库"},
+    {"method": "POST", "path": "/lilt/api/tracks/{id}/sync", "description": "校验两首歌曲版本，将所选资料、封面和歌词一次写回目标歌曲，保留未勾选内容"},
     {"method": "DELETE", "path": "/lilt/api/tracks/{id}", "description": "移入可恢复的回收站，保留原件"},
     {"method": "POST", "path": "/lilt/api/tracks/{id}/restore", "description": "恢复已移除歌曲"},
     {"method": "GET", "path": "/lilt/api/tracks/{id}/stream", "description": "读取原音频或独立标准、省流量播放版本，支持 Range"},

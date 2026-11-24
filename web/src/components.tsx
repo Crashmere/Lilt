@@ -1,6 +1,6 @@
 import { useLayoutEffect, useState, type CSSProperties, type ReactNode, type SyntheticEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, Disc3, GripVertical, Heart, ListMusic, LoaderCircle, MoreHorizontal, Music2, Pause, Pencil, Play, Plus, Settings2, Trash2, X } from 'lucide-react';
+import { ArrowRightLeft, Check, Disc3, GripVertical, Heart, ListMusic, LoaderCircle, MoreHorizontal, Music2, Pause, Pencil, Play, Plus, Settings2, Trash2, X } from 'lucide-react';
 import type { Player } from './player';
 import type { PlaylistMemberships } from './playlist-memberships';
 import { PLAYLIST_KINDS, PLAYLIST_LABELS } from './playlist-kinds';
@@ -73,13 +73,14 @@ type TrackTableProps = {
   playlistMemberships: PlaylistMemberships; showPlaylists: (track: Track) => void;
   addToPlaylist: (ids: string[]) => void;
   bulkEdit: (tracks: Track[]) => void;
+  sync: (tracks: readonly [Track, Track]) => void;
   selectionAction: (tracks: Track[], action: BulkTrackAction) => Promise<void>;
   removeFromPlaylist?: (ids: string[]) => Promise<void>;
   collectionNavigation: CollectionNavigation;
   filterColumns?: FilterColumn[];
   compact?: boolean; albumTracks?: boolean; onReorder?: Reorder; empty?: string;
 };
-export function TrackTable({ tracks, player, favorite, edit, actions, playlistMemberships, showPlaylists, addToPlaylist, bulkEdit, selectionAction, removeFromPlaylist, collectionNavigation, filterColumns = [], compact = false, albumTracks = false, onReorder, empty = '没有曲目' }: TrackTableProps) {
+export function TrackTable({ tracks, player, favorite, edit, actions, playlistMemberships, showPlaylists, addToPlaylist, bulkEdit, sync, selectionAction, removeFromPlaylist, collectionNavigation, filterColumns = [], compact = false, albumTracks = false, onReorder, empty = '没有曲目' }: TrackTableProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [selectionAnchor, setSelectionAnchor] = useState<string | null>(null);
   const [selecting, setSelecting] = useState(false);
@@ -149,6 +150,7 @@ export function TrackTable({ tracks, player, favorite, edit, actions, playlistMe
       <div className="selection-buttons">
         <button className="selection-play" disabled={selectionBusy} onClick={() => player.begin(selectedIds)}><Play size={14} fill="currentColor" />播放</button>
         <button disabled={selectionBusy} onClick={() => bulkEdit(selectedTracks)}><Pencil size={14} />批量编辑</button>
+        <button disabled={selectionBusy || selectedTracks.length !== 2} title={selectedTracks.length === 2 ? '同步歌曲信息' : '请选择两首歌曲'} aria-haspopup="dialog" onClick={() => { if (selectedTracks.length === 2) sync([selectedTracks[0], selectedTracks[1]]); }}><ArrowRightLeft size={14} />同步信息</button>
         <button disabled={selectionBusy} onClick={() => addToPlaylist(selectedIds)}><Plus size={15} />加入歌单</button>
         <button disabled={selectionBusy} aria-haspopup="dialog" aria-expanded={selectionMenu} onClick={() => setSelectionMenu(true)}><MoreHorizontal size={17} />更多</button>
       </div>
