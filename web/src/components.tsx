@@ -81,6 +81,7 @@ type TrackTableProps = {
 };
 export function TrackTable({ tracks, player, favorite, edit, actions, playlistMemberships, showPlaylists, addToPlaylist, bulkEdit, selectionAction, removeFromPlaylist, collectionNavigation, filterColumns = [], compact = false, albumTracks = false, onReorder, empty = '没有曲目' }: TrackTableProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [selectionAnchor, setSelectionAnchor] = useState<string | null>(null);
   const [selecting, setSelecting] = useState(false);
   const [selectionMenu, setSelectionMenu] = useState(false);
   const [selectionBusy, setSelectionBusy] = useState(false);
@@ -88,7 +89,23 @@ export function TrackTable({ tracks, player, favorite, edit, actions, playlistMe
   const ids = tracks.map(track => track.id);
   const selectedTracks = tracks.filter(track => selected.has(track.id));
   const selectedIds = selectedTracks.map(track => track.id);
-  function select(id: string) { setSelected(old => { const next = new Set(old); if (next.has(id)) next.delete(id); else next.add(id); return next; }); }
+  function replaceSelection(next: Set<string>) {
+    setSelected(next);
+    setSelectionAnchor(null);
+  }
+  function select(id: string, shiftKey: boolean) {
+    const anchorIndex = selectionAnchor === null ? -1 : ids.indexOf(selectionAnchor);
+    const index = ids.indexOf(id);
+    setSelected(old => {
+      const next = new Set(old);
+      if (shiftKey && anchorIndex >= 0) {
+        ids.slice(Math.min(anchorIndex, index), Math.max(anchorIndex, index) + 1).forEach(trackId => next.add(trackId));
+      } else if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+    setSelectionAnchor(id);
+  }
   async function applySelection(action: BulkTrackAction | 'remove') {
     if (selectionBusy) return;
     if (action === 'trash' && !window.confirm(`将所选 ${selectedTracks.length} 首曲目移入回收站？可在回收站恢复。`)) return;
@@ -102,12 +119,12 @@ export function TrackTable({ tracks, player, favorite, edit, actions, playlistMe
   }
   if (!tracks.length) return <Empty title={empty} />;
   const rows = <>
-    <div className="track-heading"><label className="check-cell"><input type="checkbox" checked={selectedTracks.length === tracks.length} disabled={selectionBusy} aria-label="选择全部曲目" onChange={event => setSelected(event.target.checked ? new Set(ids) : new Set())} /></label><span className="number-cell">#</span><span>曲目</span>{!albumTracks && <span className="album-cell">专辑</span>}<span className="playlist-cell">歌单</span>{filterColumns.map(column => <span className="filter-column-heading" key={column.key}>{column.label}</span>)}<span className="time-cell">时长</span><span className="track-actions" /></div>
+    <div className="track-heading"><label className="check-cell"><input type="checkbox" checked={selectedTracks.length === tracks.length} disabled={selectionBusy} aria-label="选择全部曲目" onChange={event => replaceSelection(event.target.checked ? new Set(ids) : new Set())} /></label><span className="number-cell">#</span><span>曲目</span>{!albumTracks && <span className="album-cell">专辑</span>}<span className="playlist-cell">歌单</span>{filterColumns.map(column => <span className="filter-column-heading" key={column.key}>{column.label}</span>)}<span className="time-cell">时长</span><span className="track-actions" /></div>
     {tracks.map((track, index) => {
       const current = player.trackId === track.id;
       const pausable = current && player.playRequested;
       return <div key={track.id} {...reorder.rowProps(index)} className={`track-row ${current ? 'current' : ''} ${selected.has(track.id) ? 'selected' : ''} ${reorder.rowProps(index).className}`}>
-      <label className="check-cell"><input type="checkbox" checked={selected.has(track.id)} disabled={selectionBusy} aria-label={`选择 ${track.title}`} onChange={() => select(track.id)} /></label>
+      <label className="check-cell" onMouseDown={event => { if (event.shiftKey) event.preventDefault(); }}><input type="checkbox" checked={selected.has(track.id)} disabled={selectionBusy} aria-label={`选择 ${track.title}`} onChange={event => select(track.id, (event.nativeEvent as MouseEvent).shiftKey)} /></label>
       {onReorder ? <span className="number-cell reorder-grip" {...reorder.handleProps(index)}>{reorder.saving === index ? <LoaderCircle size={15} className="spin" /> : <GripVertical size={16} />}</span> : <button className="number-cell row-play" onClick={() => {
         if (!current) player.begin(ids, index);
         else if (pausable) player.pause();
@@ -126,7 +143,7 @@ export function TrackTable({ tracks, player, favorite, edit, actions, playlistMe
     })}
   </>;
   return <div ref={reorder.root} {...reorder.listProps} className={`track-list ${onReorder ? 'reorderable' : ''} ${compact ? 'compact' : ''} ${albumTracks ? 'album-tracks' : ''} ${selecting ? 'selecting' : ''} ${filterColumns.length ? 'filtering' : ''} ${reorder.listProps.className}`} style={filterColumns.length ? { '--filter-column-count': filterColumns.length } as CSSProperties : undefined}>
-    <div className="mobile-selection-control"><button className="text-button" disabled={selectionBusy} onClick={() => { setSelecting(old => !old); if (selecting) setSelected(new Set()); }}>{selecting ? '完成' : '选择'}</button></div>
+    <div className="mobile-selection-control"><button className="text-button" disabled={selectionBusy} onClick={() => { setSelecting(old => !old); if (selecting) replaceSelection(new Set()); }}>{selecting ? '完成' : '选择'}</button></div>
     {selectedTracks.length > 0 && <div className="selection-bar" role="toolbar" aria-label="所选曲目操作" aria-busy={selectionBusy}>
       <span className="selection-count" role="status">{selectionBusy && <LoaderCircle size={14} className="spin" />}{selectedTracks.length} 首已选{selectionBusy && ' · 处理中'}</span>
       <div className="selection-buttons">
@@ -135,15 +152,15 @@ export function TrackTable({ tracks, player, favorite, edit, actions, playlistMe
         <button disabled={selectionBusy} onClick={() => addToPlaylist(selectedIds)}><Plus size={15} />加入歌单</button>
         <button disabled={selectionBusy} aria-haspopup="dialog" aria-expanded={selectionMenu} onClick={() => setSelectionMenu(true)}><MoreHorizontal size={17} />更多</button>
       </div>
-      <button className="icon-button selection-cancel" disabled={selectionBusy} aria-label="取消选择" onClick={() => { setSelected(new Set()); setSelectionMenu(false); }}><X size={16} /></button>
+      <button className="icon-button selection-cancel" disabled={selectionBusy} aria-label="取消选择" onClick={() => { replaceSelection(new Set()); setSelectionMenu(false); }}><X size={16} /></button>
     </div>}
     {selectionMenu && selectedTracks.length > 0 && <Modal title={`${selectedTracks.length} 首已选 · 更多操作`} onClose={() => setSelectionMenu(false)}><div className="modal-body track-action-menu">
       <button onClick={() => { player.enqueue(selectedIds, true); setSelectionMenu(false); }}><Play size={18} />接下来播放</button>
       <button onClick={() => { player.enqueue(selectedIds); setSelectionMenu(false); }}><ListMusic size={18} />加入播放队列</button>
       <button disabled={selectedTracks.every(track => track.favorite)} onClick={() => { void applySelection('favorite'); }}><Heart size={18} />收藏所选</button>
       <button disabled={selectedTracks.every(track => !track.favorite)} onClick={() => { void applySelection('unfavorite'); }}><Heart size={18} fill="currentColor" />取消收藏</button>
-      <button disabled={selectedTracks.length === tracks.length} onClick={() => { setSelected(new Set(ids)); setSelectionMenu(false); }}><Check size={18} />全选当前列表</button>
-      <button onClick={() => { setSelected(new Set(ids.filter(id => !selected.has(id)))); setSelectionMenu(false); }}><Check size={18} />反选当前列表</button>
+      <button disabled={selectedTracks.length === tracks.length} onClick={() => { replaceSelection(new Set(ids)); setSelectionMenu(false); }}><Check size={18} />全选当前列表</button>
+      <button onClick={() => { replaceSelection(new Set(ids.filter(id => !selected.has(id)))); setSelectionMenu(false); }}><Check size={18} />反选当前列表</button>
       {removeFromPlaylist && <button onClick={() => { void applySelection('remove'); }}><X size={18} />从歌单移除</button>}
       <button className="danger" onClick={() => { void applySelection('trash'); }}><Trash2 size={18} />移入回收站</button>
     </div></Modal>}
