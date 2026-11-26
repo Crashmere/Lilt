@@ -1,4 +1,4 @@
-import { useLayoutEffect, useState, type CSSProperties, type ReactNode, type SyntheticEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type SyntheticEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowRightLeft, Check, Disc3, GripVertical, Heart, ListMusic, LoaderCircle, MoreHorizontal, Music2, Pause, Pencil, Play, Plus, Settings2, Trash2, X } from 'lucide-react';
 import type { Player } from './player';
@@ -6,7 +6,7 @@ import type { PlaylistMemberships } from './playlist-memberships';
 import { PLAYLIST_KINDS, PLAYLIST_LABELS } from './playlist-kinds';
 import type { FilterColumn } from './library-filters';
 import type { Album, Playlist, Track } from './types';
-import { AlbumLink, TrackCredits, type CollectionNavigation } from './track-links';
+import { AlbumLink, hasTrackCredits, TrackCredits, type CollectionNavigation } from './track-links';
 import { duration } from './utils';
 import { useReorder, type Reorder } from './reorder';
 
@@ -19,6 +19,27 @@ export function Artwork({ url, title, className = '', size = 160 }: { url?: stri
 }
 
 export function Modal({ title, children, onClose, wide = false, className = '', isolate = false }: { title: string; children: ReactNode; onClose: () => void; wide?: boolean; className?: string; isolate?: boolean }) {
+  const backdropRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  useLayoutEffect(() => { onCloseRef.current = onClose; });
+  useEffect(() => {
+    if (isolate) return;
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+      const all = Array.from(document.querySelectorAll<HTMLElement>('.modal-backdrop'));
+      let top: HTMLElement | undefined;
+      let topZ = -Infinity;
+      for (const element of all) {
+        const z = Number(getComputedStyle(element).zIndex) || 0;
+        if (z >= topZ) { top = element; topZ = z; }
+      }
+      if (top !== backdropRef.current) return;
+      event.preventDefault();
+      onCloseRef.current();
+    };
+    document.addEventListener('keydown', escape);
+    return () => document.removeEventListener('keydown', escape);
+  }, [isolate]);
   useLayoutEffect(() => {
     if (!isolate) return;
     const root = document.getElementById('root');
@@ -29,7 +50,7 @@ export function Modal({ title, children, onClose, wide = false, className = '', 
   }, [isolate]);
   // Portal events still bubble through the underlying React page.
   const stop = isolate ? (event: SyntheticEvent) => event.stopPropagation() : undefined;
-  return createPortal(<div className={`modal-backdrop${isolate ? ' modal-backdrop-isolated' : ''}`} onClick={stop} onWheel={stop} onTouchStart={stop} onTouchMove={stop} onTouchEnd={stop} onTouchCancel={stop} onPointerDown={stop} onPointerMove={stop} onPointerUp={stop} onPointerCancel={stop} onMouseDown={event => { stop?.(event); if (event.target === event.currentTarget) onClose(); }}>
+  return createPortal(<div ref={backdropRef} className={`modal-backdrop${isolate ? ' modal-backdrop-isolated' : ''}`} onClick={stop} onWheel={stop} onTouchStart={stop} onTouchMove={stop} onTouchEnd={stop} onTouchCancel={stop} onPointerDown={stop} onPointerMove={stop} onPointerUp={stop} onPointerCancel={stop} onMouseDown={event => { stop?.(event); if (event.target === event.currentTarget) onClose(); }}>
     <section className={`modal ${wide ? 'modal-wide' : ''} ${className}`} role="dialog" aria-modal="true" aria-label={title}>
       <header className="modal-header"><h2>{title}</h2><button className="icon-button" aria-label="关闭" onClick={onClose}><X size={21} /></button></header>
       {children}
@@ -53,7 +74,7 @@ export function PlaylistCards({ playlists, onOpen, empty = '还没有歌单，�
   if (!groups.length) return <Empty title={empty} />;
   return <div className="playlist-groups">{groups.map(({ kind, items }) => <section className="playlist-section" key={kind} aria-labelledby={`playlist-kind-${kind}`}>
     <div className="section-heading"><h2 id={`playlist-kind-${kind}`}>{PLAYLIST_LABELS[kind]}</h2><span className="muted">{items.length} 个歌单</span></div>
-    <div className="playlist-grid">{items.map(playlist => <button key={playlist.id} className="playlist-card" onClick={() => onOpen(playlist)}><Artwork url={playlist.coverUrl} title={playlist.name} /><div><h3>{playlist.name}</h3><p>{playlist.trackIds.length} 首{playlist.description ? ` · ${playlist.description}` : ''}</p></div></button>)}</div>
+    <div className="playlist-grid">{items.map(playlist => <button key={playlist.id} className="playlist-card" onClick={() => onOpen(playlist)}><Artwork url={playlist.coverUrl} title={playlist.name} /><div className="playlist-card-meta"><h3>{playlist.name}</h3><span className="playlist-card-count">{playlist.trackIds.length} 首</span>{playlist.description && <p className="playlist-card-desc">{playlist.description}</p>}</div></button>)}</div>
   </section>)}</div>;
 }
 
@@ -79,8 +100,9 @@ type TrackTableProps = {
   collectionNavigation: CollectionNavigation;
   filterColumns?: FilterColumn[];
   compact?: boolean; albumTracks?: boolean; onReorder?: Reorder; empty?: string;
+  hideArtist?: string; hideAlbum?: boolean; excludePlaylistId?: string;
 };
-export function TrackTable({ tracks, player, favorite, edit, actions, playlistMemberships, showPlaylists, addToPlaylist, bulkEdit, sync, selectionAction, removeFromPlaylist, collectionNavigation, filterColumns = [], compact = false, albumTracks = false, onReorder, empty = '没有曲目' }: TrackTableProps) {
+export function TrackTable({ tracks, player, favorite, edit, actions, playlistMemberships, showPlaylists, addToPlaylist, bulkEdit, sync, selectionAction, removeFromPlaylist, collectionNavigation, filterColumns = [], compact = false, albumTracks = false, onReorder, empty = '没有曲目', hideArtist, hideAlbum, excludePlaylistId }: TrackTableProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [selectionAnchor, setSelectionAnchor] = useState<string | null>(null);
   const [selecting, setSelecting] = useState(false);
@@ -131,9 +153,9 @@ export function TrackTable({ tracks, player, favorite, edit, actions, playlistMe
         else if (pausable) player.pause();
         else player.play();
       }} aria-label={`${pausable ? '暂停' : '播放'} ${track.title}`}>{pausable ? <><span className="playing-bars"><i /><i /><i /></span><Pause size={15} fill="currentColor" /></> : <><span>{albumTracks ? track.trackNumber || index + 1 : index + 1}</span><Play size={15} fill="currentColor" /></>}</button>}
-      <div className="track-name">{!albumTracks && <Artwork url={track.coverUrl} />}<div><button onClick={() => player.begin(ids, index)}>{track.title || track.originalName}</button><p><TrackCredits track={track} navigation={collectionNavigation} albumClassName={albumTracks ? undefined : 'inline-album'} />{track.version && <span className="version">{track.version}</span>}</p></div></div>
+      <div className="track-name">{!albumTracks && <Artwork url={track.coverUrl} />}<div><button onClick={() => player.begin(ids, index)}>{track.title || track.originalName}</button>{(hasTrackCredits(track, hideArtist, hideAlbum) || !!track.version) && <p><TrackCredits track={track} navigation={collectionNavigation} albumClassName={albumTracks ? undefined : 'inline-album'} hideArtist={hideArtist} hideAlbum={hideAlbum} />{track.version && <span className="version">{track.version}</span>}</p>}</div></div>
       {!albumTracks && <div className="album-cell"><span><AlbumLink track={track} navigation={collectionNavigation} /></span>{track.tags?.length > 0 && <small>{track.tags.slice(0, 2).join(' · ')}</small>}</div>}
-      <div className="playlist-cell" aria-label="歌单"><TrackPlaylists playlists={playlistMemberships.get(track.id)} onOpen={() => showPlaylists(track)} /></div>
+      <div className="playlist-cell" aria-label="歌单"><TrackPlaylists playlists={excludePlaylistId ? (playlistMemberships.get(track.id) || []).filter(item => item.id !== excludePlaylistId) : playlistMemberships.get(track.id)} onOpen={() => showPlaylists(track)} /></div>
       {filterColumns.map(column => {
         const value = column.value(track, playlistMemberships.get(track.id)?.length || 0);
         return <span className="filter-column-value" key={column.key} data-filter={column.key} title={value}>{value}</span>;

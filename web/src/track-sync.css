@@ -1,5 +1,4 @@
-.modal-backdrop:has(.track-sync-modal){padding-bottom:calc(var(--player-height) + 22px)}
-.modal.track-sync-modal{width:760px;max-height:min(820px,calc(100dvh - var(--player-height) - 48px));display:flex;flex-direction:column;overflow:hidden}
+.modal.track-sync-modal{width:760px;max-height:min(820px,90dvh);display:flex;flex-direction:column;overflow:hidden}
 .track-sync-modal>.modal-header{position:static;flex:none}
 .track-sync-modal>form{display:flex;flex-direction:column;min-height:0}
 .track-sync-body{overflow-y:auto;min-height:0}
@@ -35,8 +34,7 @@
 .track-sync-error .text-button{display:flex;align-items:center;gap:6px;font-size:12px;margin-top:8px}
 .track-sync-modal .modal-footer{position:static;flex:none;gap:12px}
 @media(max-width:740px){
-  .modal-backdrop:has(.track-sync-modal){padding:12px 12px calc(var(--player-height) + 12px)}
-  .modal.track-sync-modal{max-height:calc(100dvh - var(--player-height) - 24px)}
+  .modal.track-sync-modal{max-height:91dvh}
   .track-sync-direction{gap:32px;margin-bottom:18px}
   .track-sync-card{padding:11px}.track-sync-card>div{flex-direction:column;align-items:flex-start;gap:8px}
   .track-sync-card>div>div:last-child{width:100%}

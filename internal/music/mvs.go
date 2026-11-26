@@ -208,7 +208,7 @@ func (s *Store) CompleteMVUpload(ctx context.Context, id string) (MV, bool, erro
 		return MV{}, false, err
 	}
 	// Decode an initial frame before publishing; this also supplies the poster.
-	if err = s.mvPoster(ctx, source, mv.ID, video.Index); err != nil {
+	if err = s.mvPoster(ctx, source, mv.ID, video.Index, mv.Duration); err != nil {
 		log.Printf("MV frame validation failed: %v", err)
 		return MV{}, false, fmt.Errorf("视频画面无法解码，请检查文件内容：%w", ErrInvalid)
 	}
@@ -249,7 +249,7 @@ func (s *Store) CompleteMVUpload(ctx context.Context, id string) (MV, bool, erro
 	return mv, false, nil
 }
 
-func (s *Store) mvPoster(ctx context.Context, source, id string, index int) error {
+func (s *Store) mvPoster(ctx context.Context, source, id string, index int, duration float64) error {
 	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
 	file, err := os.CreateTemp(filepath.Join(s.dir, "covers"), ".mv-poster-*.jpg")
@@ -259,26 +259,39 @@ func (s *Store) mvPoster(ctx context.Context, source, id string, index int) erro
 	name := file.Name()
 	file.Close()
 	defer os.Remove(name)
-	for _, gpu := range []bool{true, false} {
-		args := []string{"-nostdin", "-v", "error", "-xerror", "-threads", "1", "-filter_threads", "1", "-protocol_whitelist", "file,pipe", "-format_whitelist", allowedFormats}
-		if gpu {
-			args = append(args, "-hwaccel", "cuda")
+	// Prefer a frame after the opening fade; fall back to the first decoded frame.
+	offsets := []float64{0}
+	if duration > 6 {
+		offsets = []float64{math.Min(duration*0.15, 12), 0}
+	}
+	err = errors.New("no poster frame")
+	for _, offset := range offsets {
+		for _, gpu := range []bool{true, false} {
+			args := []string{"-nostdin", "-v", "error", "-xerror", "-threads", "1", "-filter_threads", "1", "-protocol_whitelist", "file,pipe", "-format_whitelist", allowedFormats}
+			if gpu {
+				args = append(args, "-hwaccel", "cuda")
+			}
+			if offset > 0 {
+				args = append(args, "-ss", fmt.Sprintf("%.3f", offset))
+			}
+			args = append(args, "-i", source, "-map", fmt.Sprintf("0:%d", index), "-an", "-sn", "-dn", "-frames:v", "1", "-vf", "scale=w='min(960,iw)':h='min(540,ih)':force_original_aspect_ratio=decrease", "-c:v", "mjpeg", "-q:v", "3", "-threads", "1", "-y", name)
+			if _, err = runMedia(ctx, "ffmpeg", args...); err != nil {
+				continue
+			}
+			var frame *os.File
+			if frame, err = os.Open(name); err != nil {
+				continue
+			}
+			_, err = jpeg.Decode(frame)
+			frame.Close()
+			if err == nil {
+				break
+			}
 		}
-		args = append(args, "-i", source, "-map", fmt.Sprintf("0:%d", index), "-an", "-sn", "-dn", "-frames:v", "1", "-vf", "scale=w='min(960,iw)':h='min(540,ih)':force_original_aspect_ratio=decrease", "-c:v", "mjpeg", "-q:v", "3", "-threads", "1", "-y", name)
-		_, err = runMedia(ctx, "ffmpeg", args...)
 		if err == nil {
 			break
 		}
 	}
-	if err != nil {
-		return err
-	}
-	image, err := os.Open(name)
-	if err != nil {
-		return err
-	}
-	_, err = jpeg.Decode(image)
-	image.Close()
 	if err != nil {
 		return err
 	}

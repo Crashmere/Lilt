@@ -38,7 +38,7 @@
 .mv-player-error p { margin-bottom: 12px; }
 .mv-player-error .button { margin: 0 4px; }
 .mv-trash-heading { margin: 28px 0 16px; }
-.modal-backdrop:has(.mv-audio-extractor) { z-index: 110; }
+.modal-backdrop:has(.mv-audio-extractor) { z-index: 230; }
 .mv-audio-source { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
 .mv-audio-source .artwork { width: 112px; flex-shrink: 0; aspect-ratio: 16 / 9; }
 .mv-audio-source > div { min-width: 0; overflow-wrap: anywhere; }
@@ -56,3 +56,6 @@
   .mv-player-footer { padding: 12px; gap: 10px; font-size: 11px; }
 }
 @media (prefers-reduced-motion: reduce) { .mv-controls, .mv-card-play { transition: none; } }
+
+.mv-tools-right { display: flex; align-items: center; gap: 12px; margin-left: auto; font-size: 12px; }
+.mv-tools-right > select { font-size: 11px; background: transparent; border: 0; }

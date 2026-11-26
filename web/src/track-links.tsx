@@ -30,6 +30,21 @@ export function AlbumLink({ track, navigation }: { track: Track; navigation: Col
   return <CollectionLink kind="album" id={navigation.albumIds.get(track.id)} label={`查看专辑 ${title}`} navigation={navigation}>{title}</CollectionLink>;
 }
 
-export function TrackCredits({ track, navigation, albumClassName }: { track: Track; navigation: CollectionNavigation; albumClassName?: string }) {
+function omitsArtist(track: Track, hideArtist?: string): boolean {
+  if (!hideArtist) return false;
+  const names = track.artist.split('/').map(name => name.trim()).filter(Boolean);
+  return names.length === 1 && names[0] === hideArtist;
+}
+
+export function hasTrackCredits(track: Track, hideArtist?: string, hideAlbum?: boolean): boolean {
+  return !omitsArtist(track, hideArtist) || !hideAlbum;
+}
+
+export function TrackCredits({ track, navigation, albumClassName, hideArtist, hideAlbum }: { track: Track; navigation: CollectionNavigation; albumClassName?: string; hideArtist?: string; hideAlbum?: boolean }) {
+  const showArtist = !omitsArtist(track, hideArtist);
+  const showAlbum = !hideAlbum;
+  if (!showArtist && !showAlbum) return null;
+  if (showArtist && !showAlbum) return <ArtistLinks credit={track.artist} navigation={navigation} />;
+  if (!showArtist) return <span className={albumClassName}><AlbumLink track={track} navigation={navigation} /></span>;
   return <><ArtistLinks credit={track.artist} navigation={navigation} /><span className={albumClassName}> · <AlbumLink track={track} navigation={navigation} /></span></>;
 }

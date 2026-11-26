@@ -1,7 +1,7 @@
 import { useEffect, useEffectEvent, useRef, useState, type CSSProperties } from 'react';
 import { Download, Heart, LoaderCircle, Maximize, Music2, Pause, Pencil, PictureInPicture2, Play, RotateCcw, SkipBack, SkipForward, Trash2, Video, Volume2, VolumeX } from 'lucide-react';
 import { API, json, messageOf, request } from './api';
-import { Artwork, Empty, Modal } from './components';
+import { Artwork, Empty, Modal, Pill } from './components';
 import type { MV, Track } from './types';
 import { bytes, duration, identity, readLocal, writeLocal } from './utils';
 import './mvs.css';
@@ -18,8 +18,12 @@ export function MVLibrary({ mvs, query, onPlay, onEdit, onExtract, onFavorite, o
   onFavorite: (mv: MV) => void; onTrash: (mv: MV) => void; onUpload: () => void;
 }) {
   const [favorites, setFavorites] = useState(false);
-  const visible = mvs.filter(mv => (!favorites || mv.favorite) && `${mv.title} ${mv.artist} ${mv.originalName}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
-  return <><div className="library-tools"><button className={`button secondary ${favorites ? 'accent' : ''}`} onClick={() => setFavorites(old => !old)}><Heart size={16} fill={favorites ? 'currentColor' : 'none'} />{favorites ? '仅收藏' : '全部 MV'}</button><span className="muted">{visible.length} 个 · {bytes(visible.reduce((sum, mv) => sum + mv.size, 0))}</span></div>
+  const [sort, setSort] = useState<'added' | 'duration' | 'title' | 'size'>('added');
+  const needle = query.trim().toLocaleLowerCase();
+  const queryMatched = mvs.filter(mv => `${mv.title} ${mv.artist} ${mv.originalName}`.toLocaleLowerCase().includes(needle));
+  const favCount = queryMatched.filter(mv => mv.favorite).length;
+  const visible = queryMatched.filter(mv => !favorites || mv.favorite).sort((a, b) => sort === 'duration' ? b.duration - a.duration : sort === 'size' ? b.size - a.size : sort === 'title' ? a.title.localeCompare(b.title, 'zh-CN') : new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime());
+  return <><div className="library-tools"><div className="tag-filters"><Pill active={!favorites} onClick={() => setFavorites(false)}>全部 MV ({queryMatched.length})</Pill><Pill active={favorites} onClick={() => setFavorites(true)}>已收藏 ({favCount})</Pill></div><div className="mv-tools-right"><span className="muted">{visible.length} 个 · {bytes(visible.reduce((sum, mv) => sum + mv.size, 0))}</span><select aria-label="MV 排序" value={sort} onChange={event => setSort(event.target.value as typeof sort)}><option value="added">最近加入</option><option value="duration">时长</option><option value="title">名称</option><option value="size">文件大小</option></select></div></div>
     {visible.length ? <div className="mv-grid">{visible.map(mv => <article className="mv-card" key={mv.id}>
       <button className="mv-poster" onClick={() => onPlay(mv)} aria-label={`播放 MV ${mv.title}`}><Artwork url={mv.coverUrl} title={mv.title} /><span className="mv-card-play"><Play size={25} fill="currentColor" /></span><small>{duration(mv.duration)}</small></button>
       <div className="mv-card-title"><button onClick={() => onPlay(mv)} title={mv.title}>{mv.title}</button><button className={`icon-button ${mv.favorite ? 'accent' : ''}`} aria-label={mv.favorite ? '取消收藏 MV' : '收藏 MV'} onClick={() => onFavorite(mv)}><Heart size={16} fill={mv.favorite ? 'currentColor' : 'none'} /></button></div>
