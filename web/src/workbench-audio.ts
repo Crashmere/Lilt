@@ -5,7 +5,34 @@ import type { Track } from './types';
 const FILE_LIMIT = 128 * 1024 * 1024;
 const PCM_LIMIT = 96 * 1024 * 1024;
 const SAMPLE_RATE = 12000;
+const PEAK_CACHE_LIMIT = 12;
+const peakCache = new Map<string, number[]>();
 type AudioState = { phase: 'loading' | 'ready' | 'fallback' | 'error'; progress: number; wave: 'pending' | 'ready' | 'fallback'; peaks?: number[]; message?: string };
+
+function peakKey(track: Track): string {
+  return track.audioVersion ? `${track.id}:${track.audioVersion}` : '';
+}
+
+function readCachedPeaks(track: Track): number[] | undefined {
+  const key = peakKey(track);
+  if (!key) return undefined;
+  const hit = peakCache.get(key);
+  if (!hit) return undefined;
+  peakCache.delete(key);
+  peakCache.set(key, hit);
+  return hit;
+}
+
+export function cacheWaveformPeaks(track: Track, peaks: number[]): void {
+  const key = peakKey(track);
+  if (!key || !peaks.length) return;
+  peakCache.delete(key);
+  peakCache.set(key, peaks);
+  while (peakCache.size > PEAK_CACHE_LIMIT) {
+    const oldest = peakCache.keys().next().value;
+    if (oldest !== undefined) peakCache.delete(oldest);
+  }
+}
 
 function editorReady(worker: ServiceWorker, url: string, signal: AbortSignal): Promise<boolean> {
   return new Promise(resolve => {
@@ -20,19 +47,23 @@ function editorReady(worker: ServiceWorker, url: string, signal: AbortSignal): P
 }
 
 export function useWorkbenchAudio(track: Track, onSource: (track: Track, url?: string) => void) {
-  const [state, setState] = useState<AudioState>({ phase: 'loading', progress: 0, wave: 'pending' });
+  const [state, setState] = useState<AudioState>(() => {
+    const cached = readCachedPeaks(track);
+    return { phase: 'loading', progress: 0, wave: cached ? 'ready' : 'pending', peaks: cached };
+  });
   const [retry, setRetry] = useState(0);
   const publish = useEffectEvent(onSource);
   useEffect(() => {
     const abort = new AbortController();
     let source: string | undefined, peaksWorker: Worker | undefined, worker: ServiceWorker | undefined;
     let heartbeat: ReturnType<typeof setInterval> | undefined, idle: ReturnType<typeof setTimeout> | undefined;
+    const cachedPeaks = readCachedPeaks(track);
     const pulse = () => worker?.postMessage({ type: 'lilt-audio-editor', url: streamURL(track, true) });
     const resetIdle = () => { clearTimeout(idle); idle = setTimeout(() => abort.abort(new DOMException('Audio download stalled', 'TimeoutError')), 45000); };
-    setState({ phase: 'loading', progress: 0, wave: 'pending' });
+    setState({ phase: 'loading', progress: 0, wave: cachedPeaks ? 'ready' : 'pending', peaks: cachedPeaks });
     async function load() {
       if (!track.audioVersion || track.size > FILE_LIMIT) {
-        setState({ phase: 'fallback', progress: 0, wave: 'fallback', message: '大文件使用流式试听' });
+        setState({ phase: 'fallback', progress: 0, wave: cachedPeaks ? 'ready' : 'fallback', peaks: cachedPeaks, message: '大文件使用流式试听' });
         return;
       }
       try {
@@ -48,8 +79,8 @@ export function useWorkbenchAudio(track: Track, onSource: (track: Track, url?: s
         const response = await fetch(streamURL(track, !!shared), { credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: abort.signal });
         if (!response.ok || !response.body) { await response.body?.cancel(); throw new Error(response.status === 401 ? '设备授权已失效，请重新打开服务' : '预加载失败，可继续流式试听'); }
         const size = Number(response.headers.get('Content-Length'));
-        if (response.headers.get('ETag') !== `"${track.audioVersion}-original"`) { await response.body.cancel(); throw new Error('音频已变更，请重新打开工作台'); }
-        if (!size || size > FILE_LIMIT) { await response.body.cancel(); throw new Error('音频过大，请使用流式试听'); }
+        if (response.headers.get('ETag') !== `"${track.audioVersion}-original"`) { await response.body?.cancel(); throw new Error('音频已变更，请重新打开工作台'); }
+        if (!size || size > FILE_LIMIT) { await response.body?.cancel(); throw new Error('音频过大，请使用流式试听'); }
         const reader = response.body.getReader(), chunks: Uint8Array<ArrayBuffer>[] = [];
         let received = 0, reported = 0;
         try {
@@ -59,7 +90,10 @@ export function useWorkbenchAudio(track: Track, onSource: (track: Track, url?: s
             received += value.byteLength;
             if (received > size) throw new Error('音频长度已变更，请重新打开工作台');
             chunks.push(value); resetIdle();
-            if (Date.now() - reported >= 200) { setState({ phase: 'loading', progress: received / size, wave: 'pending' }); reported = Date.now(); }
+            if (Date.now() - reported >= 180) {
+              setState(old => ({ ...old, phase: 'loading', progress: received / size }));
+              reported = Date.now();
+            }
           }
         } finally { await reader.cancel().catch(() => undefined); reader.releaseLock(); }
         clearTimeout(idle);
@@ -68,6 +102,10 @@ export function useWorkbenchAudio(track: Track, onSource: (track: Track, url?: s
         const blob = new Blob(chunks, { type: response.headers.get('Content-Type') || track.mimeType });
         chunks.length = 0;
         source = URL.createObjectURL(blob); publish(track, source);
+        if (cachedPeaks) {
+          setState({ phase: 'ready', progress: 1, wave: 'ready', peaks: cachedPeaks });
+          return;
+        }
         setState({ phase: 'ready', progress: 1, wave: 'pending' });
         try {
           if (track.duration * SAMPLE_RATE * Math.max(1, track.channels) * 4 > PCM_LIMIT) throw new Error('Audio exceeds waveform decode budget');
@@ -84,12 +122,13 @@ export function useWorkbenchAudio(track: Track, onSource: (track: Track, url?: s
             peaksWorker!.onerror = () => { abort.signal.removeEventListener('abort', cancel); reject(new Error('Waveform calculation failed')); };
             peaksWorker!.postMessage({ channels }, channels.map(channel => channel.buffer));
           });
+          cacheWaveformPeaks(track, peaks);
           if (!abort.signal.aborted) setState({ phase: 'ready', progress: 1, wave: 'ready', peaks });
         } catch { if (!abort.signal.aborted) setState({ phase: 'ready', progress: 1, wave: 'fallback' }); }
         finally { peaksWorker?.terminate(); }
       } catch (error) {
         if (abort.signal.aborted && abort.signal.reason?.name !== 'TimeoutError') return;
-        setState({ phase: 'error', progress: 0, wave: 'fallback', message: error instanceof Error && !(error instanceof TypeError) && !(error instanceof DOMException) ? error.message : '预加载中断，请重试或继续流式试听' });
+        setState(old => ({ ...old, phase: 'error', progress: 0, wave: old.peaks ? 'ready' : 'fallback', message: error instanceof Error && !(error instanceof TypeError) && !(error instanceof DOMException) ? error.message : '预加载中断，请重试或继续流式试听' }));
       } finally { clearTimeout(idle); }
     }
     void load();

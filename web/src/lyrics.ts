@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useLayoutEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { messageOf, read } from './api';
 import type { Track } from './types';
 import type { LyricLine } from './utils';
@@ -10,15 +10,16 @@ export function useActiveLyric(lines: LyricLine[], position: number, getPosition
     return index;
   }
   const [current, setCurrent] = useState(() => at(position));
-  const synchronize = useEffectEvent(() => { setCurrent(at(getPosition())); });
+  const synchronize = useRef<() => void>(() => undefined);
+  synchronize.current = () => { setCurrent(at(getPosition())); };
   const timed = lines.length > 0;
 
-  useLayoutEffect(() => { synchronize(); }, [lines, position]);
+  useLayoutEffect(() => { synchronize.current(); }, [lines, position]);
   useEffect(() => {
     let frame = 0;
     const sample = () => {
       frame = 0;
-      synchronize();
+      synchronize.current();
       // Read the media clock, never elapsed wall time: buffering and suspension must not advance lyrics.
       if (timed && playing && document.visibilityState === 'visible') frame = requestAnimationFrame(sample);
     };
@@ -49,6 +50,10 @@ function remember(content: LyricsContent): void {
     const first = cached.values().next().value!;
     cached.delete(first.trackId); cachedBytes -= first.text.length * 2;
   }
+}
+
+export function peekCachedLyrics(track: Track | undefined): string | undefined {
+  return knownText(track);
 }
 
 function knownText(track: Track | undefined): string | undefined {
