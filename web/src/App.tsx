@@ -9,6 +9,7 @@ import { activeFilterColumns, EMPTY_FILTERS, matchesFilters, type LibraryFilters
 import { BulkEditor, LyricsPanel, PlayerBar, PlaylistEditor, QueuePanel, TrackEditor, UploadModal } from './panels';
 import { usePlayer } from './player';
 import { LyricsWorkbench } from './lyrics-workbench';
+import { writeInstrumentalLyrics } from './instrumental-lyrics';
 import { TrackSyncModal, type TrackPair } from './track-sync-modal';
 import { MVAudioExtractor, MVEditor, MVLibrary, MVPlayer } from './mvs';
 import type { Reorder } from './reorder';
@@ -168,18 +169,11 @@ export default function App() {
   async function openEditor(track: Track) { await run(async () => { const result = await request<{ track: Track }>(`/tracks/${encodeURIComponent(track.id)}`); setEditing(result.track); setTrackActions(undefined); }); }
   function openLyricsEditor(track: Track) { setLyricsEditing(track); setTrackActions(undefined); }
   async function addInstrumentalLyrics(track: Track) {
-    const path = `/tracks/${encodeURIComponent(track.id)}`;
     try {
-      const { track: current } = await request<{ track: Track }>(path);
-      if (current.lyricsText?.trim()) throw new Error('此曲目已有歌词，请查看最新内容。');
-      const result = await json<{ track: Track }>(path, 'PATCH', {
-        lyricsText: '[00:00.000]纯音乐，请欣赏', expectedLyricsVersion: current.lyricsVersion, expectedAudioVersion: current.audioVersion,
-      });
-      setLibrary(old => ({ ...old, tracks: old.tracks.map(item => item.id === track.id ? result.track : item) }));
+      const updated = await writeInstrumentalLyrics(track.id);
+      if (!updated) throw new Error('此曲目已有歌词，请查看最新内容。');
+      setLibrary(old => ({ ...old, tracks: old.tracks.map(item => item.id === track.id ? updated : item) }));
       notify('纯音乐歌词已写回歌曲文件');
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 409) throw new Error('歌词或音频已更新，请查看最新内容后重试。');
-      throw error;
     } finally { void refresh(); }
   }
   async function adjustLyrics(track: Track, seconds: number) {
@@ -218,22 +212,32 @@ export default function App() {
     });
   }
   async function bulkTrackAction(tracks: Track[], action: BulkTrackAction) {
-    const targets = tracks.filter(track => action === 'trash' || track.favorite !== (action === 'favorite'));
+    const targets = tracks.filter(track => action === 'trash' || action === 'instrumental' || track.favorite !== (action === 'favorite'));
     const updated = new Map<string, Track>();
     const deleted: string[] = [];
+    let skipped = 0;
     let failure = '';
     for (const track of targets) {
       try {
         const path = `/tracks/${encodeURIComponent(track.id)}`;
         if (action === 'trash') { await request(path, { method: 'DELETE' }); deleted.push(track.id); }
+        else if (action === 'instrumental') {
+          const result = await writeInstrumentalLyrics(track.id);
+          if (result) updated.set(track.id, result);
+          else skipped++;
+        }
         else { const result = await json<{ track: Track }>(path, 'PATCH', { favorite: action === 'favorite' }); updated.set(track.id, result.track); }
-      } catch (error) { failure = messageOf(error); break; }
+      } catch (error) { failure = `${track.title}：${messageOf(error)}`; break; }
     }
     if (deleted.length) playerRef.current.removeTracks(deleted);
     const removed = new Set(deleted);
     setLibrary(old => ({ ...old, tracks: old.tracks.filter(track => !removed.has(track.id)).map(track => updated.get(track.id) || track) }));
     await refresh();
     const count = deleted.length + updated.size;
+    if (action === 'instrumental') {
+      notify(`已设为纯音乐 ${count} 首${skipped ? `，跳过已有歌词 ${skipped} 首` : ''}${failure ? `，${failure}` : ''}`);
+      return;
+    }
     const label = action === 'trash' ? '移入回收站' : action === 'favorite' ? '收藏' : '取消收藏';
     notify(failure ? `已${label} ${count}/${targets.length} 首，${failure}` : `已${label} ${count} 首`);
   }

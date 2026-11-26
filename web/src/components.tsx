@@ -87,7 +87,7 @@ export function TrackPlaylists({ playlists = [], onOpen }: { playlists?: Playlis
   </button>;
 }
 
-export type BulkTrackAction = 'favorite' | 'unfavorite' | 'trash';
+export type BulkTrackAction = 'favorite' | 'unfavorite' | 'instrumental' | 'trash';
 
 type TrackTableProps = {
   tracks: Track[]; player: Player; favorite: (track: Track) => void; edit: (track: Track) => void; actions: (track: Track) => void;
@@ -183,6 +183,7 @@ export function TrackTable({ tracks, player, favorite, edit, actions, playlistMe
       <button onClick={() => { player.enqueue(selectedIds); setSelectionMenu(false); }}><ListMusic size={18} />加入播放队列</button>
       <button disabled={selectedTracks.every(track => track.favorite)} onClick={() => { void applySelection('favorite'); }}><Heart size={18} />收藏所选</button>
       <button disabled={selectedTracks.every(track => !track.favorite)} onClick={() => { void applySelection('unfavorite'); }}><Heart size={18} fill="currentColor" />取消收藏</button>
+      <button disabled={selectedTracks.every(track => track.hasLyrics)} onClick={() => { void applySelection('instrumental'); }}><Music2 size={18} />设为纯音乐</button>
       <button disabled={selectedTracks.length === tracks.length} onClick={() => { replaceSelection(new Set(ids)); setSelectionMenu(false); }}><Check size={18} />全选当前列表</button>
       <button onClick={() => { replaceSelection(new Set(ids.filter(id => !selected.has(id)))); setSelectionMenu(false); }}><Check size={18} />反选当前列表</button>
       {removeFromPlaylist && <button onClick={() => { void applySelection('remove'); }}><X size={18} />从歌单移除</button>}
