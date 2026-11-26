@@ -44,7 +44,8 @@ html:has(.modal-backdrop-isolated),body:has(.modal-backdrop-isolated){overflow:h
   box-shadow:0 28px 80px rgba(0,0,0,.6);
 }
 .modal.lyrics-workbench>.modal-header{display:none}
-.lyrics-workbench .mono{font-variant-numeric:tabular-nums;font-family:ui-monospace,"SF Mono","DM Sans",monospace}
+.lyrics-workbench{--st-mono:"SF Mono",Menlo,Monaco,Consolas,"Liberation Mono",ui-monospace,monospace}
+.lyrics-workbench .mono{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;font-family:var(--st-mono)}
 .lyrics-workbench input:not([type=checkbox]):not([type=range]),
 .lyrics-workbench textarea,
 .lyrics-workbench select{
@@ -66,7 +67,7 @@ html:has(.modal-backdrop-isolated),body:has(.modal-backdrop-isolated){overflow:h
 .lyrics-workbench .text-button{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;color:var(--st-ink-2);padding:3px 2px}
 .lyrics-workbench .text-button:hover:not(:disabled){color:var(--st-accent)}
 .lyrics-workbench .error-text{color:#f0846a!important;font-size:11px!important}
-.lyrics-workbench kbd{font:600 10px ui-monospace,"DM Sans",monospace;border:1px solid var(--st-border-strong);border-radius:4px;padding:1px 5px;background:var(--st-surface-3);color:var(--st-ink-2)}
+.lyrics-workbench kbd{font:600 10px var(--st-mono);border:1px solid var(--st-border-strong);border-radius:4px;padding:1px 5px;background:var(--st-surface-3);color:var(--st-ink-2)}
 
 /* Shared Studio Buttons */
 .studio-btn{
@@ -143,8 +144,13 @@ html:has(.modal-backdrop-isolated),body:has(.modal-backdrop-isolated){overflow:h
 }
 .studio-play-btn:hover:not(:disabled){background:#5d8b50}
 .studio-play-btn.is-playing{background:#669955}
-.lyric-clock{font-size:16px;font-weight:650;font-variant-numeric:tabular-nums;font-family:ui-monospace,"DM Sans",monospace;color:#f4f1e9;white-space:nowrap}
-.lyric-clock small{font-size:11px;font-weight:450;color:#7d8377}
+.lyric-clock{
+  display:inline-flex;align-items:baseline;flex:none;
+  font-size:15.5px;font-weight:600;font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;
+  font-family:var(--st-mono);color:#f4f1e9;white-space:nowrap;
+}
+.lyric-clock>span{display:inline-block;width:9.2ch;flex:none;text-align:left}
+.lyric-clock small{font-size:11px;font-weight:450;color:#7d8377;white-space:nowrap;flex:none}
 .lyric-play-context{font-size:10.5px;padding:2px 7px;border-radius:4px;background:#1e221d;color:#8c9286;white-space:nowrap}
 .lyric-play-context.is-audition{background:rgba(126,194,111,.15);color:#97d489}
 
@@ -154,7 +160,7 @@ html:has(.modal-backdrop-isolated),body:has(.modal-backdrop-isolated){overflow:h
 }
 .wave-speed-group button,.wave-zoom-group button{
   padding:2px 6px;border-radius:3px;font-size:10.5px;font-variant-numeric:tabular-nums;
-  font-family:ui-monospace,"DM Sans",monospace;color:#8e9488;transition:all .1s;
+  font-family:var(--st-mono);color:#8e9488;transition:all .1s;
 }
 .wave-speed-group button:hover,.wave-zoom-group button:hover{color:#edeae1}
 .wave-speed-group button.active,.wave-zoom-group button.active{background:rgba(224,122,79,.24);color:#f3a37e}
@@ -185,7 +191,7 @@ html:has(.modal-backdrop-isolated),body:has(.modal-backdrop-isolated){overflow:h
 .studio-wave-canvas-area{padding:6px 14px 7px}
 .lyric-waveform{display:flex;flex-direction:column;gap:5px}
 .lyric-wave-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
-.lyric-wave-span{font-size:10.5px;font-variant-numeric:tabular-nums;font-family:ui-monospace,"DM Sans",monospace;color:#83897d}
+.lyric-wave-span{display:inline-block;min-width:21.5ch;font-size:10.5px;font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;font-family:var(--st-mono);color:#83897d;white-space:nowrap}
 .lyric-wave-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .lyric-wave-layers{
   position:relative;height:94px;border-radius:6px;overflow:hidden;
@@ -333,7 +339,7 @@ html:has(.modal-backdrop-isolated),body:has(.modal-backdrop-isolated){overflow:h
 
 .lyric-row-number{
   display:inline-flex;align-items:center;gap:4px;padding:3px 4px;border-radius:4px;
-  font-size:11px;font-variant-numeric:tabular-nums;font-family:ui-monospace,"DM Sans",monospace;
+  font-size:11px;font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;font-family:var(--st-mono);
   color:var(--st-muted);justify-content:flex-start;
 }
 .lyric-row-number:hover{color:var(--st-ink);background:var(--st-surface-3)}
@@ -349,7 +355,7 @@ html:has(.modal-backdrop-isolated),body:has(.modal-backdrop-isolated){overflow:h
 
 .lyrics-workbench .lyric-time-input{
   width:92px;padding:4px 6px!important;font-size:11.5px;
-  font-variant-numeric:tabular-nums;font-family:ui-monospace,"DM Sans",monospace;
+  font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;font-family:var(--st-mono);
 }
 .lyric-edit-row.is-translation .lyric-time-input{background:transparent!important;border-color:transparent!important;color:var(--st-muted)}
 .lyric-time-input[aria-invalid=true]{border-color:#e8634a!important;background:rgba(232,99,74,.12)!important}
@@ -403,7 +409,7 @@ html:has(.modal-backdrop-isolated),body:has(.modal-backdrop-isolated){overflow:h
 .lyric-source{
   margin:10px 12px;flex:1;min-height:220px;resize:none;padding:12px 14px!important;
   font-size:12.5px;line-height:1.8;white-space:pre;tab-size:2;
-  font-family:ui-monospace,"SF Mono","DM Sans","PingFang SC",monospace;
+  font-family:var(--st-mono),"PingFang SC",sans-serif;
 }
 
 /* Right Focused Inspector */
@@ -436,7 +442,7 @@ html:has(.modal-backdrop-isolated),body:has(.modal-backdrop-isolated){overflow:h
 .studio-step-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:4px}
 .studio-step-grid button{
   padding:5px 2px;border-radius:5px;font-size:10.5px;font-variant-numeric:tabular-nums;
-  font-family:ui-monospace,"DM Sans",monospace;
+  font-family:var(--st-mono);
   background:var(--st-surface-2);border:1px solid var(--st-border);color:var(--st-ink-2);
 }
 .studio-step-grid button:hover{border-color:var(--st-border-strong);color:var(--st-ink)}
@@ -540,7 +546,7 @@ html:has(.modal-backdrop-isolated),body:has(.modal-backdrop-isolated){overflow:h
 .lyric-version-comparison label{display:flex;flex-direction:column;gap:6px;font-size:11px;color:var(--st-ink-2)}
 .lyric-version-comparison textarea{
   height:260px;padding:10px 12px!important;white-space:pre;resize:none;
-  font-size:11.5px;line-height:1.65;font-family:ui-monospace,"DM Sans","PingFang SC",monospace;
+  font-size:11.5px;line-height:1.65;font-family:var(--st-mono),"PingFang SC",sans-serif;
 }
 .studio-diff-dialog>footer{
   padding:11px 18px;border-top:1px solid var(--st-border);background:var(--st-surface-2);
