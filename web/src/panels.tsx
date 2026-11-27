@@ -302,15 +302,29 @@ export function UploadModal({ uploader, playlist, kind = 'audio', onClose, onLoc
     </div><footer className="modal-footer"><span>{uploader.running ? '收起面板后继续上传' : resumable ? '暂停的上传和失败项可继续' : '分段上传 · 完整校验后入库'}</span>{uploader.running ? <button className="button secondary" disabled={busy} onClick={() => uploader.pause()}><Pause size={16} />暂停全部</button> : <button className="button primary" disabled={busy || !items.some(item => !['done', 'duplicate'].includes(item.phase))} onClick={() => uploader.start()}>{resumable ? <Play size={16} /> : <UploadCloud size={16} />}{resumable ? '继续 / 重试全部' : '开始上传'}</button>}</footer></Modal>;
 }
 
+function trackFormData(track: Track) {
+  return {
+    title: track.title, album: track.album, genre: track.genre, version: track.version,
+    composer: track.composer || '', lyricist: track.lyricist || '', comment: track.comment || '',
+    copyright: track.copyright || '', isrc: track.isrc || '', bpm: String(track.bpm || ''),
+    year: String(track.year || ''), trackNumber: String(track.trackNumber || ''), discNumber: String(track.discNumber || ''),
+    tagsText: (track.tags || []).join('，'), aliasesText: (track.aliases || []).join('，'),
+    lyricsText: track.lyricsText || '',
+  };
+}
+
 export function TrackEditor({ track, artists, onClose, onSaved }: { track: Track; artists: Artist[]; onClose: () => void; onSaved: (track: Track) => Promise<void> }) {
-  const [data, setData] = useState({ title: track.title, album: track.album, genre: track.genre, version: track.version, composer: track.composer || '', lyricist: track.lyricist || '', comment: track.comment || '', copyright: track.copyright || '', isrc: track.isrc || '', bpm: String(track.bpm || ''), year: String(track.year || ''), trackNumber: String(track.trackNumber || ''), discNumber: String(track.discNumber || ''), tagsText: (track.tags || []).join('，'), aliasesText: (track.aliases || []).join('，'), lyricsText: track.lyricsText || '' });
+  const [data, setData] = useState(() => trackFormData(track));
   const [artistList, setArtistList] = useState<string[]>(() => splitArtists(track.artist));
   const [artistDraft, setArtistDraft] = useState('');
   const [albumArtistList, setAlbumArtistList] = useState<string[]>(() => splitArtists(track.albumArtist));
   const [albumArtistDraft, setAlbumArtistDraft] = useState('');
-  const initialData = useRef(JSON.stringify(data));
+  const initialData = useRef(trackFormData(track));
   const initialArtists = useRef({ artist: JSON.stringify(splitArtists(track.artist)), albumArtist: JSON.stringify(splitArtists(track.albumArtist)) });
   const expectedUpdatedAt = useRef(track.updatedAt);
+  const [detailStatus, setDetailStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [detailError, setDetailError] = useState('');
+  const [detailRetry, setDetailRetry] = useState(0);
   const [cover, setCover] = useState<File>();
   const [preview, setPreview] = useState('');
   const [coverOpen, setCoverOpen] = useState(false);
@@ -322,13 +336,57 @@ export function TrackEditor({ track, artists, onClose, onSaved }: { track: Track
   const lyricsInput = useRef<HTMLInputElement>(null);
   const disabled = busy || readingLyrics;
   const coverURL = removeCover ? '' : cover ? preview : track.coverUrl;
-  const dirty = JSON.stringify(data) !== initialData.current
+  const dirty = JSON.stringify(data) !== JSON.stringify(initialData.current)
     || JSON.stringify(artistList) !== initialArtists.current.artist
     || JSON.stringify(albumArtistList) !== initialArtists.current.albumArtist
     || !!artistDraft.trim()
     || !!albumArtistDraft.trim()
     || !!cover
     || removeCover;
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+  useEffect(() => {
+    const abort = new AbortController();
+    setDetailStatus('loading');
+    setDetailError('');
+    void request<{ track: Track }>(`/tracks/${encodeURIComponent(track.id)}`, { signal: abort.signal }).then(result => {
+      if (abort.signal.aborted) return;
+      const latest = result.track;
+      const latestForm = trackFormData(latest);
+      if (latest.updatedAt !== expectedUpdatedAt.current && !dirtyRef.current) {
+        expectedUpdatedAt.current = latest.updatedAt;
+        initialData.current = latestForm;
+        const nextArtistList = splitArtists(latest.artist);
+        const nextAlbumArtistList = splitArtists(latest.albumArtist);
+        initialArtists.current = { artist: JSON.stringify(nextArtistList), albumArtist: JSON.stringify(nextAlbumArtistList) };
+        setArtistList(nextArtistList);
+        setAlbumArtistList(nextAlbumArtistList);
+        setData(latestForm);
+      } else {
+        const legacyFields = track.composer === undefined ? (['composer', 'lyricist', 'comment', 'copyright', 'isrc', 'bpm'] as const) : ([] as const);
+        setData(old => {
+          const next = { ...old };
+          if (old.lyricsText === initialData.current.lyricsText) {
+            next.lyricsText = latestForm.lyricsText;
+            initialData.current.lyricsText = latestForm.lyricsText;
+          }
+          for (const key of legacyFields) {
+            if (old[key] === initialData.current[key]) {
+              next[key] = latestForm[key];
+              initialData.current[key] = latestForm[key];
+            }
+          }
+          return next;
+        });
+      }
+      setDetailStatus('ready');
+    }).catch(error => {
+      if (abort.signal.aborted) return;
+      setDetailStatus('error');
+      setDetailError(messageOf(error));
+    });
+    return () => abort.abort();
+  }, [track.id, detailRetry]);
   useEffect(() => {
     if (!cover) { setPreview(''); return; }
     const url = URL.createObjectURL(cover); setPreview(url);
@@ -343,7 +401,7 @@ export function TrackEditor({ track, artists, onClose, onSaved }: { track: Track
     finally { setReadingLyrics(false); }
   }
   async function save() {
-    if (disabled) return;
+    if (disabled || detailStatus !== 'ready') return;
     if (!data.title.trim()) { setError('请输入曲名'); return; }
     const numbers = { year: Number(data.year || 0), trackNumber: Number(data.trackNumber || 0), discNumber: Number(data.discNumber || 0), bpm: Number(data.bpm || 0) };
     if (!Number.isFinite(numbers.bpm) || numbers.bpm < 0 || numbers.bpm > 9999) { setError('请输入 0 至 9999 的 BPM'); return; }
@@ -394,10 +452,10 @@ export function TrackEditor({ track, artists, onClose, onSaved }: { track: Track
         {([['composer', '作曲'], ['lyricist', '作词'], ['copyright', '版权'], ['isrc', 'ISRC']] as const).map(([key, label]) => <label className="field" key={key}>{label}<input value={data[key]} maxLength={4096} onChange={event => setData(old => ({ ...old, [key]: event.target.value }))} /></label>)}
         <label className="field full">备注<textarea value={data.comment} maxLength={4096} rows={3} onChange={event => setData(old => ({ ...old, comment: event.target.value }))} /></label>
         <label className="field full">标签<input value={data.tagsText} onChange={event => setData(old => ({ ...old, tagsText: event.target.value }))} placeholder="用逗号分隔" /></label><label className="field full">搜索别名<input value={data.aliasesText} onChange={event => setData(old => ({ ...old, aliasesText: event.target.value }))} placeholder="用逗号分隔" /></label>
-        <div className="field full"><div className="field-title"><label htmlFor="track-lyrics-editor">歌词</label><div className="editor-lyrics-actions"><button type="button" className="text-button" onClick={() => lyricsInput.current?.click()}>{readingLyrics ? '读取中…' : '导入 LRC / 文本'}</button>{data.lyricsText && <button type="button" className="text-button" onClick={() => setData(old => ({ ...old, lyricsText: '' }))}>清空</button>}</div></div><textarea id="track-lyrics-editor" className="lyrics-editor" value={data.lyricsText} onChange={event => setData(old => ({ ...old, lyricsText: event.target.value }))} rows={8} /><input hidden type="file" ref={lyricsInput} accept=".lrc,.txt" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void importLyrics(file); }} /></div>
+        <div className="field full"><div className="field-title"><label htmlFor="track-lyrics-editor">歌词</label><div className="editor-lyrics-actions">{detailStatus === 'loading' && <span className="editor-lyrics-status" role="status"><LoaderCircle size={12} className="spin" />载入歌词中…</span>}{detailStatus === 'error' && <><span className="error-text" role="alert">歌词载入失败：{detailError}</span><button type="button" className="text-button" onClick={() => setDetailRetry(old => old + 1)}>重试</button></>}<button type="button" className="text-button" disabled={detailStatus !== 'ready'} onClick={() => lyricsInput.current?.click()}>{readingLyrics ? '读取中…' : '导入 LRC / 文本'}</button>{data.lyricsText && <button type="button" className="text-button" disabled={detailStatus !== 'ready'} onClick={() => setData(old => ({ ...old, lyricsText: '' }))}>清空</button>}</div></div><textarea id="track-lyrics-editor" className="lyrics-editor" disabled={detailStatus !== 'ready'} placeholder={detailStatus === 'loading' ? '正在载入歌词…' : undefined} value={data.lyricsText} onChange={event => setData(old => ({ ...old, lyricsText: event.target.value }))} rows={8} /><input hidden type="file" ref={lyricsInput} accept=".lrc,.txt" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void importLyrics(file); }} /></div>
       </div>
     </fieldset>{error && <p className="error-text" role="alert">{error}</p>}</div>
-    <footer className="modal-footer"><a className="text-button" href={trackURL(track.id, 'download')}><Download size={16} />下载音频</a><div className="editor-footer-actions"><button className="button secondary" type="button" disabled={disabled} onClick={close}>取消</button><button className="button primary" type="button" disabled={disabled} onClick={() => { void save(); }}>{busy ? '写回中…' : '保存并写回'}</button></div></footer>
+    <footer className="modal-footer"><a className="text-button" href={trackURL(track.id, 'download')}><Download size={16} />下载音频</a><div className="editor-footer-actions"><button className="button secondary" type="button" disabled={disabled} onClick={close}>取消</button><button className="button primary" type="button" disabled={disabled || detailStatus !== 'ready'} title={detailStatus === 'loading' ? '等待曲目详情载入完成' : undefined} onClick={() => { void save(); }}>{busy ? '写回中…' : detailStatus === 'loading' ? '载入中…' : '保存并写回'}</button></div></footer>
   </form></Modal>
     {coverOpen && coverURL && <CoverPreviewModal url={coverURL} title={data.title || track.title} filename={cover?.name || `${data.album || data.title || track.title} - 封面.jpg`} onClose={() => setCoverOpen(false)} />}
   </>;

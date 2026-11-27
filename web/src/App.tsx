@@ -166,7 +166,7 @@ export default function App() {
 
   async function run(action: () => Promise<void>) { try { await action(); } catch (error) { notify(messageOf(error)); } }
   async function favorite(track: Track) { await run(async () => { const result = await json<{ track: Track }>(`/tracks/${encodeURIComponent(track.id)}`, 'PATCH', { favorite: !track.favorite }); setLibrary(old => ({ ...old, tracks: old.tracks.map(item => item.id === track.id ? result.track : item) })); await refresh(); }); }
-  async function openEditor(track: Track) { await run(async () => { const result = await request<{ track: Track }>(`/tracks/${encodeURIComponent(track.id)}`); setEditing(result.track); setTrackActions(undefined); }); }
+  function openEditor(track: Track) { setEditing(track); setTrackActions(undefined); }
   function openLyricsEditor(track: Track) { setLyricsEditing(track); setTrackActions(undefined); }
   async function addInstrumentalLyrics(track: Track) {
     try {

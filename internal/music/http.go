@@ -316,18 +316,25 @@ func (s *server) tracks(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) getTrack(w http.ResponseWriter, r *http.Request) {
-	s.store.mu.Lock()
-	defer s.store.mu.Unlock()
-	track, _, relative, err := s.store.track(r.Context(), r.PathValue("id"))
+	id := r.PathValue("id")
+	track, _, relative, err := s.store.track(r.Context(), id)
 	if err != nil {
 		apiError(w, err)
 		return
 	}
-	if err = s.store.loadLegacyCredits(r.Context(), &track, relative); err != nil {
-		apiError(w, err)
-		return
+	if track.legacyCredits {
+		s.store.mu.Lock()
+		track, _, relative, err = s.store.track(r.Context(), id)
+		if err == nil {
+			err = s.store.loadLegacyCredits(r.Context(), &track, relative)
+		}
+		s.store.mu.Unlock()
+		if err != nil {
+			apiError(w, err)
+			return
+		}
+		s.store.hydrate(&track)
 	}
-	s.store.hydrate(&track)
 	writeJSON(w, http.StatusOK, map[string]any{"track": track})
 }
 
