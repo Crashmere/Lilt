@@ -1,5 +1,5 @@
 import { Check, Copy, X } from 'lucide-react';
-import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ClipboardEvent, type DragEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ClipboardEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { createPortal } from 'react-dom';
 import type { Artist } from './types';
 import { normalize } from './utils';
@@ -48,7 +48,19 @@ export type ArtistInputProps = {
   onChangeDraft: (next: string) => void;
 };
 
-type DragState = { from: number; over: number; position: 'before' | 'after' };
+type PointerDrag = {
+  from: number;
+  name: string;
+  pointerId: number;
+  pointerType: string;
+  startX: number;
+  startY: number;
+  x: number;
+  y: number;
+  active: boolean;
+  over: number;
+  position: 'before' | 'after';
+};
 type DropdownPosition = { left: number; width: number; maxHeight: number; top?: number; bottom?: number };
 
 export function ArtistInput({ id, ariaLabel, values, draft, artists, disabled = false, placeholder, onChangeValues, onChangeDraft }: ArtistInputProps) {
@@ -57,15 +69,23 @@ export function ArtistInput({ id, ariaLabel, values, draft, artists, disabled = 
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const dragRef = useRef<DragState | null>(null);
+  const dragRef = useRef<PointerDrag | null>(null);
+  const dragCleanupRef = useRef<(() => void) | null>(null);
+  const valuesRef = useRef(values);
+  valuesRef.current = values;
+  const onChangeValuesRef = useRef(onChangeValues);
+  onChangeValuesRef.current = onChangeValues;
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
-  const [drag, setDrag] = useState<DragState | null>(null);
+  const [drag, setDrag] = useState<PointerDrag | null>(null);
   const [position, setPosition] = useState<DropdownPosition | null>(null);
   const [copied, setCopied] = useState(false);
 
-  useEffect(() => () => { clearTimeout(copiedTimerRef.current); }, []);
+  useEffect(() => () => {
+    clearTimeout(copiedTimerRef.current);
+    dragCleanupRef.current?.();
+  }, []);
 
   const trimmed = draft.trim();
   const normQuery = normalize(trimmed);
@@ -255,119 +275,158 @@ export function ArtistInput({ id, ariaLabel, values, draft, artists, disabled = 
     copiedTimerRef.current = setTimeout(() => setCopied(false), 1500);
   }
 
-  function clearDrag() {
-    dragRef.current = null;
-    setDrag(null);
-  }
-
-  function effectiveDest(state: DragState): number {
+  function effectiveDest(state: Pick<PointerDrag, 'from' | 'over' | 'position'>): number {
     const raw = state.over + (state.position === 'after' ? 1 : 0);
     return raw > state.from ? raw - 1 : raw;
   }
 
-  function startDrag(event: DragEvent<HTMLElement>, index: number) {
-    if (disabled || values.length <= 1 || (event.target instanceof HTMLElement && event.target.closest('.artist-chip-remove'))) {
-      event.preventDefault();
-      return;
+  function locateTarget(clientX: number, clientY: number, from: number): { over: number; position: 'before' | 'after' } {
+    const box = containerRef.current;
+    if (!box) return { over: from, position: 'before' };
+    const boxRect = box.getBoundingClientRect();
+    if (clientY < boxRect.top - 60 || clientY > boxRect.bottom + 60 || clientX < boxRect.left - 80 || clientX > boxRect.right + 80) {
+      return { over: from, position: 'before' };
     }
-    setOpen(false);
-    setActiveIndex(-1);
-    event.dataTransfer.effectAllowed = 'move';
-    event.dataTransfer.setData('application/x-lilt-artist-reorder', `${instanceId}:${index}`);
-    const next: DragState = { from: index, over: index, position: 'before' };
-    dragRef.current = next;
-    setDrag(next);
+    const entries = [...box.querySelectorAll<HTMLElement>('.artist-chip')].map((el, index) => ({ index, rect: el.getBoundingClientRect() }));
+    if (!entries.length) return { over: from, position: 'before' };
+
+    let row = entries.filter(entry => clientY >= entry.rect.top - 6 && clientY <= entry.rect.bottom + 6);
+    if (!row.length) {
+      let best = entries[0];
+      let bestDist = Math.abs(clientY - (best.rect.top + best.rect.bottom) / 2);
+      for (const entry of entries.slice(1)) {
+        const dist = Math.abs(clientY - (entry.rect.top + entry.rect.bottom) / 2);
+        if (dist < bestDist) { best = entry; bestDist = dist; }
+      }
+      row = entries.filter(entry => Math.abs(entry.rect.top - best.rect.top) <= 8);
+    }
+
+    if (clientX <= row[0].rect.left) return { over: row[0].index, position: 'before' };
+    if (clientX >= row[row.length - 1].rect.right) return { over: row[row.length - 1].index, position: 'after' };
+
+    for (let i = 0; i < row.length; i++) {
+      const nextMid = i + 1 < row.length ? (row[i].rect.right + row[i + 1].rect.left) / 2 : Infinity;
+      if (clientX <= nextMid) {
+        const ratio = row[i].index > from ? 0.35 : row[i].index < from ? 0.65 : 0.5;
+        return { over: row[i].index, position: clientX < row[i].rect.left + row[i].rect.width * ratio ? 'before' : 'after' };
+      }
+    }
+    return { over: row[row.length - 1].index, position: 'after' };
   }
 
-  function overChip(event: DragEvent<HTMLElement>, index: number) {
-    const current = dragRef.current;
-    if (!current) return;
-    event.preventDefault();
-    event.stopPropagation();
-    event.dataTransfer.dropEffect = 'move';
-    const rect = event.currentTarget.getBoundingClientRect();
-    const ratio = index > current.from ? 0.3 : index < current.from ? 0.7 : 0.5;
-    const pos: 'before' | 'after' = event.clientX < rect.left + rect.width * ratio ? 'before' : 'after';
-    if (current.over !== index || current.position !== pos) {
-      const next: DragState = { ...current, over: index, position: pos };
+  function startPointerDrag(event: ReactPointerEvent<HTMLSpanElement>, index: number) {
+    if (disabled || values.length <= 1 || !event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return;
+    if (event.target instanceof HTMLElement && event.target.closest('.artist-chip-remove')) return;
+    dragCleanupRef.current?.();
+    const initial: PointerDrag = {
+      from: index,
+      name: values[index],
+      pointerId: event.pointerId,
+      pointerType: event.pointerType,
+      startX: event.clientX,
+      startY: event.clientY,
+      x: event.clientX,
+      y: event.clientY,
+      active: false,
+      over: index,
+      position: 'before',
+    };
+    dragRef.current = initial;
+
+    const cleanup = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onEnd);
+      window.removeEventListener('pointercancel', onEnd);
+      window.removeEventListener('keydown', onKey, true);
+      dragCleanupRef.current = null;
+      dragRef.current = null;
+      setDrag(null);
+    };
+
+    const onMove = (ev: PointerEvent) => {
+      const cur = dragRef.current;
+      if (!cur || ev.pointerId !== cur.pointerId) return;
+      const dx = ev.clientX - cur.startX;
+      const dy = ev.clientY - cur.startY;
+      if (!cur.active) {
+        if (cur.pointerType === 'touch') {
+          if (Math.abs(dy) > 8 && Math.abs(dy) > Math.abs(dx)) { cleanup(); return; }
+          if (Math.abs(dx) < 6) return;
+        } else if (Math.hypot(dx, dy) < 5) {
+          return;
+        }
+        cur.active = true;
+        setOpen(false);
+        setActiveIndex(-1);
+      }
+      ev.preventDefault();
+      const target = locateTarget(ev.clientX, ev.clientY, cur.from);
+      const next: PointerDrag = { ...cur, x: ev.clientX, y: ev.clientY, ...target };
       dragRef.current = next;
       setDrag(next);
-    }
+    };
+
+    const onEnd = (ev: PointerEvent) => {
+      const cur = dragRef.current;
+      if (!cur || ev.pointerId !== cur.pointerId) return;
+      cleanup();
+      if (ev.type === 'pointerup' && cur.active) {
+        const dest = effectiveDest(cur);
+        const currentValues = valuesRef.current;
+        if (dest !== cur.from && cur.from >= 0 && cur.from < currentValues.length && dest >= 0 && dest < currentValues.length) {
+          const next = [...currentValues];
+          const [moved] = next.splice(cur.from, 1);
+          next.splice(dest, 0, moved);
+          onChangeValuesRef.current(next);
+        }
+      }
+    };
+
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape' && dragRef.current?.active) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        cleanup();
+      }
+    };
+
+    dragCleanupRef.current = cleanup;
+    window.addEventListener('pointermove', onMove, { passive: false });
+    window.addEventListener('pointerup', onEnd);
+    window.addEventListener('pointercancel', onEnd);
+    window.addEventListener('keydown', onKey, true);
   }
 
-  function overContainer(event: DragEvent<HTMLDivElement>) {
-    const current = dragRef.current;
-    if (!current || !values.length) return;
-    event.preventDefault();
-    event.dataTransfer.dropEffect = 'move';
-    const last = values.length - 1;
-    if (current.over !== last || current.position !== 'after') {
-      const next: DragState = { ...current, over: last, position: 'after' };
-      dragRef.current = next;
-      setDrag(next);
-    }
-  }
-
-  function handleDrop(event: DragEvent<HTMLElement>) {
-    const current = dragRef.current;
-    if (!current) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const dest = effectiveDest(current);
-    clearDrag();
-    if (dest !== current.from && current.from >= 0 && current.from < values.length && dest >= 0 && dest < values.length) {
-      const next = [...values];
-      const [moved] = next.splice(current.from, 1);
-      next.splice(dest, 0, moved);
-      onChangeValues(next);
-    }
-  }
-
-  const dropIndicator = drag && effectiveDest(drag) !== drag.from ? drag : null;
+  const activeDrag = drag?.active ? drag : null;
+  const dropIndicator = activeDrag && effectiveDest(activeDrag) !== activeDrag.from ? activeDrag : null;
 
   return <>
     <div
       ref={containerRef}
-      className={`artist-input-box${disabled ? ' disabled' : ''}`}
+      className={`artist-input-box${disabled ? ' disabled' : ''}${activeDrag ? ' is-dragging' : ''}`}
       onMouseDown={event => {
         if (disabled) return;
-        if (event.target instanceof HTMLElement && event.target.closest('.artist-chip-remove, .artist-copy-btn')) return;
+        if (event.target instanceof HTMLElement && event.target.closest('.artist-chip, .artist-copy-btn')) return;
         if (event.target !== inputRef.current) {
           event.preventDefault();
           inputRef.current?.focus();
         }
       }}
-      onDragOver={overContainer}
-      onDrop={handleDrop}
-      onDragLeave={event => {
-        if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
-        if (dragRef.current) {
-          const reset: DragState = { ...dragRef.current, over: dragRef.current.from, position: 'before' };
-          dragRef.current = reset;
-          setDrag(reset);
-        }
-      }}
     >
       <div className="artist-input-content">
         {values.map((name, index) => {
-          const isDragging = drag?.from === index;
+          const isDragging = activeDrag?.from === index;
           const isBefore = dropIndicator?.over === index && dropIndicator.position === 'before';
           const isAfter = dropIndicator?.over === index && dropIndicator.position === 'after';
           return <span
             key={`${name}-${index}`}
             className={`artist-chip${!disabled && values.length > 1 ? ' draggable' : ''}${isDragging ? ' dragging' : ''}${isBefore ? ' drop-before' : ''}${isAfter ? ' drop-after' : ''}`}
-            draggable={!disabled && values.length > 1}
-            onDragStart={event => startDrag(event, index)}
-            onDragEnter={event => overChip(event, index)}
-            onDragOver={event => overChip(event, index)}
-            onDrop={handleDrop}
-            onDragEnd={clearDrag}
+            onPointerDown={event => startPointerDrag(event, index)}
           >
             <span className="artist-chip-label" title={name}>{name}</span>
             <button
               type="button"
               className="artist-chip-remove"
-              draggable={false}
               aria-label={`移除 ${name}`}
               title="移除"
               disabled={disabled}
@@ -412,6 +471,10 @@ export function ArtistInput({ id, ariaLabel, values, draft, artists, disabled = 
         onClick={() => { void copyAll(); }}
       >{copied ? <Check size={14} /> : <Copy size={14} />}</button>
     </div>
+    {activeDrag && createPortal(
+      <span className="artist-chip artist-chip-ghost" aria-hidden="true" style={{ left: activeDrag.x, top: activeDrag.y }}>{activeDrag.name}</span>,
+      document.body,
+    )}
     {showDropdown && position && createPortal(
       <div
         ref={dropdownRef}

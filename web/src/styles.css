@@ -754,8 +754,11 @@
 .artist-copy-btn:hover:not(:disabled){background:#ece7dc;color:var(--ink)}
 .artist-copy-btn.copied{color:#5d7244}
 .artist-chip{position:relative;display:inline-flex;align-items:center;gap:4px;max-width:100%;padding:3px 6px 3px 10px;border:1px solid #dcd6c7;border-radius:999px;background:#efeae0;color:var(--ink);font-size:12px;line-height:1.4;user-select:none}
-.artist-chip.draggable{cursor:grab}
+.artist-chip.draggable{cursor:grab;touch-action:pan-y}
 .artist-chip.dragging{opacity:.38}
+.artist-input-box.is-dragging,.artist-input-box.is-dragging *{cursor:grabbing!important;user-select:none}
+.artist-chip-ghost{position:fixed;z-index:260;pointer-events:none;transform:translate(-50%,-50%) scale(1.03);padding:3px 10px;background:#faf8f2;border-color:var(--accent);box-shadow:0 8px 22px #1f251f26,0 2px 6px #1f251f14;color:var(--ink)}
+@media(prefers-reduced-motion:reduce){.artist-chip-ghost{transform:translate(-50%,-50%)}}
 .artist-chip.drop-before::before,.artist-chip.drop-after::after{content:"";position:absolute;top:2px;bottom:2px;width:2px;border-radius:2px;background:var(--accent);pointer-events:none}
 .artist-chip.drop-before::before{left:-4px}
 .artist-chip.drop-after::after{right:-4px}
