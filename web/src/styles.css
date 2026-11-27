@@ -746,9 +746,13 @@
 @media(max-width:740px){.artist-directory-header{padding:12px 14px 4px;gap:8px;border:0}.artist-scope-tabs{grid-template-columns:repeat(3,1fr)}.stats-album-grid{grid-template-columns:1fr}.history-tools{flex-wrap:wrap}}
 @media(max-width:900px){.history-groups .history-heading{display:none}.history-list>article{grid-template-columns:39px minmax(0,1fr) auto 24px}}
 
-.artist-input-box{display:flex;flex-wrap:wrap;align-items:center;gap:5px;min-height:41px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:#fbfaf6;cursor:text}
+.artist-input-box{display:flex;align-items:flex-start;gap:6px;min-height:41px;padding:6px 6px 6px 8px;border:1px solid var(--line);border-radius:8px;background:#fbfaf6;cursor:text}
 .artist-input-box.disabled{opacity:.65;cursor:default}
-.bulk-field .artist-input-box{margin-top:12px;background:#fffdf8;min-height:44px;padding:6px 9px}
+.bulk-field .artist-input-box{margin-top:12px;background:#fffdf8;min-height:44px;padding:6px 7px 6px 9px}
+.artist-input-content{flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:5px}
+.artist-copy-btn{display:inline-flex;align-items:center;justify-content:center;flex:none;width:27px;height:27px;margin-top:1px;border-radius:6px;color:#7c786d;transition:background .12s,color .12s}
+.artist-copy-btn:hover:not(:disabled){background:#ece7dc;color:var(--ink)}
+.artist-copy-btn.copied{color:#5d7244}
 .artist-chip{position:relative;display:inline-flex;align-items:center;gap:4px;max-width:100%;padding:3px 6px 3px 10px;border:1px solid #dcd6c7;border-radius:999px;background:#efeae0;color:var(--ink);font-size:12px;line-height:1.4;user-select:none}
 .artist-chip.draggable{cursor:grab}
 .artist-chip.dragging{opacity:.38}
@@ -767,6 +771,7 @@
 .artist-dropdown-option>small{flex:none;font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums}
 @media(max-width:740px){
   .artist-chip-remove{width:20px;height:20px}
+  .artist-copy-btn{width:30px;height:30px}
   .artist-input-field{font-size:14px}
   .bulk-field .artist-input-field{font-size:16px}
   .artist-dropdown-option{padding:10px 11px;font-size:13px}

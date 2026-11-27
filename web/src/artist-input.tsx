@@ -1,5 +1,5 @@
-import { X } from 'lucide-react';
-import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { Check, Copy, X } from 'lucide-react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ClipboardEvent, type DragEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import type { Artist } from './types';
 import { normalize } from './utils';
@@ -58,10 +58,14 @@ export function ArtistInput({ id, ariaLabel, values, draft, artists, disabled = 
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState | null>(null);
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const [drag, setDrag] = useState<DragState | null>(null);
   const [position, setPosition] = useState<DropdownPosition | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => () => { clearTimeout(copiedTimerRef.current); }, []);
 
   const trimmed = draft.trim();
   const normQuery = normalize(trimmed);
@@ -192,10 +196,63 @@ export function ArtistInput({ id, ariaLabel, values, draft, artists, disabled = 
       setActiveIndex(old => old <= 0 ? matches.length - 1 : old - 1);
       return;
     }
+    if (event.key === 'Tab' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      if (showDropdown) {
+        event.preventDefault();
+        setActiveIndex(old => event.shiftKey ? (old <= 0 ? matches.length - 1 : old - 1) : (old < matches.length - 1 ? old + 1 : 0));
+      }
+      return;
+    }
     if (event.key === 'Backspace' && draft === '' && values.length > 0 && !disabled) {
       event.preventDefault();
       onChangeValues(values.slice(0, -1));
     }
+  }
+
+  function onInputPaste(event: ClipboardEvent<HTMLInputElement>) {
+    if (disabled) return;
+    const pasted = event.clipboardData?.getData('text/plain') || '';
+    if (!pasted) return;
+    const input = event.currentTarget;
+    const start = input.selectionStart ?? draft.length;
+    const end = input.selectionEnd ?? draft.length;
+    const combined = draft.slice(0, start) + pasted + draft.slice(end);
+    if (!/[\/\r\n]/.test(combined)) return;
+    event.preventDefault();
+    const normalized = combined.replace(/[\r\n]+/g, '/');
+    onChangeValues(mergeArtists(values, normalized));
+    onChangeDraft('');
+    setOpen(false);
+    setActiveIndex(-1);
+  }
+
+  const copyText = joinArtists(mergeArtists(values, draft));
+
+  async function copyAll() {
+    if (disabled || !copyText) return;
+    let ok = false;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(copyText);
+        ok = true;
+      }
+    } catch { ok = false; }
+    if (!ok) {
+      const active = document.activeElement;
+      const area = document.createElement('textarea');
+      area.value = copyText;
+      area.readOnly = true;
+      area.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0';
+      document.body.appendChild(area);
+      area.select();
+      try { ok = document.execCommand('copy'); } catch { ok = false; }
+      area.remove();
+      if (active instanceof HTMLElement && active.isConnected) active.focus({ preventScroll: true });
+    }
+    if (!ok) return;
+    setCopied(true);
+    clearTimeout(copiedTimerRef.current);
+    copiedTimerRef.current = setTimeout(() => setCopied(false), 1500);
   }
 
   function clearDrag() {
@@ -274,7 +331,7 @@ export function ArtistInput({ id, ariaLabel, values, draft, artists, disabled = 
       className={`artist-input-box${disabled ? ' disabled' : ''}`}
       onMouseDown={event => {
         if (disabled) return;
-        if (event.target instanceof HTMLElement && event.target.closest('.artist-chip-remove')) return;
+        if (event.target instanceof HTMLElement && event.target.closest('.artist-chip-remove, .artist-copy-btn')) return;
         if (event.target !== inputRef.current) {
           event.preventDefault();
           inputRef.current?.focus();
@@ -291,57 +348,69 @@ export function ArtistInput({ id, ariaLabel, values, draft, artists, disabled = 
         }
       }}
     >
-      {values.map((name, index) => {
-        const isDragging = drag?.from === index;
-        const isBefore = dropIndicator?.over === index && dropIndicator.position === 'before';
-        const isAfter = dropIndicator?.over === index && dropIndicator.position === 'after';
-        return <span
-          key={`${name}-${index}`}
-          className={`artist-chip${!disabled && values.length > 1 ? ' draggable' : ''}${isDragging ? ' dragging' : ''}${isBefore ? ' drop-before' : ''}${isAfter ? ' drop-after' : ''}`}
-          draggable={!disabled && values.length > 1}
-          onDragStart={event => startDrag(event, index)}
-          onDragEnter={event => overChip(event, index)}
-          onDragOver={event => overChip(event, index)}
-          onDrop={handleDrop}
-          onDragEnd={clearDrag}
-        >
-          <span className="artist-chip-label" title={name}>{name}</span>
-          <button
-            type="button"
-            className="artist-chip-remove"
-            draggable={false}
-            aria-label={`移除 ${name}`}
-            title="移除"
-            disabled={disabled}
-            onMouseDown={event => event.stopPropagation()}
-            onClick={() => removeAt(index)}
-          ><X size={12} /></button>
-        </span>;
-      })}
-      <input
-        ref={inputRef}
-        id={id}
-        type="text"
-        className="artist-input-field"
-        aria-label={ariaLabel}
-        aria-autocomplete="list"
-        aria-expanded={showDropdown}
-        aria-controls={showDropdown ? listboxId : undefined}
-        aria-activedescendant={showDropdown && activeIndex >= 0 ? `${listboxId}-${activeIndex}` : undefined}
-        value={draft}
-        disabled={disabled}
-        maxLength={4096}
-        placeholder={placeholder}
-        onFocus={() => { if (trimmed) { setOpen(true); setActiveIndex(-1); } }}
-        onBlur={() => { setOpen(false); setActiveIndex(-1); }}
-        onChange={event => {
-          const next = event.target.value;
-          onChangeDraft(next);
-          setOpen(next.trim().length > 0);
-          setActiveIndex(-1);
-        }}
-        onKeyDown={onInputKeyDown}
-      />
+      <div className="artist-input-content">
+        {values.map((name, index) => {
+          const isDragging = drag?.from === index;
+          const isBefore = dropIndicator?.over === index && dropIndicator.position === 'before';
+          const isAfter = dropIndicator?.over === index && dropIndicator.position === 'after';
+          return <span
+            key={`${name}-${index}`}
+            className={`artist-chip${!disabled && values.length > 1 ? ' draggable' : ''}${isDragging ? ' dragging' : ''}${isBefore ? ' drop-before' : ''}${isAfter ? ' drop-after' : ''}`}
+            draggable={!disabled && values.length > 1}
+            onDragStart={event => startDrag(event, index)}
+            onDragEnter={event => overChip(event, index)}
+            onDragOver={event => overChip(event, index)}
+            onDrop={handleDrop}
+            onDragEnd={clearDrag}
+          >
+            <span className="artist-chip-label" title={name}>{name}</span>
+            <button
+              type="button"
+              className="artist-chip-remove"
+              draggable={false}
+              aria-label={`移除 ${name}`}
+              title="移除"
+              disabled={disabled}
+              onMouseDown={event => event.stopPropagation()}
+              onClick={() => removeAt(index)}
+            ><X size={12} /></button>
+          </span>;
+        })}
+        <input
+          ref={inputRef}
+          id={id}
+          type="text"
+          className="artist-input-field"
+          aria-label={ariaLabel}
+          aria-autocomplete="list"
+          aria-expanded={showDropdown}
+          aria-controls={showDropdown ? listboxId : undefined}
+          aria-activedescendant={showDropdown && activeIndex >= 0 ? `${listboxId}-${activeIndex}` : undefined}
+          value={draft}
+          disabled={disabled}
+          maxLength={4096}
+          placeholder={placeholder}
+          onFocus={() => { if (trimmed) { setOpen(true); setActiveIndex(-1); } }}
+          onBlur={() => { setOpen(false); setActiveIndex(-1); }}
+          onChange={event => {
+            const next = event.target.value;
+            onChangeDraft(next);
+            setOpen(next.trim().length > 0);
+            setActiveIndex(-1);
+          }}
+          onKeyDown={onInputKeyDown}
+          onPaste={onInputPaste}
+        />
+      </div>
+      <button
+        type="button"
+        className={`artist-copy-btn${copied ? ' copied' : ''}`}
+        aria-label={copied ? `已复制${ariaLabel}` : `复制全部${ariaLabel}`}
+        title={copied ? '已复制' : '复制全部'}
+        disabled={disabled || !copyText}
+        onMouseDown={event => { event.preventDefault(); event.stopPropagation(); }}
+        onClick={() => { void copyAll(); }}
+      >{copied ? <Check size={14} /> : <Copy size={14} />}</button>
     </div>
     {showDropdown && position && createPortal(
       <div
