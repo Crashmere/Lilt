@@ -9,7 +9,7 @@ export type Track = {
   addedAt: string; updatedAt: string; deletedAt?: string;
 };
 export type Album = { id: string; title: string; artist: string; year: number; coverUrl: string; trackCount: number; duration: number; trackIds: string[] };
-export type Artist = { id: string; name: string; coverUrl: string; trackCount: number; albumCount: number; trackIds: string[] };
+export type Artist = { id: string; name: string; searchText?: string; coverUrl: string; trackCount: number; albumCount: number; trackIds: string[] };
 export type Rules = { favorite?: boolean; tags?: string[]; artist?: string; genre?: string; yearFrom?: number; yearTo?: number; unplayed?: boolean; unheardDays?: number; limit?: number };
 export type PlaylistKind = 'manual' | 'external' | 'game' | 'smart';
 export type Playlist = { id: string; name: string; description: string; kind: PlaylistKind; rules: Rules; trackIds: string[]; coverUrl: string; createdAt: string; updatedAt: string };

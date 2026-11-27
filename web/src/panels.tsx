@@ -6,7 +6,8 @@ import { TrackCredits, type CollectionNavigation } from './track-links';
 import type { Player } from './player';
 import type { PlaylistMemberships } from './playlist-memberships';
 import { PLAYLIST_KINDS, PLAYLIST_LABELS } from './playlist-kinds';
-import type { MediaKind, Playlist, Rules, Track, Upload } from './types';
+import type { Artist, MediaKind, Playlist, Rules, Track, Upload } from './types';
+import { ArtistInput, joinArtists, mergeArtists, splitArtists } from './artist-input';
 import type { Uploader, UploadPlaylist } from './upload';
 import { droppedFiles } from './drop-files';
 import { formatUploadRate } from './upload-rate';
@@ -301,9 +302,14 @@ export function UploadModal({ uploader, playlist, kind = 'audio', onClose, onLoc
     </div><footer className="modal-footer"><span>{uploader.running ? '收起面板后继续上传' : resumable ? '暂停的上传和失败项可继续' : '分段上传 · 完整校验后入库'}</span>{uploader.running ? <button className="button secondary" disabled={busy} onClick={() => uploader.pause()}><Pause size={16} />暂停全部</button> : <button className="button primary" disabled={busy || !items.some(item => !['done', 'duplicate'].includes(item.phase))} onClick={() => uploader.start()}>{resumable ? <Play size={16} /> : <UploadCloud size={16} />}{resumable ? '继续 / 重试全部' : '开始上传'}</button>}</footer></Modal>;
 }
 
-export function TrackEditor({ track, onClose, onSaved }: { track: Track; onClose: () => void; onSaved: (track: Track) => Promise<void> }) {
-  const [data, setData] = useState({ title: track.title, artist: track.artist, album: track.album, albumArtist: track.albumArtist, genre: track.genre, version: track.version, composer: track.composer || '', lyricist: track.lyricist || '', comment: track.comment || '', copyright: track.copyright || '', isrc: track.isrc || '', bpm: String(track.bpm || ''), year: String(track.year || ''), trackNumber: String(track.trackNumber || ''), discNumber: String(track.discNumber || ''), tagsText: (track.tags || []).join('，'), aliasesText: (track.aliases || []).join('，'), lyricsText: track.lyricsText || '' });
+export function TrackEditor({ track, artists, onClose, onSaved }: { track: Track; artists: Artist[]; onClose: () => void; onSaved: (track: Track) => Promise<void> }) {
+  const [data, setData] = useState({ title: track.title, album: track.album, genre: track.genre, version: track.version, composer: track.composer || '', lyricist: track.lyricist || '', comment: track.comment || '', copyright: track.copyright || '', isrc: track.isrc || '', bpm: String(track.bpm || ''), year: String(track.year || ''), trackNumber: String(track.trackNumber || ''), discNumber: String(track.discNumber || ''), tagsText: (track.tags || []).join('，'), aliasesText: (track.aliases || []).join('，'), lyricsText: track.lyricsText || '' });
+  const [artistList, setArtistList] = useState<string[]>(() => splitArtists(track.artist));
+  const [artistDraft, setArtistDraft] = useState('');
+  const [albumArtistList, setAlbumArtistList] = useState<string[]>(() => splitArtists(track.albumArtist));
+  const [albumArtistDraft, setAlbumArtistDraft] = useState('');
   const initialData = useRef(JSON.stringify(data));
+  const initialArtists = useRef({ artist: JSON.stringify(splitArtists(track.artist)), albumArtist: JSON.stringify(splitArtists(track.albumArtist)) });
   const expectedUpdatedAt = useRef(track.updatedAt);
   const [cover, setCover] = useState<File>();
   const [preview, setPreview] = useState('');
@@ -316,7 +322,13 @@ export function TrackEditor({ track, onClose, onSaved }: { track: Track; onClose
   const lyricsInput = useRef<HTMLInputElement>(null);
   const disabled = busy || readingLyrics;
   const coverURL = removeCover ? '' : cover ? preview : track.coverUrl;
-  const dirty = JSON.stringify(data) !== initialData.current || !!cover || removeCover;
+  const dirty = JSON.stringify(data) !== initialData.current
+    || JSON.stringify(artistList) !== initialArtists.current.artist
+    || JSON.stringify(albumArtistList) !== initialArtists.current.albumArtist
+    || !!artistDraft.trim()
+    || !!albumArtistDraft.trim()
+    || !!cover
+    || removeCover;
   useEffect(() => {
     if (!cover) { setPreview(''); return; }
     const url = URL.createObjectURL(cover); setPreview(url);
@@ -338,11 +350,23 @@ export function TrackEditor({ track, onClose, onSaved }: { track: Track; onClose
     for (const [key, label, maximum] of [['year', '年份', 9999], ['trackNumber', '曲序', 99999], ['discNumber', '碟号', 9999]] as const) {
       if (!Number.isInteger(numbers[key]) || numbers[key] < 0 || numbers[key] > maximum) { setError(`${label}应为 0 至 ${maximum} 的整数`); return; }
     }
+    const nextArtists = mergeArtists(artistList, artistDraft);
+    const nextAlbumArtists = mergeArtists(albumArtistList, albumArtistDraft);
+    const artist = joinArtists(nextArtists);
+    const albumArtist = joinArtists(nextAlbumArtists);
+    if (artist.length > 4096 || albumArtist.length > 4096) {
+      setError('艺术家名称过长，请精简后再保存');
+      return;
+    }
+    setArtistList(nextArtists);
+    setArtistDraft('');
+    setAlbumArtistList(nextAlbumArtists);
+    setAlbumArtistDraft('');
     setBusy(true); setError('');
     try {
       const { tagsText, aliasesText, ...fields } = data;
       const split = (value: string) => value.split(/[,，\n]/).map(item => item.trim()).filter(Boolean);
-      const patch = { ...fields, ...numbers, tags: split(tagsText), aliases: split(aliasesText), removeCover, expectedUpdatedAt: expectedUpdatedAt.current };
+      const patch = { ...fields, artist, albumArtist, ...numbers, tags: split(tagsText), aliases: split(aliasesText), removeCover, expectedUpdatedAt: expectedUpdatedAt.current };
       const path = `/tracks/${encodeURIComponent(track.id)}`;
       let result: { track: Track };
       if (cover) {
@@ -353,13 +377,18 @@ export function TrackEditor({ track, onClose, onSaved }: { track: Track; onClose
       await onSaved(result.track); onClose();
     } catch (error) { setError(messageOf(error)); } finally { setBusy(false); }
   }
-  return <><Modal title="编辑曲目" wide onClose={close}><form onSubmit={event => { event.preventDefault(); void save(); }}>
+  return <><Modal title="编辑曲目" wide onClose={close}><form onSubmit={event => event.preventDefault()}>
     <div className="modal-body editor-body"><fieldset className="editor-fields" disabled={disabled}>
       <div className="editor-cover"><button type="button" className="editor-cover-open" aria-label="查看封面大图" title="查看封面大图" aria-haspopup="dialog" disabled={!coverURL} onClick={() => setCoverOpen(true)}><Artwork url={coverURL} /></button><div><strong>{track.originalName}</strong><p>{track.format?.toUpperCase()} · {bytes(track.size)} · {duration(track.duration)}</p><p>{[track.sampleRate ? `${(track.sampleRate / 1000).toFixed(1)} kHz` : '', track.bitDepth ? `${track.bitDepth} bit` : '', track.bitrate ? `${Math.round(track.bitrate / 1000)} kbps` : '', track.channels ? `${track.channels} 声道` : ''].filter(Boolean).join(' · ')}</p>
         <div className="editor-cover-actions"><button type="button" className="button secondary" onClick={() => coverInput.current?.click()}>更换封面</button>{(cover || track.coverUrl) && <button type="button" className="text-button" onClick={() => { if (removeCover) setRemoveCover(false); else { setCover(undefined); setRemoveCover(true); } }}>{removeCover ? '恢复封面' : '移除封面'}</button>}{cover && <button type="button" className="text-button" onClick={() => setCover(undefined)}>撤销更换</button>}</div>
         {cover && <span className="file-selected">{cover.name}</span>}<input hidden type="file" ref={coverInput} accept="image/png,image/jpeg,image/gif,image/webp" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (!file) return; setCover(file); setRemoveCover(false); setError(''); }} />
       </div></div>
-      <div className="form-grid">{([['title', '曲名'], ['artist', '艺术家'], ['album', '专辑'], ['albumArtist', '专辑艺术家'], ['version', '版本'], ['genre', '风格']] as const).map(([key, label]) => <label className="field" key={key}>{label}<input value={data[key]} required={key === 'title'} maxLength={4096} onChange={event => setData(old => ({ ...old, [key]: event.target.value }))} /></label>)}
+      <div className="form-grid">
+        <label className="field">曲名<input value={data.title} required maxLength={4096} onChange={event => setData(old => ({ ...old, title: event.target.value }))} /></label>
+        <div className="field"><label htmlFor="track-artist-input">艺术家</label><ArtistInput id="track-artist-input" ariaLabel="艺术家" values={artistList} draft={artistDraft} artists={artists} disabled={disabled} placeholder={artistList.length ? '继续添加…' : '输入或筛选艺术家'} onChangeValues={setArtistList} onChangeDraft={setArtistDraft} /></div>
+        <label className="field">专辑<input value={data.album} maxLength={4096} onChange={event => setData(old => ({ ...old, album: event.target.value }))} /></label>
+        <div className="field"><label htmlFor="track-album-artist-input">专辑艺术家</label><ArtistInput id="track-album-artist-input" ariaLabel="专辑艺术家" values={albumArtistList} draft={albumArtistDraft} artists={artists} disabled={disabled} placeholder={albumArtistList.length ? '继续添加…' : '留空则同艺术家'} onChangeValues={setAlbumArtistList} onChangeDraft={setAlbumArtistDraft} /></div>
+        {([['version', '版本'], ['genre', '风格']] as const).map(([key, label]) => <label className="field" key={key}>{label}<input value={data[key]} maxLength={4096} onChange={event => setData(old => ({ ...old, [key]: event.target.value }))} /></label>)}
         {([['year', '年份', 9999], ['trackNumber', '曲序', 99999], ['discNumber', '碟号', 9999]] as const).map(([key, label, maximum]) => <label className="field" key={key}>{label}<input type="number" min={0} max={maximum} step={1} value={data[key]} onChange={event => setData(old => ({ ...old, [key]: event.target.value }))} /></label>)}
         <label className="field">BPM<input type="number" min={0} max={9999} step="any" value={data.bpm} onChange={event => setData(old => ({ ...old, bpm: event.target.value }))} /></label>
         {([['composer', '作曲'], ['lyricist', '作词'], ['copyright', '版权'], ['isrc', 'ISRC']] as const).map(([key, label]) => <label className="field" key={key}>{label}<input value={data[key]} maxLength={4096} onChange={event => setData(old => ({ ...old, [key]: event.target.value }))} /></label>)}
@@ -368,7 +397,7 @@ export function TrackEditor({ track, onClose, onSaved }: { track: Track; onClose
         <div className="field full"><div className="field-title"><label htmlFor="track-lyrics-editor">歌词</label><div className="editor-lyrics-actions"><button type="button" className="text-button" onClick={() => lyricsInput.current?.click()}>{readingLyrics ? '读取中…' : '导入 LRC / 文本'}</button>{data.lyricsText && <button type="button" className="text-button" onClick={() => setData(old => ({ ...old, lyricsText: '' }))}>清空</button>}</div></div><textarea id="track-lyrics-editor" className="lyrics-editor" value={data.lyricsText} onChange={event => setData(old => ({ ...old, lyricsText: event.target.value }))} rows={8} /><input hidden type="file" ref={lyricsInput} accept=".lrc,.txt" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void importLyrics(file); }} /></div>
       </div>
     </fieldset>{error && <p className="error-text" role="alert">{error}</p>}</div>
-    <footer className="modal-footer"><a className="text-button" href={trackURL(track.id, 'download')}><Download size={16} />下载音频</a><div className="editor-footer-actions"><button className="button secondary" type="button" disabled={disabled} onClick={close}>取消</button><button className="button primary" type="submit" disabled={disabled}>{busy ? '写回中…' : '保存并写回'}</button></div></footer>
+    <footer className="modal-footer"><a className="text-button" href={trackURL(track.id, 'download')}><Download size={16} />下载音频</a><div className="editor-footer-actions"><button className="button secondary" type="button" disabled={disabled} onClick={close}>取消</button><button className="button primary" type="button" disabled={disabled} onClick={() => { void save(); }}>{busy ? '写回中…' : '保存并写回'}</button></div></footer>
   </form></Modal>
     {coverOpen && coverURL && <CoverPreviewModal url={coverURL} title={data.title || track.title} filename={cover?.name || `${data.album || data.title || track.title} - 封面.jpg`} onClose={() => setCoverOpen(false)} />}
   </>;
@@ -377,12 +406,17 @@ export function TrackEditor({ track, onClose, onSaved }: { track: Track; onClose
 const bulkFields = [['artist', '艺术家'], ['album', '专辑'], ['albumArtist', '专辑艺术家'], ['genre', '风格'], ['year', '年份']] as const;
 type BulkField = typeof bulkFields[number][0];
 type BulkMode = 'keep' | 'set' | 'clear';
-export function BulkEditor({ tracks, onClose, onRefresh, onSaved }: { tracks: Track[]; onClose: () => void; onRefresh: () => Promise<void>; onSaved: () => void }) {
+export function BulkEditor({ tracks, artists, onClose, onRefresh, onSaved }: { tracks: Track[]; artists: Artist[]; onClose: () => void; onRefresh: () => Promise<void>; onSaved: () => void }) {
   const [modes, setModes] = useState<Record<BulkField, BulkMode>>({ artist: 'keep', album: 'keep', albumArtist: 'keep', genre: 'keep', year: 'keep' });
-  const [values, setValues] = useState<Record<BulkField, string>>(() => {
-    const common = (key: BulkField) => tracks.every(track => track[key] === tracks[0]?.[key]) ? String(tracks[0]?.[key] || '') : '';
-    return { artist: common('artist'), album: common('album'), albumArtist: common('albumArtist'), genre: common('genre'), year: common('year') };
+  const [values, setValues] = useState<Record<'album' | 'genre' | 'year', string>>(() => {
+    const common = (key: 'album' | 'genre' | 'year') => tracks.every(track => track[key] === tracks[0]?.[key]) ? String(tracks[0]?.[key] || '') : '';
+    return { album: common('album'), genre: common('genre'), year: common('year') };
   });
+  const [artistLists, setArtistLists] = useState<Record<'artist' | 'albumArtist', string[]>>(() => {
+    const commonArtist = (key: 'artist' | 'albumArtist') => tracks.every(track => track[key] === tracks[0]?.[key]) ? splitArtists(tracks[0]?.[key] || '') : [];
+    return { artist: commonArtist('artist'), albumArtist: commonArtist('albumArtist') };
+  });
+  const [artistDrafts, setArtistDrafts] = useState<Record<'artist' | 'albumArtist', string>>({ artist: '', albumArtist: '' });
   const [tagMode, setTagMode] = useState<'keep' | 'append' | 'replace' | 'clear'>('keep');
   const [tagsText, setTagsText] = useState('');
   const [coverMode, setCoverMode] = useState<BulkMode>('keep');
@@ -427,10 +461,33 @@ export function BulkEditor({ tracks, onClose, onRefresh, onSaved }: { tracks: Tr
     if (coverMode === 'set' && !cover) { setError('请选择封面图片，或选择「保持原封面」。'); return; }
     const year = Number(values.year || 0);
     if (modes.year === 'set' && (!Number.isInteger(year) || year < 1 || year > 9999)) { setError('年份应为 1 至 9999 的整数；移除年份请选择「清空」。'); return; }
+    const resolvedArtists = {
+      artist: mergeArtists(artistLists.artist, artistDrafts.artist),
+      albumArtist: mergeArtists(artistLists.albumArtist, artistDrafts.albumArtist),
+    };
+    const resolvedStrings = {
+      artist: joinArtists(resolvedArtists.artist),
+      albumArtist: joinArtists(resolvedArtists.albumArtist),
+    };
     for (const [key, label] of bulkFields) {
-      if (modes[key] === 'set' && !values[key].trim()) { setError(`请输入${label}，或选择「清空」。`); return; }
+      if (modes[key] !== 'set') continue;
+      if (key === 'artist' || key === 'albumArtist') {
+        if (!resolvedStrings[key]) { setError(`请输入${label}，或选择「重置」。`); return; }
+        if (resolvedStrings[key].length > 4096) { setError(`${label}名称过长，请精简后再保存`); return; }
+      } else if (!values[key].trim()) {
+        setError(`请输入${label}，或选择「清空」。`);
+        return;
+      }
     }
     if ((tagMode === 'append' || tagMode === 'replace') && !tags.length) { setError('请输入标签，或选择「清空标签」。'); return; }
+    setArtistLists(old => ({
+      artist: modes.artist === 'set' ? resolvedArtists.artist : old.artist,
+      albumArtist: modes.albumArtist === 'set' ? resolvedArtists.albumArtist : old.albumArtist,
+    }));
+    setArtistDrafts(old => ({
+      artist: modes.artist === 'set' ? '' : old.artist,
+      albumArtist: modes.albumArtist === 'set' ? '' : old.albumArtist,
+    }));
     running.current = true; setBusy(true); setError('');
     let current: Track | undefined;
     try {
@@ -442,7 +499,7 @@ export function BulkEditor({ tracks, onClose, onRefresh, onSaved }: { tracks: Tr
         if (latest.deletedAt) throw new Error('曲目已移入回收站，请关闭后重新选择。');
         const patch: Record<string, unknown> = { expectedUpdatedAt: latest.updatedAt };
         for (const [key] of bulkFields) {
-          if (modes[key] === 'set') patch[key] = key === 'year' ? year : values[key].trim();
+          if (modes[key] === 'set') patch[key] = key === 'year' ? year : (key === 'artist' || key === 'albumArtist') ? resolvedStrings[key] : values[key].trim();
           else if (modes[key] === 'clear') patch[key] = key === 'year' ? 0 : '';
         }
         if (tagMode !== 'keep') patch.tags = tagMode === 'clear' ? [] : tagMode === 'append' ? [...new Set([...(latest.tags || []), ...tags])] : tags;
@@ -461,7 +518,7 @@ export function BulkEditor({ tracks, onClose, onRefresh, onSaved }: { tracks: Tr
     }
     if (completed.current.size === tracks.length) { onSaved(); onClose(); }
   }
-  return <Modal title="批量编辑" className="bulk-editor-modal" onClose={close}><form onSubmit={event => { event.preventDefault(); void save(); }}>
+  return <Modal title="批量编辑" className="bulk-editor-modal" onClose={close}><form onSubmit={event => event.preventDefault()}>
     <div className="bulk-editor-body">
       <aside className={`bulk-selection ${selectionOpen ? 'expanded' : ''}`} aria-label="所选曲目">
         <header><h3>所选曲目</h3><span>{tracks.length} 首</span><button className="icon-button" type="button" aria-label={selectionOpen ? '收起所选曲目' : '展开所选曲目'} aria-expanded={selectionOpen} aria-controls="bulk-track-list" onClick={() => setSelectionOpen(old => !old)}><ChevronDown size={17} /></button></header>
@@ -490,7 +547,9 @@ export function BulkEditor({ tracks, onClose, onRefresh, onSaved }: { tracks: Tr
             <div className="bulk-field-heading"><div><label htmlFor={`bulk-${key}`}>{label}</label><p title={[...new Set(tracks.map(track => String(track[key] || '未填写')))].join('、')}>{currentValue(key)}</p></div>
               <select aria-label={`${label}修改方式`} value={modes[key]} onChange={event => { setModes(old => ({ ...old, [key]: event.target.value as BulkMode })); setError(''); }}><option value="keep">保持原值</option><option value="set">修改为</option><option value="clear">{key === 'artist' || key === 'album' || key === 'albumArtist' ? '重置' : '清空'}</option></select>
             </div>
-            {modes[key] === 'set' && <input id={`bulk-${key}`} aria-label={`批量编辑${label}`} type={key === 'year' ? 'number' : 'text'} min={key === 'year' ? 1 : undefined} max={key === 'year' ? 9999 : undefined} maxLength={4096} step={key === 'year' ? 1 : undefined} required value={values[key]} placeholder={`输入新的${label}`} onChange={event => setValues(old => ({ ...old, [key]: event.target.value }))} />}
+            {modes[key] === 'set' && ((key === 'artist' || key === 'albumArtist')
+              ? <ArtistInput id={`bulk-${key}`} ariaLabel={`批量编辑${label}`} values={artistLists[key]} draft={artistDrafts[key]} artists={artists} disabled={locked} placeholder={artistLists[key].length ? '继续添加…' : `输入或筛选新的${label}`} onChangeValues={next => setArtistLists(old => ({ ...old, [key]: next }))} onChangeDraft={next => setArtistDrafts(old => ({ ...old, [key]: next }))} />
+              : <input id={`bulk-${key}`} aria-label={`批量编辑${label}`} type={key === 'year' ? 'number' : 'text'} min={key === 'year' ? 1 : undefined} max={key === 'year' ? 9999 : undefined} maxLength={4096} step={key === 'year' ? 1 : undefined} required value={values[key]} placeholder={`输入新的${label}`} onChange={event => setValues(old => ({ ...old, [key]: event.target.value }))} />)}
             {modes[key] === 'clear' && <p className="bulk-clear-note">{key === 'artist' ? '艺术家将设为「未知歌手」' : key === 'album' ? '专辑将设为「未归属专辑」' : key === 'albumArtist' ? '专辑艺术家将使用各曲目的艺术家' : `${label}将从所选曲目中移除`}</p>}
           </div>)}
           <div className="bulk-field bulk-tag-field" data-mode={tagMode}>
@@ -506,7 +565,7 @@ export function BulkEditor({ tracks, onClose, onRefresh, onSaved }: { tracks: Tr
     <footer className="modal-footer bulk-editor-footer">
       {error && <div className="bulk-save-error" role="alert"><CircleAlert size={17} /><div><p>{error}</p>{progress > 0 && <span>已保存的修改保留，继续保存其余曲目</span>}</div></div>}
       <div className="bulk-save-summary" role="status">{busy || progress > 0 ? <><span>{busy ? '正在保存' : '已保存'} <strong>{progress} / {tracks.length}</strong> 首</span><div className="upload-meter" role="progressbar" aria-label="批量保存进度" aria-valuemin={0} aria-valuemax={tracks.length} aria-valuenow={progress}><i style={{ width: `${progress / tracks.length * 100}%` }} /></div></> : <span>{changed ? <><strong>{changed} 项修改</strong> · {tracks.length} 首曲目</> : '选择需要修改的字段'}</span>}</div>
-      <div className="bulk-footer-actions"><button className="button secondary" type="button" disabled={busy} onClick={close}>{progress > 0 ? '关闭' : '取消'}</button><button className="button primary" type="submit" disabled={busy || !changed || !tracks.length || (coverMode === 'set' && !cover)}>{busy ? '保存中…' : progress > 0 ? '继续保存' : '保存并写回'}</button></div>
+      <div className="bulk-footer-actions"><button className="button secondary" type="button" disabled={busy} onClick={close}>{progress > 0 ? '关闭' : '取消'}</button><button className="button primary" type="button" disabled={busy || !changed || !tracks.length || (coverMode === 'set' && !cover)} onClick={() => { void save(); }}>{busy ? '保存中…' : progress > 0 ? '继续保存' : '保存并写回'}</button></div>
     </footer>
   </form></Modal>;
 }

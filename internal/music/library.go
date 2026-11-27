@@ -236,7 +236,8 @@ func collections(tracks []Track) ([]Album, []Artist, []string) {
 	})
 	artists := []Artist{}
 	for id, group := range artistTracks {
-		a := Artist{ID: id, Name: artistNames[id], TrackCount: len(group), TrackIDs: []string{}}
+		name := artistNames[id]
+		a := Artist{ID: id, Name: name, SearchText: artistSearchText(name), TrackCount: len(group), TrackIDs: []string{}}
 		albumSet := map[string]bool{}
 		for _, t := range orderedTracks(group) {
 			a.TrackIDs = append(a.TrackIDs, t.ID)
@@ -481,6 +482,10 @@ func phonetic(text string) string {
 		variants, initials = next, nextInitial
 	}
 	return strings.Join(variants, " ") + " " + strings.Join(initials, " ")
+}
+
+func artistSearchText(name string) string {
+	return strings.TrimSpace(normalizedSearch(name) + " " + phonetic(name))
 }
 
 func trackSearchText(t Track) string {

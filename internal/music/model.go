@@ -68,6 +68,7 @@ type Album struct {
 type Artist struct {
 	ID         string   `json:"id"`
 	Name       string   `json:"name"`
+	SearchText string   `json:"searchText,omitempty"`
 	CoverURL   string   `json:"coverUrl"`
 	TrackCount int      `json:"trackCount"`
 	AlbumCount int      `json:"albumCount"`
